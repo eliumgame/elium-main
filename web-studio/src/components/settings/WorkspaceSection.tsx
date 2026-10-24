@@ -30,7 +30,7 @@ import {
   type BackupDeps,
   type RestoreReport,
 } from "../../workspace/backup-io";
-import { fsAccessSupported, writeToHandle } from "../../workspace/fs-access";
+import { fsAccessSupported, tryWriteToHandle } from "../../workspace/fs-access";
 import type { WorkspaceApi } from "../../workspace/useWorkspace";
 import type { IndexProgress } from "../../workspace/search/indexer";
 import { SectionCard } from "./parts";
@@ -113,8 +113,9 @@ export function BackupSection({ bridge }: { bridge: WorkspaceSettingsBridge }) {
         };
         try {
           const handle = await w.showSaveFilePicker!({ suggestedName: name });
-          await writeToHandle(handle, bytes, "application/x-elium-workspace");
-          saved = true;
+          const wrote = await tryWriteToHandle(handle, bytes, "application/x-elium-workspace");
+          if (wrote.ok) saved = true;
+          else bridge.notify(`${wrote.message} L'archive est téléchargée à la place.`);
         } catch (e) {
           if (!(e instanceof DOMException && e.name === "AbortError")) throw e;
           return; // annulé : rien n'est enregistré, le rappel n'est pas remis à zéro

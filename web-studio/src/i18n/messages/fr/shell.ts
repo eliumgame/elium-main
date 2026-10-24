@@ -38,6 +38,7 @@ export const frShell = {
   "save.how_recipients": " pour {n} destinataire(s)",
   "save.how_keyfile": " et fichier-clé",
   "save.done": "Document enregistré{how} (.elium)",
+  "save.fallback_download": "Le document a été enregistré dans votre bibliothèque et téléchargé à la place.",
   "save.done_sealed": "Document enregistré et scellé{how} (.elium)",
   "save.done_disk": "Enregistré dans « {name} »{how}",
   "save.done_disk_sealed": "Enregistré et scellé dans « {name} »{how}",

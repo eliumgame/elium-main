@@ -217,19 +217,71 @@ export async function pickSaveHandle(title: string): Promise<FsFileHandle | null
   }
 }
 
-/** Écrit tout le fichier ; en cas d'échec le fichier d'origine reste intact (écriture atomique du navigateur). */
+/** Échec d'écriture sur disque, avec un message lisible (jamais l'erreur brute du navigateur). */
+export class DiskWriteError extends Error {
+  constructor(
+    message: string,
+    readonly cause?: unknown,
+  ) {
+    super(message);
+    this.name = "DiskWriteError";
+  }
+}
+
+/** Traduit une erreur du navigateur (createWritable refusé, permission, contexte non sécurisé…) en français. */
+export function friendlyDiskError(e: unknown): string {
+  const name = e instanceof DOMException || e instanceof Error ? e.name : "";
+  const text = e instanceof Error ? e.message : String(e);
+  if (name === "NotAllowedError" || name === "SecurityError" || /not allowed|permission|secure context/i.test(text)) {
+    return "Le navigateur n'autorise pas l'écriture directe sur ce fichier (permission refusée ou fichier non accessible).";
+  }
+  if (name === "NotFoundError" || name === "InvalidStateError" || /not found|state cached|no longer/i.test(text)) {
+    return "Le fichier ciblé est introuvable ou a été déplacé.";
+  }
+  if (name === "QuotaExceededError" || /quota|no space/i.test(text)) {
+    return "Espace disque insuffisant pour écrire le fichier.";
+  }
+  if (name === "NoModificationAllowedError" || /locked|in use|busy/i.test(text)) {
+    return "Le fichier est verrouillé ou utilisé par un autre programme.";
+  }
+  return "L'écriture sur le disque a échoué.";
+}
+
+/**
+ * Écrit tout le fichier ; en cas d'échec le fichier d'origine reste intact (écriture atomique du navigateur).
+ * Lève une `DiskWriteError` au message français : l'appelant décide du repli (téléchargement, bibliothèque, Drive).
+ */
 export async function writeToHandle(
   handle: FsFileHandle,
   bytes: Uint8Array,
   mime = "application/x-elium",
 ): Promise<void> {
-  const writable = await handle.createWritable();
+  let writable: Awaited<ReturnType<FsFileHandle["createWritable"]>>;
+  try {
+    writable = await handle.createWritable();
+  } catch (e) {
+    throw new DiskWriteError(friendlyDiskError(e), e);
+  }
   try {
     await writable.write(new Blob([bytes as BlobPart], { type: mime }));
     await writable.close();
   } catch (e) {
     await writable.abort?.().catch(() => undefined);
-    throw e;
+    throw new DiskWriteError(friendlyDiskError(e), e);
+  }
+}
+
+/** Variante qui ne lève jamais : `{ ok: false, message }` quand le disque refuse. */
+export async function tryWriteToHandle(
+  handle: FsFileHandle,
+  bytes: Uint8Array,
+  mime?: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  try {
+    await writeToHandle(handle, bytes, mime);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: e instanceof DiskWriteError ? e.message : friendlyDiskError(e) };
   }
 }
 

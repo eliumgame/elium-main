@@ -14,6 +14,7 @@
  */
 
 import { downloadBlob } from "../../export/exporters";
+import { writeToHandle } from "../../workspace/fs-access";
 
 /** The subset of the File System Access API this module uses. */
 export interface FsWritable {
@@ -110,14 +111,8 @@ export function fileDestination(handle: FsFileHandle): SaveDestination {
       return (await handle.requestPermission(mode)) === "granted";
     },
     async write(bytes) {
-      const writable = await handle.createWritable();
-      try {
-        await writable.write(new Blob([bytes as BlobPart], { type: "application/pdf" }));
-        await writable.close();
-      } catch (e) {
-        await writable.abort?.().catch(() => {});
-        throw e;
-      }
+      // Message français, jamais l'erreur brute du navigateur ; l'appelant retombe sur le téléchargement.
+      await writeToHandle(handle, bytes, "application/pdf");
     },
   };
 }

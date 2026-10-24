@@ -55,7 +55,9 @@ import {
   planSave,
   recallHandle,
   rememberHandle,
-  writeToHandle,
+  tryWriteToHandle,
+  forgetHandle,
+  friendlyDiskError,
   type FsFileHandle,
   type PickedFile,
 } from "./workspace/fs-access";
@@ -1707,6 +1709,7 @@ export default function App() {
       const key = docKeyOf(cur.manifest);
       let handle: FsFileHandle | undefined;
       let target: "disk" | "download" = "download";
+      let diskNotice = "";
       try {
         handle = docHandleRef.current ?? (await recallHandle(key));
         const plan = planSave({
@@ -1724,9 +1727,11 @@ export default function App() {
         }
         if (plan.kind !== "download") target = "disk";
       } catch (e) {
+        // Sélecteur ou permission indisponibles : on n'abandonne pas, on enregistre en bibliothèque + téléchargement.
         reportError("save-target", e);
-        setError(msg(e));
-        return;
+        handle = undefined;
+        target = "download";
+        diskNotice = friendlyDiskError(e);
       }
       setBusy(true);
       try {
@@ -1767,10 +1772,21 @@ export default function App() {
         });
         setFile(f2);
         if (target === "disk" && handle) {
-          await writeToHandle(handle, bytes);
-          docHandleRef.current = handle;
-          await rememberHandle(docKeyOf(f2.manifest), handle);
-        } else {
+          const wrote = await tryWriteToHandle(handle, bytes);
+          if (wrote.ok) {
+            docHandleRef.current = handle;
+            await rememberHandle(docKeyOf(f2.manifest), handle);
+          } else {
+            // Le disque refuse (permission, contexte non sécurisé…) : poignée invalide oubliée, copie téléchargée.
+            reportError("save-disk", wrote.message);
+            docHandleRef.current = undefined;
+            await forgetHandle(docKeyOf(f2.manifest));
+            handle = undefined;
+            target = "download";
+            diskNotice = wrote.message;
+          }
+        }
+        if (target !== "disk") {
           downloadBlob(`${f2.manifest.title || "document"}.elium`, "application/x-elium", bytes);
         }
         // Mirror into the local library (this browser only) and the workspace catalog.
@@ -1812,7 +1828,9 @@ export default function App() {
         setToast(
           target === "disk" && handle
             ? t(sealKey ? "save.done_disk_sealed" : "save.done_disk", { name: handle.name, how })
-            : t(sealKey ? "save.done_sealed" : "save.done", { how }),
+            : diskNotice
+              ? `${diskNotice} ${t("save.fallback_download")}`
+              : t(sealKey ? "save.done_sealed" : "save.done", { how }),
         );
       } catch (e) {
         setError(msg(e));

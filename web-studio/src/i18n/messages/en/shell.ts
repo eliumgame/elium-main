@@ -40,6 +40,7 @@ export const enShell: Record<keyof typeof frShell, string> = {
   "save.how_recipients": " for {n} recipient(s)",
   "save.how_keyfile": " and key file",
   "save.done": "Document saved{how} (.elium)",
+  "save.fallback_download": "The document was saved in your library and downloaded instead.",
   "save.done_sealed": "Document saved and sealed{how} (.elium)",
   "save.done_disk": "Saved to “{name}”{how}",
   "save.done_disk_sealed": "Saved and sealed to “{name}”{how}",

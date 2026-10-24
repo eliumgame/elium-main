@@ -258,6 +258,7 @@ import type { HiddenInfoOptions } from "../ops/redact";
 import "./pdf.css";
 import "./pdf-ui.css";
 import { reportError } from "../../ui/crash-log";
+import { DiskWriteError } from "../../workspace/fs-access";
 import { announce } from "../../ui/announce";
 
 type DialogId =
@@ -2272,8 +2273,14 @@ export default function PdfWorkspace({
       allowed = false;
     }
     if (!allowed) {
-      toast("danger", "Enregistrement impossible", `L'accès en écriture à « ${dest.name} » a été refusé.`);
-      return false;
+      if (dest.kind !== "file") {
+        toast("danger", "Enregistrement impossible", `L'accès en écriture à « ${dest.name} » a été refusé.`);
+        return false;
+      }
+      // Fichier du disque inaccessible : copie téléchargée plutôt que travail perdu.
+      toast("info", "Accès au fichier refusé", `« ${dest.name} » est enregistré en téléchargement.`);
+      dest = downloadDestination(dest.name);
+      how = { ...how, copy: true };
     }
     const st = state;
     const ver = version;
@@ -2352,7 +2359,16 @@ export default function PdfWorkspace({
         forceFullReasons: forceFull,
         mode: how.mode ?? "auto",
       });
-      await dest.write(res.bytes);
+      try {
+        await dest.write(res.bytes);
+      } catch (e) {
+        // Le disque refuse l'écriture directe : le travail n'est jamais perdu, on télécharge une copie.
+        if (dest.kind !== "file" || !(e instanceof DiskWriteError)) throw e;
+        reportError("pdf.disk-write", e);
+        dest = downloadDestination(dest.name);
+        await dest.write(res.bytes);
+        toast("info", "Copie téléchargée", `${e.message} Le PDF a été téléchargé à la place.`);
+      }
       let redactionReport: string[] | null = null;
       let redactionLeak = false;
       if (redactedPhrases.length) {

@@ -317,6 +317,18 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
         const target = await requireNodePerm(req, b.parentId, "node.create");
         if (target.orgId !== access.orgId) throw badRequest("Déplacement inter-organisation interdit.");
         if (b.parentId === id) throw badRequest("Un nœud ne peut pas être son propre parent.");
+        // Pas de boucle dans l'arborescence : le nouveau parent ne peut pas être un descendant du nœud
+        // déplacé (sinon les parcours récursifs ne se terminent plus et font tomber la base).
+        const loop = await queryOne(
+          `WITH RECURSIVE sub AS (
+             SELECT id FROM nodes WHERE id = $1
+             UNION
+             SELECT n.id FROM nodes n JOIN sub ON n.parent_id = sub.id
+           )
+           SELECT 1 AS hit FROM sub WHERE id = $2`,
+          [id, b.parentId],
+        );
+        if (loop) throw badRequest("Un dossier ne peut pas être déplacé dans l'un de ses propres sous-dossiers.");
       }
     }
 
@@ -352,7 +364,7 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
         await c.query(
           `WITH RECURSIVE sub AS (
              SELECT id FROM nodes WHERE id = $1
-             UNION ALL
+             UNION
              SELECT n.id FROM nodes n JOIN sub ON n.parent_id = sub.id
            )
            DELETE FROM node_keys WHERE node_id IN (SELECT id FROM sub) AND inherited_from IS NOT NULL`,

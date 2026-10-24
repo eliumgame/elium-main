@@ -13,6 +13,7 @@ export const pool = new pg.Pool({
   connectionString: config.databaseUrl,
   max: 10,
   idleTimeoutMillis: 30_000,
+  ...(config.dbStatementTimeoutMs > 0 ? { statement_timeout: config.dbStatementTimeoutMs } : {}),
 });
 
 export type Row = Record<string, unknown>;

@@ -86,6 +86,9 @@ export const config = {
     .filter(Boolean),
 
   databaseUrl,
+  // Durée maximale d'une requête SQL (ms) : une requête pathologique (boucle, scan géant) ne peut pas
+  // monopoliser une des 10 connexions du pool. 0 = sans limite. Les migrations s'en affranchissent.
+  dbStatementTimeoutMs: num("DB_STATEMENT_TIMEOUT_MS", 30_000),
 
   // Défaut : ne faire confiance qu'aux proxys privés/loopback — voir parseTrustProxy.
   trustProxy: parseTrustProxy(process.env.TRUST_PROXY),

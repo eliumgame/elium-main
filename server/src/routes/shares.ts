@@ -263,7 +263,7 @@ export default async function shareRoutes(app: FastifyInstance): Promise<void> {
       const { rows } = await c.query(
         `WITH RECURSIVE sub AS (
             SELECT id FROM nodes WHERE parent_id = $1
-            UNION ALL
+            UNION
             SELECT n.id FROM nodes n JOIN sub ON n.parent_id = sub.id
          )
          DELETE FROM node_keys nk

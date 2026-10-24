@@ -12,6 +12,7 @@ import websocket from "@fastify/websocket";
 import { ZodError } from "zod";
 import { config } from "./config.js";
 import { ApiError } from "./lib/errors.js";
+import { serializeRequestForLog } from "./lib/log-serializers.js";
 
 import authRoutes from "./routes/auth.js";
 import userRoutes from "./routes/users.js";
@@ -32,8 +33,16 @@ import { createRateLimitRedis, getBackplaneHealth } from "./collab/backplane.js"
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
-    logger: { level: config.isProd ? "info" : "debug" },
-    bodyLimit: config.maxBlobBytes,
+    logger: {
+      level: config.isProd ? "info" : "debug",
+      serializers: {
+        req: serializeRequestForLog,
+      },
+    },
+    // Plafond GLOBAL = celui du JSON : tout corps sans parseur dédié (text/plain…) hérite de cette
+    // borne AVANT toute authentification. Seul le flux binaire des blobs (parseur ci-dessous) dépasse,
+    // et sa taille est bornée par le stockage (maxBlobBytes).
+    bodyLimit: config.maxJsonBytes,
     // Ne pas faire confiance aveuglément à X-Forwarded-For (usurpation d'IP →
     // contournement du rate-limit) : uniquement le proxy de tête. Voir config.ts.
     // Fastify ≥ 5.12.5 n'accepte plus le nombre de sauts tel quel : même sémantique que
@@ -82,28 +91,23 @@ export async function buildApp(): Promise<FastifyInstance> {
   // (no buffering) so multi-GB blobs stream straight to storage.
   app.addContentTypeParser("application/octet-stream", (_req, payload, done) => done(null, payload));
 
-  // The instance-wide `bodyLimit` above is sized for blob uploads (maxBlobBytes,
-  // 2 GiB by default) — without this override every JSON route (including
-  // unauthenticated ones like /auth/register) would inherit that same 2 GiB
-  // ceiling on its request body, a trivial memory-exhaustion vector. Give JSON
-  // bodies their own, much smaller cap.
-  app.addContentTypeParser(
-    "application/json",
-    { parseAs: "string", bodyLimit: config.maxJsonBytes },
-    (_req, body, done) => {
-      if (body === "") {
-        done(null, undefined);
-        return;
-      }
-      try {
-        done(null, JSON.parse(body as string));
-      } catch (err) {
-        const parseError = err as Error & { statusCode?: number };
-        parseError.statusCode = 400;
-        done(parseError, undefined);
-      }
-    },
-  );
+  // Corps JSON, et SCIM (application/scim+json — Okta/Entra l'envoient ; sans parseur : 415).
+  const jsonParser = (_req: unknown, body: string | Buffer, done: (err: Error | null, body?: unknown) => void) => {
+    if (body === "") {
+      done(null, undefined);
+      return;
+    }
+    try {
+      done(null, JSON.parse(body as string));
+    } catch (err) {
+      const parseError = err as Error & { statusCode?: number };
+      parseError.statusCode = 400;
+      done(parseError, undefined);
+    }
+  };
+  for (const type of ["application/json", "application/scim+json"]) {
+    app.addContentTypeParser(type, { parseAs: "string", bodyLimit: config.maxJsonBytes }, jsonParser as never);
+  }
 
   // Uniform error handling.
   app.setErrorHandler((err, req, reply) => {

@@ -1,7 +1,7 @@
 # --- Elium Drive Entreprise — API image (multi-stage) ----------------------
 # Base épinglée par DIGEST (le tag n'est là que pour la lisibilité) : un tag est mutable, un digest
 # non. Mise à jour : dependabot (docker) ou `docker buildx imagetools inspect node:<tag>`.
-FROM node:20.17-alpine@sha256:2d07db07a2df6830718ae2a47db6fedce6745f5bcd174c398f2acdda90a11c03 AS build
+FROM node:22.20.0-alpine@sha256:dbcedd8aeab47fbc0f4dd4bffa55b7c3c729a707875968d467aaaea42d6225af AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 # `npm ci` : installe EXACTEMENT le verrou et échoue s'il diverge de package.json.
@@ -13,7 +13,7 @@ RUN npm run build
 # not emit .sql, so copy the migration files into the compiled output.
 RUN cp -r src/db/migrations dist/db/migrations
 
-FROM node:20.17-alpine@sha256:2d07db07a2df6830718ae2a47db6fedce6745f5bcd174c398f2acdda90a11c03 AS runtime
+FROM node:22.20.0-alpine@sha256:dbcedd8aeab47fbc0f4dd4bffa55b7c3c729a707875968d467aaaea42d6225af AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package.json package-lock.json ./

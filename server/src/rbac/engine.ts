@@ -125,7 +125,7 @@ export async function resolveNodeAccess(userId: string, nodeId: string): Promise
   const aclRows = await query<{ permissions: string[] }>(
     `WITH RECURSIVE anc AS (
         SELECT id, parent_id FROM nodes WHERE id = $1
-        UNION ALL
+        UNION
         SELECT n.id, n.parent_id FROM nodes n JOIN anc ON n.id = anc.parent_id
      )
      SELECT r.permissions

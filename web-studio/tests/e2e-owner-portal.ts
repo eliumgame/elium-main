@@ -100,6 +100,7 @@ async function main(): Promise<void> {
   process.env.STORAGE_DRIVER = "fs";
   process.env.STORAGE_FS_ROOT = blobDir;
   process.env.CORS_ORIGINS = "http://localhost";
+  process.env.DB_STATEMENT_TIMEOUT_MS = "4000"; // garde-fou SQL : une requête pathologique est coupée
   process.env.SINGLE_DRIVE = "true";
   process.env.OWNER_EMAIL = "boss@acme.fr";
 
@@ -773,6 +774,57 @@ async function main(): Promise<void> {
     await boss.api.patchSiteUser(alice.user.id, { roleId: roleIdByKey["editor"]! });
     // Alice garde son TOTP : on le retire pour ne pas perturber la suite.
     await nl.api.mfaDisable(totpNow(aSetup.secret));
+
+    // =========================================================================
+    section("Durcissement HTTP et base : corps text/plain, SCIM, boucle d'arborescence, statement_timeout");
+    const bigPlain = "x".repeat(2 * 1024 * 1024);
+    const plain = await fetch(`${base}/auth/prelogin`, {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: bigPlain,
+    });
+    ok(
+      "corps text/plain de 2 Mio refusé (413) avant toute authentification",
+      plain.status === 413,
+      String(plain.status),
+    );
+    const scim = await fetch(`${base}/auth/prelogin`, {
+      method: "POST",
+      headers: { "content-type": "application/scim+json" },
+      body: JSON.stringify({ email: "x@acme.fr" }),
+    });
+    ok("application/scim+json est analysé comme du JSON (plus de 415)", scim.status === 200, String(scim.status));
+
+    const loopA = await ops.createFolder(ctxA3, null, "Boucle A");
+    const loopB = await ops.createFolder(ctxA3, loopA.id, "Boucle B");
+    const loopC = await ops.createFolder(ctxA3, loopB.id, "Boucle C");
+    await expectStatus(
+      "déplacer un dossier dans son propre sous-dossier : refusé (pas de boucle)",
+      nl.api.patchNode(loopA.id, { parentId: loopC.id }),
+      400,
+    );
+    await expectStatus(
+      "déplacer un dossier dans lui-même : refusé",
+      nl.api.patchNode(loopA.id, { parentId: loopA.id }),
+      400,
+    );
+    // Même si une boucle existait en base (corruption), les parcours récursifs se terminent (UNION, pas UNION ALL).
+    await query(`UPDATE nodes SET parent_id = $2 WHERE id = $1`, [loopA.id, loopC.id]);
+    const t0 = Date.now();
+    const cyc = await nl.api
+      .getNode(loopA.id)
+      .then(() => "ok")
+      .catch((e) => (e instanceof ApiError ? `api ${e.status}` : String(e)));
+    ok(
+      "avec une boucle en base, la résolution des droits se termine (pas de blocage)",
+      Date.now() - t0 < 3500 && cyc !== "",
+      cyc,
+    );
+    await query(`UPDATE nodes SET parent_id = NULL WHERE id = $1`, [loopA.id]);
+    const slow = await query(`SELECT pg_sleep(6)`)
+      .then(() => "ok")
+      .catch((e: { code?: string }) => e.code);
+    ok("statement_timeout : une requête de plus de 4 s est coupée (57014)", slow === "57014", String(slow));
 
     // =========================================================================
     section("2FA obligatoire");

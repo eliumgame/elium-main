@@ -61,6 +61,8 @@ export interface LocalSheetStore extends SheetStore {
   wb: Workbook;
   /** Message si la sauvegarde locale n'a pas pu être lue (l'autosauvegarde est alors suspendue). */
   loadError?: string;
+  /** Enregistre tout de suite le classeur (sans attendre le délai d'autosauvegarde) ; renvoie sa taille, `undefined` si rien à écrire. */
+  flush(): Promise<number | undefined>;
 }
 
 /**
@@ -102,10 +104,15 @@ export function useLocalSheetStore(initial?: Workbook, persist?: SheetPersist): 
   // classeur vierge : on suspend l'écriture et on remonte l'erreur (cf.
   // SheetView). Même garde que la store des présentations.
   const [loadError, setLoadError] = useState<string | undefined>(undefined);
+  // Le classeur enregistré est-il arrivé ? Avant cela, aucun enregistrement forcé (il écraserait le contenu par un vierge).
+  const loadedRef = useRef(!!initial);
   useEffect(() => {
     if (initial) return;
     loadWorkbook(persistId, persistRef.current?.secret)
-      .then((w) => reset(w ?? computeInitialWorkbook()))
+      .then((w) => {
+        reset(w ?? computeInitialWorkbook());
+        loadedRef.current = true;
+      })
       .catch((err) => setLoadError(err instanceof Error ? err.message : String(err)));
   }, [initial, persistId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -129,6 +136,27 @@ export function useLocalSheetStore(initial?: Workbook, persist?: SheetPersist): 
 
   const wbRef = useRef(wb);
   wbRef.current = wb;
+
+  const loadErrorRef = useRef(loadError);
+  loadErrorRef.current = loadError;
+  const initialRef = useRef(initial);
+  initialRef.current = initial;
+  const flush = async (): Promise<number | undefined> => {
+    const p = persistRef.current;
+    if (initialRef.current || loadErrorRef.current || !loadedRef.current) return undefined;
+    if (p?.isNew && !savedOnce.current && isWorkbookPristine(wbRef.current)) return undefined;
+    const size = await saveWorkbook(wbRef.current, p?.id, p?.secret);
+    savedOnce.current = true;
+    p?.onSaved?.(wbRef.current, size);
+    return size;
+  };
+  // Fermeture de l'éditeur : les dernières frappes (< 300 ms) sont écrites, pas perdues.
+  useEffect(
+    () => () => {
+      void flush().catch((err) => reportError("sheet-autosave", err));
+    },
+    [], // eslint-disable-line react-hooks/exhaustive-deps
+  );
 
   // --- helper : muter une feuille par index (enregistre l'historique) ---
   const patchSheet = (s: number, fn: (sh: SheetData) => SheetData) =>
@@ -297,6 +325,7 @@ export function useLocalSheetStore(initial?: Workbook, persist?: SheetPersist): 
   };
 
   return {
+    flush,
     wb,
     loadError,
     active: wb.active,

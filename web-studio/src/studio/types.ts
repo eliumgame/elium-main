@@ -86,6 +86,8 @@ export interface Studio {
   save(): Promise<void>;
   /** « Enregistrer sous… » : choisir un nouvel emplacement (ou télécharger une copie si le navigateur ne sait pas écrire). */
   saveAs(): Promise<void>;
+  /** Enregistre dans la bibliothèque et envoie tout de suite dans le Drive (sans fichier sur le disque). */
+  saveToDrive(): Promise<void>;
   exportAs(kind: ExportKind): Promise<void>;
   goHome(): void;
   toViewer(): void;

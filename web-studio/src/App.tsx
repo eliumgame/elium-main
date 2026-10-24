@@ -13,7 +13,8 @@ const OpenLinkView = lazy(() => import("./drive-cloud/ui/OpenLinkView")); // pub
 const SignLinkView = lazy(() => import("./drive-cloud/ui/SignLinkView")); // public sign-request opener (Approche A)
 const DocumentationView = lazy(() => import("./docs/DocumentationView")); // doc unique in-app (hors bundle principal)
 const DetectorView = lazy(() => import("./detector/ui/DetectorView")); // analyse IA/plagiat, hors bundle principal
-import DriveAutoBackup from "./components/DriveAutoBackup";
+import DriveSyncRunner from "./components/DriveSyncRunner";
+import { getSyncStatus, saveItemToDrive } from "./workspace/sync-controller";
 const PassportView = lazy(() => import("./passport/ui/PassportView")); // passeport E4 BTS GPME, hors bundle principal
 const PresenterView = lazy(() => import("./slides/PresenterView")); // 2nd-screen speaker window
 import type { Workbook } from "./sheet/model";
@@ -204,9 +205,14 @@ export default function App() {
   );
   const [searchQuery, setSearchQuery] = useState("");
   const [activeItem, setActiveItem] = useState<(ItemSession & { kind: "sheet" | "slides" }) | null>(null);
-  const [pdfSource, setPdfSource] = useState<{ bytes: Uint8Array; name: string; destination: SaveDestination } | null>(
-    null,
-  );
+  const [pdfSource, setPdfSource] = useState<{
+    bytes: Uint8Array;
+    name: string;
+    destination: SaveDestination;
+    /** Élément de la bibliothèque, quand le PDF en vient. */
+    itemId?: string;
+  } | null>(null);
+  const pdfNewItem = useRef<{ key: number; id: string } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsTarget, setSettingsTarget] = useState<{ category?: CategoryId; section?: SectionId } | undefined>(
     undefined,
@@ -862,6 +868,7 @@ export default function App() {
       setPdfSource({
         bytes,
         name,
+        itemId: id,
         destination: libraryDestination({
           id,
           name,
@@ -876,6 +883,41 @@ export default function App() {
       setMode("pdf");
     },
     [ws],
+  );
+
+  /** PDF → bibliothèque locale (créée au besoin) puis Drive : « Enregistrer dans le Drive » du module PDF. */
+  const savePdfToDrive = useCallback(
+    async (bytes: Uint8Array, name: string): Promise<{ ok: boolean; message: string }> => {
+      let id = pdfSource?.itemId ?? (pdfNewItem.current?.key === appKey ? pdfNewItem.current.id : undefined);
+      if (!id) {
+        id = ws.service.newItemId();
+        pdfNewItem.current = { key: appKey, id };
+      }
+      try {
+        await pdfStore.put({ id, name, bytes }, vaultSecretRef.current);
+        await ws.registerSaved(
+          { id, kind: "pdf", title: name.replace(/\.pdf$/i, "") || "Document PDF", size: bytes.length },
+          { updateTitle: true },
+        );
+        const r = await saveItemToDrive(id);
+        if (r.ok)
+          return { ok: true, message: "PDF enregistré dans votre bibliothèque et dans le Drive (chiffré, versionné)." };
+        return {
+          ok: false,
+          message:
+            r.reason === "not-connected"
+              ? "Drive non connecté : connectez-vous depuis l'accueil. Le PDF est déjà dans votre bibliothèque."
+              : r.reason === "needs-restore"
+                ? "Une sauvegarde existe dans le Drive : restaurez-la d'abord (pastille en bas à gauche)."
+                : r.reason === "offline"
+                  ? "Hors ligne : le PDF est dans votre bibliothèque et partira dans le Drive au retour du réseau."
+                  : "L'envoi vers le Drive a échoué ; il sera retenté automatiquement.",
+        };
+      } catch (e) {
+        return { ok: false, message: e instanceof Error ? e.message : String(e) };
+      }
+    },
+    [pdfSource, appKey, ws],
   );
 
   const openItem = useCallback(
@@ -1701,37 +1743,39 @@ export default function App() {
    * repli sur le téléchargement d'une copie.
    */
   const saveDoc = useCallback(
-    async (forcePick: boolean) => {
+    async (forcePick: boolean, opts: { driveOnly?: boolean } = {}) => {
       if (!file) return;
       // Les dernières frappes ne sont peut-être pas encore remontées (voir editor/doc-sync.ts).
       const pendingDoc = flushPendingDocChange();
       const cur = pendingDoc ? { ...file, document: { ...file.document, doc: pendingDoc } } : file;
       const key = docKeyOf(cur.manifest);
       let handle: FsFileHandle | undefined;
-      let target: "disk" | "download" = "download";
+      let target: "disk" | "download" | "library" = opts.driveOnly ? "library" : "download";
       let diskNotice = "";
-      try {
-        handle = docHandleRef.current ?? (await recallHandle(key));
-        const plan = planSave({
-          supported: fsAccessSupported(),
-          hasHandle: !!handle,
-          permission: handle ? await permissionOf(handle) : "unknown",
-          forcePick,
-        });
-        if (plan.kind === "request_then_write" && handle && !(await ensurePermission(handle))) {
-          handle = (await pickSaveHandle(cur.manifest.title)) ?? undefined;
-          if (!handle) return;
-        } else if (plan.kind === "pick") {
-          handle = (await pickSaveHandle(cur.manifest.title)) ?? undefined;
-          if (!handle) return; // annulé
+      if (!opts.driveOnly) {
+        try {
+          handle = docHandleRef.current ?? (await recallHandle(key));
+          const plan = planSave({
+            supported: fsAccessSupported(),
+            hasHandle: !!handle,
+            permission: handle ? await permissionOf(handle) : "unknown",
+            forcePick,
+          });
+          if (plan.kind === "request_then_write" && handle && !(await ensurePermission(handle))) {
+            handle = (await pickSaveHandle(cur.manifest.title)) ?? undefined;
+            if (!handle) return;
+          } else if (plan.kind === "pick") {
+            handle = (await pickSaveHandle(cur.manifest.title)) ?? undefined;
+            if (!handle) return; // annulé
+          }
+          if (plan.kind !== "download") target = "disk";
+        } catch (e) {
+          // Sélecteur ou permission indisponibles : on n'abandonne pas, on enregistre en bibliothèque + téléchargement.
+          reportError("save-target", e);
+          handle = undefined;
+          target = "download";
+          diskNotice = friendlyDiskError(e);
         }
-        if (plan.kind !== "download") target = "disk";
-      } catch (e) {
-        // Sélecteur ou permission indisponibles : on n'abandonne pas, on enregistre en bibliothèque + téléchargement.
-        reportError("save-target", e);
-        handle = undefined;
-        target = "download";
-        diskNotice = friendlyDiskError(e);
       }
       setBusy(true);
       try {
@@ -1786,7 +1830,7 @@ export default function App() {
             diskNotice = wrote.message;
           }
         }
-        if (target !== "disk") {
+        if (target === "download") {
           downloadBlob(`${f2.manifest.title || "document"}.elium`, "application/x-elium", bytes);
         }
         // Mirror into the local library (this browser only) and the workspace catalog.
@@ -1818,6 +1862,27 @@ export default function App() {
         } catch (e) {
           reportError("library-mirror", e);
         }
+        // Drive : « Enregistrer dans le Drive » l'envoie tout de suite ; un « Enregistrer » normal le pousse aussi
+        // dès qu'une session Drive est ouverte avec la sauvegarde automatique (par défaut sur un site déployé).
+        let driveNote = "";
+        {
+          const ss = getSyncStatus();
+          if (opts.driveOnly || (ss.phase !== "off" && (ss.auto || ss.required))) {
+            const id = docKeyOf(f2.manifest);
+            const r = opts.driveOnly ? await saveItemToDrive(id) : (void saveItemToDrive(id), { ok: true });
+            driveNote = r.ok
+              ? opts.driveOnly
+                ? "Enregistré dans le Drive (chiffré, versionné)."
+                : ""
+              : r.reason === "offline"
+                ? "Hors ligne : le document partira dans le Drive au retour du réseau."
+                : r.reason === "not-connected"
+                  ? "Drive non connecté : connectez-vous depuis l'accueil pour l'y enregistrer."
+                  : r.reason === "needs-restore"
+                    ? "Une sauvegarde existe dans le Drive : restaurez-la d'abord (pastille en bas à gauche)."
+                    : "L'envoi vers le Drive a échoué : il sera retenté automatiquement.";
+          }
+        }
         await recompute(f2);
         if (sealKey) setSealVerdict("valid");
         const how = useRecipients
@@ -1825,13 +1890,13 @@ export default function App() {
           : keyfileRef.current
             ? t("save.how_keyfile")
             : "";
-        setToast(
+        const baseToast =
           target === "disk" && handle
             ? t(sealKey ? "save.done_disk_sealed" : "save.done_disk", { name: handle.name, how })
             : diskNotice
               ? `${diskNotice} ${t("save.fallback_download")}`
-              : t(sealKey ? "save.done_sealed" : "save.done", { how }),
-        );
+              : t(sealKey ? "save.done_sealed" : "save.done", { how });
+        setToast(opts.driveOnly ? driveNote : [baseToast, driveNote].filter(Boolean).join(" "));
       } catch (e) {
         setError(msg(e));
       } finally {
@@ -1842,6 +1907,7 @@ export default function App() {
   );
   const save = useCallback(() => saveDoc(false), [saveDoc]);
   const saveAs = useCallback(() => saveDoc(true), [saveDoc]);
+  const saveToDrive = useCallback(() => saveDoc(false, { driveOnly: true }), [saveDoc]);
 
   const exportAs = useCallback(
     async (kind: ExportKind) => {
@@ -1928,6 +1994,7 @@ export default function App() {
         onDocChange,
         save,
         saveAs,
+        saveToDrive,
         exportAs,
         goHome,
         toViewer,
@@ -2117,6 +2184,7 @@ export default function App() {
             onHome={() => setMode("home")}
             initial={appView?.kind === "pdf" ? (appView.data as PdfFile) : undefined}
             onExportElium={(data, title) => exportAppElium("pdf", data, title, !pdfSource)}
+            onSaveToDrive={savePdfToDrive}
             vaultSecret={vaultSecret}
             source={pdfSource ?? undefined}
           />
@@ -2179,8 +2247,8 @@ export default function App() {
         </Suspense>
       )}
 
-      {/* Sauvegarde continue de l'espace de travail dans le Drive (si activée dans Réglages → Sauvegarde). */}
-      <DriveAutoBackup ws={ws} getSecret={() => vaultSecretRef.current} />
+      {/* Sauvegarde continue et incrémentale dans le Drive (par défaut sur un site déployé ; Réglages → Sauvegarde). */}
+      <DriveSyncRunner ws={ws} getSecret={() => vaultSecretRef.current} />
 
       {settingsOpen && (
         <SettingsModal

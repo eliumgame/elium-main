@@ -20,6 +20,7 @@ import { encryptAtRest, decryptAtRest, hasVaultSecret, type VaultSecret } from "
 import { openMigrated } from "./idb-migrate";
 import { readProjected } from "./idb-cursor";
 import { DRAFTS_SPEC } from "./db-specs";
+import { markDirty } from "../workspace/sync-dirty";
 const STORE = "drafts";
 
 export interface DraftContent {
@@ -121,6 +122,7 @@ export async function buildDraftRecord(input: {
 export async function putDraft(input: Parameters<typeof buildDraftRecord>[0]): Promise<void> {
   const record = await buildDraftRecord(input);
   await run("readwrite", (s) => s.put(record));
+  markDirty("brouillons");
 }
 
 /** All draft entries (metadata only — never the encrypted or plaintext content), newest first. */
@@ -143,6 +145,7 @@ export async function getDraft(id: string): Promise<DraftDoc | undefined> {
 
 export async function deleteDraft(id: string): Promise<void> {
   await run("readwrite", (s) => s.delete(id));
+  markDirty("brouillons");
 }
 
 /** Resolve a stored draft to its content, decrypting when protected. Throws if the secret is missing/wrong. */

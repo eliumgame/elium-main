@@ -25,6 +25,7 @@ import type { VaultSecret } from "../crypto/local-vault";
 import { useRegisterCommands, type AppCommand } from "../commands/registry";
 import { useItemSync, type ItemSession } from "../workspace/useItemSync";
 import type { WorkspaceApi } from "../workspace/useWorkspace";
+import { SaveToDriveButton } from "../components/DriveSyncUi";
 
 const cellRef = (c: number, r: number) => indexToCol(c) + (r + 1);
 
@@ -199,6 +200,18 @@ export default function SheetView({
             <button className="eb eb--sm eb--outline" onClick={exportXlsx} title={t("sheet.export_xlsx")}>
               <Download size={14} /> XLSX
             </button>
+            {session && (
+              <SaveToDriveButton
+                itemId={session.id}
+                variant="outline"
+                beforeSave={async () => {
+                  const size = await store.flush();
+                  if (size !== undefined) await sync.registerNow(size);
+                  return size === undefined ? undefined : session.id;
+                }}
+                onDone={(_ok, message) => void dialogs.alert({ title: "Drive", message })}
+              />
+            )}
             <button className="eb eb--sm eb--primary" onClick={saveElium}>
               <Save size={14} /> .elium
             </button>

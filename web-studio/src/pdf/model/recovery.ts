@@ -39,6 +39,7 @@ import type { PdfState } from "./types";
 import { openMigrated } from "../../format/idb-migrate";
 import { readProjected } from "../../format/idb-cursor";
 import { PDF_RECOVERY_SPEC } from "../../format/db-specs";
+import { markDirty } from "../../workspace/sync-dirty";
 const STORE = "drafts";
 const SOURCES = "sources";
 
@@ -226,11 +227,13 @@ function run<T>(store: string, mode: IDBTransactionMode, fn: (s: IDBObjectStore)
 export async function putPdfDraft(d: PdfDraft): Promise<void> {
   try {
     await run(STORE, "readwrite", (s) => s.put(d));
+    markDirty("brouillons-pdf");
   } catch {
     // A handle that cannot be cloned (some embedders): keep the draft without it.
     const { handle: _drop, ...rest } = d;
     void _drop;
     await run(STORE, "readwrite", (s) => s.put(rest));
+    markDirty("brouillons-pdf");
   }
 }
 
@@ -247,6 +250,7 @@ export async function findPdfDraft(key: string): Promise<PdfDraft | undefined> {
 
 export async function putPdfSource(rec: PdfSourceRecord): Promise<void> {
   await run(SOURCES, "readwrite", (s) => s.put(rec));
+  markDirty("brouillons-pdf");
 }
 
 export async function getPdfSource(id: string): Promise<PdfSourceRecord | undefined> {
@@ -269,6 +273,7 @@ export async function loadPdfDraftSource(
 export async function deletePdfDraft(id: string): Promise<void> {
   await run(STORE, "readwrite", (s) => s.delete(id));
   await run(SOURCES, "readwrite", (s) => s.delete(id)).catch(() => {});
+  markDirty("brouillons-pdf");
 }
 
 /** Drafts, newest first (metadata only — kept sources live in another store and are never read here). */

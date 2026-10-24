@@ -504,6 +504,14 @@ export default function Ribbon(p: RibbonProps) {
                 />
                 <Cmd
                   big
+                  icon={<Cloud size={19} />}
+                  label="Drive"
+                  onClick={C("saveDrive")}
+                  disabled={p.busy}
+                  title="Enregistrer dans le Drive (chiffré, versionné)"
+                />
+                <Cmd
+                  big
                   icon={<ShieldCheck size={19} />}
                   label=".elium"
                   onClick={C("saveElium")}

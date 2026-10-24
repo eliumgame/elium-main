@@ -12,6 +12,7 @@
 import { BUILTIN_FONTS, customFontNames, getCustomFont, registerCustomFont, unregisterCustomFont } from "./fonts";
 import { MAX_FONT_BYTES, fontDisplayName, readFontMeta } from "./font-meta";
 import { reportError } from "./crash-log";
+import { markDirty } from "../workspace/sync-dirty";
 
 const DB_NAME = "elium-fonts";
 const STORE = "fonts";
@@ -179,6 +180,7 @@ export async function importFonts(inputs: FontInput[]): Promise<ImportOutcome> {
         source: input.source ?? "fichier",
       };
       await run("readwrite", (s) => s.put(record));
+      markDirty("polices");
     } catch (e) {
       reportError("fonts-save", e);
       out.rejected.push({ file: input.filename, reason: "enregistrement local impossible (stockage plein ?)" });
@@ -201,6 +203,7 @@ export async function importFontFiles(files: FileList | File[]): Promise<ImportO
 
 export async function removeUserFont(name: string): Promise<void> {
   await run("readwrite", (s) => s.delete(name));
+  markDirty("polices");
   unregisterCustomFont(name);
 }
 

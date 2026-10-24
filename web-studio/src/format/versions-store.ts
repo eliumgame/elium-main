@@ -13,6 +13,7 @@ import { encryptAtRest, decryptAtRest, hasVaultSecret, type VaultSecret } from "
 
 import { openMigrated } from "./idb-migrate";
 import { VERSIONS_SPEC } from "./db-specs";
+import { markDirty } from "../workspace/sync-dirty";
 const STORE = "versions";
 const MAX_VERSIONS = 50;
 
@@ -62,6 +63,7 @@ export async function listVersions(docKey: string): Promise<DocumentVersion[]> {
 
 export async function deleteVersion(id: number): Promise<void> {
   await run("readwrite", (s) => s.delete(id));
+  markDirty("versions");
 }
 
 /**
@@ -79,6 +81,7 @@ export async function saveVersion(
     ? { docKey, label, ts, enc: await encryptAtRest(doc, secret!) }
     : { docKey, label, ts, doc };
   await run("readwrite", (s) => s.add(rec));
+  markDirty("versions");
   const all = await listVersions(docKey);
   for (const v of all.slice(MAX_VERSIONS)) {
     if (v.id != null) await deleteVersion(v.id);

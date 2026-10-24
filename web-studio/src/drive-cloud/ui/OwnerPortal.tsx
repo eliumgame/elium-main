@@ -468,6 +468,7 @@ export default function OwnerPortal({ onNavigate }: { onNavigate?: (t: PortalLin
                   <th>Quota</th>
                   <th>2FA</th>
                   <th>Sessions</th>
+                  <th>Dernière sauvegarde</th>
                   <th />
                 </tr>
               </thead>
@@ -510,6 +511,10 @@ export default function OwnerPortal({ onNavigate }: { onNavigate?: (t: PortalLin
                     </td>
                     <td>{u.mfa ? "oui" : "non"}</td>
                     <td>{u.activeSessions}</td>
+                    <td className={u.backupOverdue ? "dc-portal__warn" : undefined}>
+                      {u.backupLastAt ? new Date(u.backupLastAt).toLocaleString("fr-FR") : "jamais"}
+                      {u.backupOverdue ? " ⚠" : ""}
+                    </td>
                     <td className="dc-portal__actions">
                       {!u.isOwner && (
                         <>

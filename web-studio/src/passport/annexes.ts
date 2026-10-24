@@ -13,6 +13,7 @@ import {
 import { PASSPORT_SPEC } from "../format/db-specs";
 import { openMigrated } from "../format/idb-migrate";
 import type { Annexe } from "./types";
+import { markDirty } from "../workspace/sync-dirty";
 
 const STORE = "annexes";
 /** Taille maximale d'une annexe (le passeport reste dans le navigateur : on évite d'y verser des vidéos). */
@@ -57,6 +58,7 @@ export async function putAnnexe(id: string, bytes: Uint8Array, secret?: VaultSec
     ? { id, vaultProtected: true, sealed: await sealBytesAtRest(bytes, secret) }
     : { id, vaultProtected: false, bytes };
   await tx("readwrite", (s) => s.put(rec));
+  markDirty("passeport");
 }
 
 /** `undefined` si le fichier n'existe plus (annexe orpheline). */
@@ -70,6 +72,7 @@ export async function getAnnexe(id: string, secret?: VaultSecret): Promise<Uint8
 
 export async function deleteAnnexe(id: string): Promise<void> {
   await tx("readwrite", (s) => s.delete(id));
+  markDirty("passeport");
 }
 
 /** Supprime les octets de toutes les annexes dont l'identifiant n'est PAS dans `keep` (import, réinitialisation). */

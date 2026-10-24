@@ -102,6 +102,12 @@ async function diskReport(orgId: string, settings: SiteSettings) {
   };
 }
 
+const BACKUP_OVERDUE_MS = 48 * 3600 * 1000;
+/** Aucune sauvegarde signalée, ou la dernière date de plus de deux jours. */
+export function backupOverdue(last: string | Date | null, now = Date.now()): boolean {
+  return !last || now - new Date(last).getTime() > BACKUP_OVERDUE_MS;
+}
+
 export default async function siteRoutes(app: FastifyInstance): Promise<void> {
   // --- Public : politique du site -----------------------------------------
   app.get("/policy", async () => {
@@ -124,10 +130,26 @@ export default async function siteRoutes(app: FastifyInstance): Promise<void> {
   app.register(async (priv) => {
     priv.addHook("preHandler", authenticate);
 
+    // Le client signale qu'une sauvegarde de l'espace de travail vient d'aboutir (date + nombre d'éléments).
+    priv.post("/backup-heartbeat", async (req) => {
+      const user = requireUser(req);
+      const b = z.object({ items: z.number().int().min(0).max(1_000_000) }).parse(req.body);
+      await query(`UPDATE users SET backup_last_at = now(), backup_items = $2 WHERE id = $1`, [user.id, b.items]);
+      return { ok: true };
+    });
+
     priv.get("/me", async (req) => {
       const user = requireUser(req);
       const { orgId, settings } = await getSiteState();
+      const bk = await queryOne<{ backup_last_at: string | null; backup_items: number | null }>(
+        `SELECT backup_last_at, backup_items FROM users WHERE id = $1`,
+        [user.id],
+      );
       return {
+        backupLastAt: bk?.backup_last_at ?? null,
+        backupItems: bk?.backup_items ?? null,
+        // Sauvegarde imposée mais aucune sauvegarde aboutie depuis plus de deux jours.
+        backupOverdue: settings.backupRequired && backupOverdue(bk?.backup_last_at ?? null),
         orgId,
         isOwner: await isSiteOwner(user.id),
         // Politique effective pour CE compte (quota personnel inclus).
@@ -229,6 +251,8 @@ export default async function siteRoutes(app: FastifyInstance): Promise<void> {
         last_seen: string | null;
         joined_at: string;
         is_owner: boolean;
+        backup_last_at: string | null;
+        backup_items: number | null;
       }>(
         `SELECT u.id AS user_id, u.email, u.display_name, u.status AS user_status, m.status AS mem_status,
                 m.role_id, r.key AS role_key, m.quota_bytes, u.mfa_enabled,
@@ -238,7 +262,7 @@ export default async function siteRoutes(app: FastifyInstance): Promise<void> {
                 (SELECT COUNT(*) FROM sessions s WHERE s.user_id = u.id AND s.revoked_at IS NULL
                     AND s.expires_at > now()) AS sessions,
                 (SELECT MAX(COALESCE(s.last_seen_at, s.created_at)) FROM sessions s WHERE s.user_id = u.id) AS last_seen,
-                m.joined_at, (o.owner_user_id = u.id) AS is_owner
+                m.joined_at, (o.owner_user_id = u.id) AS is_owner, u.backup_last_at, u.backup_items
            FROM memberships m
            JOIN users u ON u.id = m.user_id
            JOIN roles r ON r.id = m.role_id
@@ -263,6 +287,9 @@ export default async function siteRoutes(app: FastifyInstance): Promise<void> {
           lastSeenAt: r.last_seen,
           joinedAt: r.joined_at,
           isOwner: r.is_owner,
+          backupLastAt: r.backup_last_at,
+          backupItems: r.backup_items,
+          backupOverdue: settings.backupRequired && backupOverdue(r.backup_last_at),
         })),
       };
     });

@@ -170,6 +170,9 @@ export interface SiteUser {
   usedBytes: number;
   mfa: boolean;
   activeSessions: number;
+  backupLastAt?: string | null;
+  backupItems?: number | null;
+  backupOverdue?: boolean;
   lastSeenAt: string | null;
   joinedAt: string;
   isOwner: boolean;
@@ -450,7 +453,18 @@ export class DriveApi {
     }
   }
   siteMe() {
-    return this.json<{ orgId: string | null; isOwner: boolean; mfaEnrollmentRequired?: boolean }>("GET", "/site/me");
+    return this.json<{
+      orgId: string | null;
+      isOwner: boolean;
+      mfaEnrollmentRequired?: boolean;
+      backupLastAt?: string | null;
+      backupItems?: number | null;
+      backupOverdue?: boolean;
+    }>("GET", "/site/me");
+  }
+  /** Signale au serveur qu'une sauvegarde de l'espace de travail vient d'aboutir (date et nombre d'éléments, jamais le contenu). */
+  backupHeartbeat(items: number) {
+    return this.json<{ ok: true }>("POST", "/site/backup-heartbeat", { body: { items } });
   }
   getSiteSettings() {
     return this.json<SiteAdminSettings>("GET", "/site/admin/settings");

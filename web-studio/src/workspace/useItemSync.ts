@@ -50,6 +50,16 @@ export function useItemSync(ws: WorkspaceApi, session: ItemSession | undefined, 
 
   const onSaved = useCallback((_value: unknown, size: number) => throttled(size), [throttled]);
 
+  /** Inscrit tout de suite l'élément au catalogue (avant un envoi dans le Drive) et attend la fin. */
+  const registerNow = useCallback(
+    async (size: number) => {
+      if (!sessionId) return;
+      created.current = true;
+      await wsRef.current.registerSaved({ id: sessionId, kind, size, title: titleRef.current || undefined });
+    },
+    [sessionId, kind],
+  );
+
   const rename = useCallback(async () => {
     if (!sessionId) return;
     const next = await prompt({
@@ -63,5 +73,5 @@ export function useItemSync(ws: WorkspaceApi, session: ItemSession | undefined, 
     // Pas encore créé : le nouveau titre sera utilisé à l'inscription (titleRef).
   }, [sessionId, prompt, t]);
 
-  return { title, onSaved, rename, active: !!session };
+  return { title, onSaved, rename, registerNow, active: !!session };
 }

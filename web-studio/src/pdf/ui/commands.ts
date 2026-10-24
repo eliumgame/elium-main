@@ -460,6 +460,7 @@ export const COMMANDS: CommandDef[] = [
   cmd("save", "Enregistrer", "file", Save, { shortcut: "Ctrl+S" }),
   cmd("saveAs", "Enregistrer sous…", "file", FileOutput, { shortcut: "Ctrl+Maj+S", keywords: ["copie"] }),
   cmd("saveElium", "Enregistrer en .elium", "file", ShieldCheck, { keywords: ["scellé", "elium"] }),
+  cmd("saveDrive", "Enregistrer dans le Drive", "file", Cloud, { keywords: ["cloud", "serveur", "sauvegarde"] }),
   cmd("downloadOriginal", "Télécharger l'original", "file", Download),
   cmd("properties", "Propriétés du document", "file", FileSearch, {
     shortcut: "Ctrl+D",

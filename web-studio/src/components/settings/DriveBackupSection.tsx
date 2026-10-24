@@ -1,26 +1,19 @@
-/** Réglages → Sauvegarde : envoyer tout l'espace de travail dans le Drive entreprise (à la demande ou en continu). */
+/** Réglages → Sauvegarde : état et pilotage de la sauvegarde incrémentale de l'espace de travail dans le Drive entreprise. */
 import { useEffect, useMemo, useState } from "react";
 import { Cloud, Download, Upload } from "lucide-react";
 import { Alert, Button } from "../../ui/components";
-import { reportError } from "../../ui/crash-log";
-import { isConflict, readAuto, readLink, writeAuto, type DriveLink } from "../../drive-cloud/named-file";
+import { readAutoOr, writeAuto } from "../../drive-cloud/named-file";
 import type { OpsCtx } from "../../drive-cloud/ops";
 import { useDrive } from "../../drive-cloud/session";
-import {
-  AUTO_EVENT,
-  AUTO_STATUS_EVENT,
-  WORKSPACE_SLOT,
-  pullWorkspace,
-  pushWorkspace,
-} from "../../workspace/drive-backup";
-import { VaultLockedError, type BackupDeps } from "../../workspace/backup-io";
-import type { BackupManifest, BackupSnapshot } from "../../workspace/backup";
-import { RestoreDialog, makeBackupDeps, type WorkspaceSettingsBridge } from "./WorkspaceSection";
-
-type Result = { kind: "idle" | "busy" | "ok" | "error" | "conflict"; message?: string; at?: string };
+import { AUTO_EVENT, WORKSPACE_SLOT } from "../../workspace/drive-backup";
+import { flushNow, recheck, useSyncStatus } from "../../workspace/sync-controller";
+import { EXTRA_PIECES } from "../../workspace/extras";
+import { OPEN_RESTORE_EVENT } from "../DriveSyncUi";
+import type { WorkspaceSettingsBridge } from "./WorkspaceSection";
 
 export default function DriveBackupSection({ bridge }: { bridge: WorkspaceSettingsBridge }) {
   const d = useDrive();
+  const s = useSyncStatus();
   const ctx = useMemo<OpsCtx | null>(() => {
     if (!d.keys || !d.user || !d.currentOrg) return null;
     return {
@@ -32,73 +25,19 @@ export default function DriveBackupSection({ bridge }: { bridge: WorkspaceSettin
       roleIdByKey: d.roleIdByKey,
     };
   }, [d.api, d.keys, d.user, d.currentOrg, d.roleIdByKey]);
-
   const [pw, setPw] = useState("");
   const [auto, setAuto] = useState(false);
   const required = d.policy?.backupRequired === true;
-  const [link, setLink] = useState<DriveLink | null>(null);
-  const [res, setRes] = useState<Result>({ kind: "idle" });
-  const [pending, setPending] = useState<{ manifest: BackupManifest; snapshot: BackupSnapshot } | null>(null);
-  const deps = (): BackupDeps => makeBackupDeps(bridge);
-
   const ctxId = ctx ? `${ctx.userId}:${ctx.orgId}` : "";
   useEffect(() => {
-    if (!ctx) return;
-    setAuto(readAuto(WORKSPACE_SLOT, ctx));
-    setLink(readLink(WORKSPACE_SLOT, ctx));
-    setRes({ kind: "idle" });
+    if (ctx) setAuto(readAutoOr(WORKSPACE_SLOT, ctx, d.policy != null));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- changement de compte / d'organisation uniquement
   }, [ctxId]);
 
-  // État de la sauvegarde automatique (émis par DriveAutoBackup).
-  useEffect(() => {
-    const on = (e: Event) => {
-      const det = (e as CustomEvent<{ kind: Result["kind"] | "idle"; message?: string; at?: string }>).detail;
-      if (ctx) setLink(readLink(WORKSPACE_SLOT, ctx));
-      setRes({
-        kind: det.kind,
-        message: det.kind === "ok" ? "Sauvegarde automatique effectuée." : det.message,
-        at: det.at,
-      });
-    };
-    window.addEventListener(AUTO_STATUS_EVENT, on);
-    return () => window.removeEventListener(AUTO_STATUS_EVENT, on);
-  }, [ctx]);
-
-  const push = async (force = false) => {
-    if (!ctx) return;
-    setRes({ kind: "busy" });
-    try {
-      setLink(await pushWorkspace(ctx, deps(), { force }));
-      setRes({ kind: "ok", message: "Espace de travail enregistré dans le Drive." });
-      if (force) window.dispatchEvent(new Event(AUTO_EVENT));
-    } catch (e) {
-      if (isConflict(e))
-        setRes({
-          kind: "conflict",
-          message: "Une sauvegarde plus récente (ou d'un autre appareil) existe déjà dans le Drive.",
-        });
-      else {
-        reportError("workspace.drive-push", e);
-        setRes({ kind: "error", message: e instanceof VaultLockedError || e instanceof Error ? e.message : String(e) });
-      }
-    }
-  };
-
+  const busy = s.phase === "syncing" || s.phase === "checking";
   const restore = async () => {
-    if (!ctx) return;
-    setRes({ kind: "busy" });
-    try {
-      const got = await pullWorkspace(ctx);
-      if (!got)
-        return void setRes({ kind: "error", message: "Aucune sauvegarde de l'espace de travail dans le Drive." });
-      setLink(got.link);
-      setRes({ kind: "idle" });
-      setPending(got.backup);
-    } catch (e) {
-      reportError("workspace.drive-pull", e);
-      setRes({ kind: "error", message: e instanceof Error ? e.message : String(e) });
-    }
+    await recheck();
+    window.dispatchEvent(new Event(OPEN_RESTORE_EVENT));
   };
 
   return (
@@ -107,9 +46,11 @@ export default function DriveBackupSection({ bridge }: { bridge: WorkspaceSettin
         <Cloud size={16} aria-hidden="true" /> Sauvegarde dans le Drive entreprise
       </h3>
       <p className="muted">
-        Envoie tous vos documents, tableurs, présentations et PDF dans le Drive de votre serveur, sous la forme d'un
-        seul fichier « Espace-de-travail-Elium.elium-workspace », chiffré de bout en bout et versionné par le serveur.
-        Les clés et l'identité de cet appareil ne sont jamais incluses.
+        Chaque document, tableur, présentation et PDF est enregistré dans le dossier « Sauvegarde Elium » de votre
+        Drive, chiffré de bout en bout et versionné par le serveur — seul ce qui change est renvoyé. Sont aussi
+        sauvegardés : dossiers, favoris, étiquettes, corbeille, réglages,{" "}
+        {EXTRA_PIECES.map((p) => p.label.toLowerCase()).join(", ")}. Sur un nouvel appareil, la restauration vous est
+        proposée dès la connexion. Les clés privées et l'identité de signature ne quittent jamais cet appareil.
       </p>
       {!ctx ? (
         d.status === "locked" ? (
@@ -149,15 +90,16 @@ export default function DriveBackupSection({ bridge }: { bridge: WorkspaceSettin
           <p className="muted">
             Connecté : {d.user?.email}
             {d.currentOrg ? ` — ${d.currentOrg.name}` : ""}.{" "}
-            {link
-              ? `Dernière sauvegarde : ${new Date(link.syncedAt).toLocaleString("fr-FR")}.`
-              : "Aucune sauvegarde pour l'instant."}
+            {s.lastOkAt
+              ? `Dernière sauvegarde : ${new Date(s.lastOkAt).toLocaleString("fr-FR")}.`
+              : "Aucune sauvegarde pour l'instant."}{" "}
+            {s.pending > 0 && `${s.pending} modification(s) en attente.`}
           </p>
           <div className="settings__row">
-            <Button size="sm" onClick={() => void push()} disabled={res.kind === "busy" || !bridge.ws.ready}>
+            <Button size="sm" onClick={() => void flushNow()} disabled={busy || !bridge.ws.ready}>
               <Upload size={14} /> Sauvegarder maintenant
             </Button>
-            <Button size="sm" variant="outline" onClick={() => void restore()} disabled={res.kind === "busy"}>
+            <Button size="sm" variant="outline" onClick={() => void restore()} disabled={busy}>
               <Download size={14} /> Restaurer depuis le Drive
             </Button>
           </div>
@@ -172,28 +114,26 @@ export default function DriveBackupSection({ bridge }: { bridge: WorkspaceSettin
                 window.dispatchEvent(new Event(AUTO_EVENT));
               }}
             />
-            Sauvegarder automatiquement une minute après chaque modification
+            Sauvegarder automatiquement quelques secondes après chaque modification
             {required && <span className="muted"> — imposé par le propriétaire de ce Drive</span>}
           </label>
-          {res.kind === "busy" && <p className="muted">Synchronisation en cours…</p>}
-          {res.kind === "ok" && <Alert tone="success">{res.message}</Alert>}
-          {res.kind === "error" && <Alert tone="danger">{res.message}</Alert>}
-          {res.kind === "conflict" && (
-            <Alert tone="warning" title="Conflit">
-              {res.message}
+          {busy && <p className="muted">Synchronisation en cours…</p>}
+          {s.phase === "needs-restore" && (
+            <Alert tone="warning" title="Une sauvegarde existe dans le Drive">
+              L'envoi est en pause tant que vous n'avez pas choisi de la restaurer ou de repartir à neuf.
               <div className="settings__row">
-                <Button size="sm" variant="outline" onClick={() => void restore()}>
-                  Voir la sauvegarde du Drive
-                </Button>
-                <Button size="sm" variant="danger" onClick={() => void push(true)}>
-                  Écraser avec cet espace
+                <Button size="sm" onClick={() => window.dispatchEvent(new Event(OPEN_RESTORE_EVENT))}>
+                  Choisir
                 </Button>
               </div>
             </Alert>
           )}
+          {s.phase === "offline" && <Alert tone="warning">{s.message}</Alert>}
+          {s.phase === "error" && <Alert tone="danger">{s.message}</Alert>}
+          {s.phase === "locked" && <Alert tone="warning">{s.message}</Alert>}
+          {s.phase === "idle" && s.message && <Alert tone="info">{s.message}</Alert>}
         </>
       )}
-      {pending && <RestoreDialog bridge={bridge} backup={pending} onClose={() => setPending(null)} />}
     </section>
   );
 }

@@ -9,6 +9,7 @@ import { openMigrated } from "../format/idb-migrate";
 import { reencryptAnnexes } from "./annexes";
 import { normalizePassport } from "./model";
 import type { PassportData } from "./types";
+import { markDirty } from "../workspace/sync-dirty";
 
 const STORE = "passport";
 const KEY = "main" as const;
@@ -55,6 +56,7 @@ async function write(data: PassportData, secret?: VaultSecret): Promise<void> {
     ? { id: KEY, updatedAt: data.updatedAt, vaultProtected: true, enc: await encryptAtRest(data, secret) }
     : { id: KEY, updatedAt: data.updatedAt, vaultProtected: false, data };
   await run("readwrite", (s) => s.put(rec));
+  markDirty("passeport");
 }
 
 /** Refuse d'écrire en clair par-dessus un passeport chiffré tant que le coffre n'est pas déverrouillé. */
@@ -68,6 +70,7 @@ export async function savePassport(data: PassportData, secret?: VaultSecret): Pr
 
 export async function deletePassport(): Promise<void> {
   await run("readwrite", (s) => s.delete(KEY));
+  markDirty("passeport");
 }
 
 /** Rechiffrement quand le coffre est activé / changé / désactivé (un seul enregistrement → atomique). */

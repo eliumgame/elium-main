@@ -52,10 +52,19 @@ export function readAuto(slot: string, w: Who): boolean {
   }
 }
 
+/** Comme `readAuto`, avec une valeur par défaut tant que l'utilisateur n'a rien choisi (« 0 » = refus explicite). */
+export function readAutoOr(slot: string, w: Who, fallback: boolean): boolean {
+  try {
+    const v = localStorage.getItem(autoKey(slot, w));
+    return v === null ? fallback : v === "1";
+  } catch {
+    return fallback;
+  }
+}
+
 export function writeAuto(slot: string, w: Who, on: boolean): void {
   try {
-    if (on) localStorage.setItem(autoKey(slot, w), "1");
-    else localStorage.removeItem(autoKey(slot, w));
+    localStorage.setItem(autoKey(slot, w), on ? "1" : "0");
   } catch {
     /* sans effet */
   }

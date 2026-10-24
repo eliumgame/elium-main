@@ -297,6 +297,8 @@ interface Props {
   initial?: PdfFile | unknown;
   /** Resolves true once the .elium is written (false: cancelled or failed). */
   onExportElium?: (data: PdfFile, title: string) => Promise<boolean>;
+  /** « Enregistrer dans le Drive » : range le PDF dans la bibliothèque puis l'envoie dans le Drive. */
+  onSaveToDrive?: (bytes: Uint8Array, name: string) => Promise<{ ok: boolean; message: string }>;
   author?: string;
   /** Secret of the unlocked local vault: recovery drafts are encrypted with it. */
   vaultSecret?: VaultSecret;
@@ -346,6 +348,7 @@ export default function PdfWorkspace({
   onHome,
   initial,
   onExportElium,
+  onSaveToDrive,
   author: authorProp = "Moi",
   vaultSecret,
   source,
@@ -2983,6 +2986,34 @@ export default function PdfWorkspace({
     );
   };
 
+  /**
+   * « Enregistrer dans le Drive » : le PDF (modifications comprises) passe par le même enregistrement que
+   * « Enregistrer une copie » — mêmes confirmations pour un fichier signé ou caviardé — mais au lieu d'un
+   * fichier, il part dans la bibliothèque puis dans le Drive. Le fichier ouvert n'est pas touché.
+   */
+  const saveDrive = async () => {
+    if (!onSaveToDrive) {
+      toast("info", "Drive indisponible", "L'enregistrement dans le Drive n'est pas proposé ici.");
+      return;
+    }
+    const out: { bytes?: Uint8Array } = {};
+    const name = pdfName(fileName);
+    const sink: SaveDestination = {
+      kind: "drive",
+      name,
+      label: `${name} (Drive)`,
+      persistent: false,
+      prepare: async () => true,
+      write: async (bytes) => {
+        out.bytes = bytes;
+      },
+    };
+    const ok = await runSave(sink, {}, { copy: true, fresh: false });
+    if (!ok || !out.bytes) return;
+    const res = await onSaveToDrive(out.bytes, name);
+    toast(res.ok ? "success" : "danger", res.ok ? "Enregistré dans le Drive" : "Drive", res.message);
+  };
+
   /** The comment summary (Acrobat's « Résumer les commentaires »), as a PDF. */
   const commentSummary = async (): Promise<Uint8Array> => {
     const { bytes } = await buildDerived(state, { interactiveAnnots: false, flattenForms: true });
@@ -3358,6 +3389,9 @@ export default function PdfWorkspace({
         return;
       case "saveElium":
         void saveElium();
+        return;
+      case "saveDrive":
+        void saveDrive();
         return;
       case "print":
         void printDocument();

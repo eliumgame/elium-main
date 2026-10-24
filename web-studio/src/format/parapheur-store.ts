@@ -16,6 +16,7 @@ import type { ParapheurParty, PartyStatus } from "./types";
 
 import { openMigrated } from "./idb-migrate";
 import { PARAPHEUR_SPEC } from "./db-specs";
+import { markDirty } from "../workspace/sync-dirty";
 const STORE = "workflows";
 
 // Type canonique du circuit (défini dans format/types.ts car il voyage désormais
@@ -90,10 +91,12 @@ export async function saveWorkflow(wf: Workflow, vaultSecret?: VaultSecret): Pro
       }
     : { docKey: wf.docKey, createdAt: wf.createdAt, vaultProtected: false, parties: wf.parties };
   await run("readwrite", (s) => s.put(record));
+  markDirty("parapheur");
 }
 
 export async function deleteWorkflow(docKey: string): Promise<void> {
   await run("readwrite", (s) => s.delete(docKey));
+  markDirty("parapheur");
 }
 
 /**

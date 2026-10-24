@@ -42,6 +42,8 @@ export interface LocalDeckStore extends DeckStore {
    *  for good the moment the debounced autosave fires. The host view should
    *  surface this to the user (see SlidesView.tsx) instead of failing silently. */
   loadError?: string;
+  /** Enregistre tout de suite la présentation ; renvoie sa taille, `undefined` si rien à écrire. */
+  flush(): Promise<number | undefined>;
 }
 
 /** Persistance d'une présentation de l'espace de travail (voir SheetPersist). Sans elle : la présentation historique « current ». */
@@ -117,17 +119,21 @@ export function useLocalDeckStore(initial?: Deck, vaultSecret?: VaultSecret, per
   ); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Enregistre la présentation (sauf nouvel élément resté vierge) puis prévient l'espace de travail. */
-  async function persistDeck(d: Deck): Promise<void> {
+  async function persistDeck(d: Deck): Promise<number | undefined> {
     const p = persistRef.current;
-    if (p?.isNew && !savedOnce.current && isDeckPristine(d)) return;
+    if (p?.isNew && !savedOnce.current && isDeckPristine(d)) return undefined;
     try {
       const size = await saveDeck(d, secretRef.current, p?.id);
       savedOnce.current = true;
       p?.onSaved?.(d, size);
+      return size;
     } catch (err) {
       reportError("deck-autosave", err);
+      return undefined;
     }
   }
+  const flush = async (): Promise<number | undefined> =>
+    initial || loadErrorRef.current ? undefined : persistDeck(deckRef.current);
 
   // --- element mutations on the active slide ---
   const setEls = (mut: (els: SlideElement[]) => SlideElement[], commit: boolean) => {
@@ -248,6 +254,7 @@ export function useLocalDeckStore(initial?: Deck, vaultSecret?: VaultSecret, per
     });
 
   return {
+    flush,
     deck,
     active: deck.active,
     canWrite: true,

@@ -1,10 +1,11 @@
-import { Save, Eye, Pencil, Home, Settings, Loader2, MoreHorizontal, PanelRight } from "lucide-react";
+import { Save, Cloud, Eye, Pencil, Home, Settings, Loader2, MoreHorizontal, PanelRight } from "lucide-react";
 import Menu, { type MenuItem } from "../ui/Menu";
 import { useMediaQuery } from "../studio/useMediaQuery";
 import { Button } from "../ui/components";
 import StatusBadges from "./StatusBadges";
 import type { Studio } from "../studio/types";
 import { useI18n } from "../i18n";
+import { useSyncStatus } from "../workspace/sync-controller";
 
 export default function TopBar({
   studio,
@@ -16,6 +17,7 @@ export default function TopBar({
   onToggleInspector?: () => void;
 }) {
   const { t } = useI18n();
+  const drive = useSyncStatus().phase !== "off";
   // Écran étroit : les actions secondaires passent dans un menu « Plus », seul « Enregistrer » / « Modifier » reste visible.
   const compact = useMediaQuery("(max-width: 640px)");
   const moreItems: MenuItem[] = [
@@ -82,6 +84,19 @@ export default function TopBar({
                 aria-label={t("topbar.preview")}
               >
                 <Eye size={16} /> <span className="eb__label">{t("topbar.preview")}</span>
+              </Button>
+            )}
+            {drive && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void studio.saveToDrive()}
+                disabled={studio.busy}
+                title="Enregistrer dans le Drive (chiffré, versionné)"
+                aria-label="Enregistrer dans le Drive"
+                data-testid="save-to-drive"
+              >
+                <Cloud size={16} /> <span className="eb__label">Drive</span>
               </Button>
             )}
             <Button

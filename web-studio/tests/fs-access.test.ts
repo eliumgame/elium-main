@@ -112,9 +112,12 @@ describe("écriture", () => {
     expect(h.written[0]!.size).toBe(3);
   });
 
-  it("en cas d'échec abandonne le flux (le fichier d'origine reste intact) et remonte l'erreur", async () => {
+  it("en cas d'échec abandonne le flux (le fichier d'origine reste intact) et remonte une erreur lisible", async () => {
     const h = fakeHandle("a.elium", { failWrite: true });
-    await expect(writeToHandle(h, new Uint8Array([1]))).rejects.toThrow("disque plein");
+    const err = await writeToHandle(h, new Uint8Array([1])).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toBe("L'écriture sur le disque a échoué.");
+    expect(((err as { cause?: Error }).cause as Error).message).toBe("disque plein");
     expect(h.log).toEqual(["abort"]);
   });
 });

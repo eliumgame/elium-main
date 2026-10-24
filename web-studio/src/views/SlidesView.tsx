@@ -19,6 +19,7 @@ import type { VaultSecret } from "../crypto/local-vault";
 import { useRegisterCommands, type AppCommand } from "../commands/registry";
 import { useItemSync, type ItemSession } from "../workspace/useItemSync";
 import type { WorkspaceApi } from "../workspace/useWorkspace";
+import { SaveToDriveButton } from "../components/DriveSyncUi";
 
 export default function SlidesView({
   onHome,
@@ -174,6 +175,18 @@ export default function SlidesView({
               <button className="eb eb--sm eb--ghost" onClick={() => void sync.rename()} title={t("common.rename")}>
                 <Pencil size={14} /> {t("common.rename")}
               </button>
+            )}
+            {session && (
+              <SaveToDriveButton
+                itemId={session.id}
+                variant="outline"
+                beforeSave={async () => {
+                  const size = await store.flush();
+                  if (size !== undefined) await sync.registerNow(size);
+                  return size === undefined ? undefined : session.id;
+                }}
+                onDone={(_ok, message) => void dialogs.alert({ title: "Drive", message })}
+              />
             )}
             <div className="sv-menu">
               <button ref={exportMenuBtnRef} className="eb eb--sm eb--outline" onClick={() => setExportMenu((v) => !v)}>

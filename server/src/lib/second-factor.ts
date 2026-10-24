@@ -7,6 +7,9 @@ import { queryOne } from "../db/pool.js";
 import { decryptServerSecret, sha256Hex } from "./crypto-server.js";
 import { verifyTotp } from "./totp.js";
 
+/** Usage du jeton intermédiaire émis entre le mot de passe (ou le SSO) et le second facteur. */
+export const MFA_LOGIN_PURPOSE = "mfa-login";
+
 /** « ABCD EFGH », « abcdefgh », « ABCD-EFGH » → « abcd-efgh » (forme stockée). */
 export function normalizeBackupCode(raw: string): string {
   const s = raw.replace(/[\s-]/g, "").toLowerCase();

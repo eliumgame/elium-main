@@ -42,9 +42,30 @@ const createSchema = z.object({
 });
 
 /** Validate a role belongs to this org (or is a global template). Throws 400. */
-async function validateRole(roleId: string, orgId: string): Promise<void> {
-  const r = await queryOne(`SELECT id FROM roles WHERE id = $1 AND (org_id = $2 OR org_id IS NULL)`, [roleId, orgId]);
+async function validateRole(roleId: string, orgId: string): Promise<{ key?: string; permissions?: string[] }> {
+  const r = await queryOne<{ id: string; key?: string; permissions?: string[] }>(
+    `SELECT id, key, permissions FROM roles WHERE id = $1 AND (org_id = $2 OR org_id IS NULL)`,
+    [roleId, orgId],
+  );
   if (!r) throw badRequest("Rôle invalide pour cette organisation.");
+  return r;
+}
+
+/**
+ * Plafond de privilège : on n'attribue jamais un rôle plus puissant que le sien. Le rôle « owner »
+ * ne s'attribue que par le transfert de propriété ; seul le propriétaire contourne la comparaison.
+ * (Sans cela, un gestionnaire — qui détient `member.role.assign` — se ferait administrateur.)
+ */
+function assertCanGrant(
+  ctx: { isOwner: boolean; permissions: Set<string> },
+  role: { key?: string; permissions?: string[] },
+): void {
+  if (role.key === "owner") {
+    throw forbidden("Le rôle propriétaire ne s'attribue que par le transfert de propriété.");
+  }
+  if (ctx.isOwner) return;
+  const missing = (role.permissions ?? []).filter((p) => !ctx.permissions.has(p));
+  if (missing.length) throw forbidden("Vous ne pouvez pas attribuer un rôle plus puissant que le vôtre.");
 }
 
 function orgDto(o: Record<string, unknown>) {
@@ -211,8 +232,8 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
     const { orgId } = z.object({ orgId: z.string().uuid() }).parse(req.params);
     const b = z.object({ email: z.string().email().max(320), roleId: z.string().uuid() }).parse(req.body);
     const user = requireUser(req);
-    await requireOrgPerm(req, orgId, "member.invite");
-    await validateRole(b.roleId, orgId);
+    const ctx = await requireOrgPerm(req, orgId, "member.invite");
+    assertCanGrant(ctx, await validateRole(b.roleId, orgId));
 
     const token = randomToken(32);
     const tokenHash = sha256Hex(token);
@@ -271,8 +292,21 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
     const { orgId, userId } = z.object({ orgId: z.string().uuid(), userId: z.string().uuid() }).parse(req.params);
     const b = z.object({ roleId: z.string().uuid() }).parse(req.body);
     const actor = requireUser(req);
-    await requireOrgPerm(req, orgId, "member.role.assign");
-    await validateRole(b.roleId, orgId);
+    const ctx = await requireOrgPerm(req, orgId, "member.role.assign");
+    assertCanGrant(ctx, await validateRole(b.roleId, orgId));
+    if (userId === actor.id && !ctx.isOwner) throw forbidden("Vous ne pouvez pas modifier votre propre rôle.");
+    // Ni rétrograder ni toucher quelqu'un de plus puissant que soi (un gestionnaire ne déboulonne pas un admin).
+    const current = await queryOne<{ key?: string; permissions?: string[] }>(
+      `SELECT r.key, r.permissions FROM memberships m JOIN roles r ON r.id = m.role_id WHERE m.org_id = $1 AND m.user_id = $2`,
+      [orgId, userId],
+    );
+    if (current && (current.key === "owner" || !ctx.isOwner)) {
+      if (current.key === "owner")
+        throw forbidden("Le rôle du propriétaire ne se modifie que par le transfert de propriété.");
+      if ((current.permissions ?? []).some((p) => !ctx.permissions.has(p))) {
+        throw forbidden("Vous ne pouvez pas modifier le rôle d'un membre plus puissant que vous.");
+      }
+    }
 
     const updated = await queryOne(
       `UPDATE memberships SET role_id = $3 WHERE org_id = $1 AND user_id = $2 RETURNING id, role_id`,

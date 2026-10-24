@@ -175,6 +175,8 @@ export interface SiteUser {
   isOwner: boolean;
 }
 
+const reauthHeader = (token: string): Record<string, string> => ({ "x-reauth-token": token });
+
 export class DriveApi {
   private baseUrl: string;
   private tokens: Tokens | null;
@@ -336,8 +338,16 @@ export class DriveApi {
   webauthnRegisterOptions() {
     return this.json<Record<string, unknown>>("POST", "/auth/webauthn/register/options", { body: {} });
   }
-  webauthnRegisterVerify(response: unknown, name?: string) {
-    return this.json<{ ok: boolean }>("POST", "/auth/webauthn/register/verify", { body: { response, name } });
+  /** Ajout d'une passkey : exige un jeton de ré-authentification (voir `reauth`). */
+  webauthnRegisterVerify(response: unknown, name: string | undefined, reauthToken: string) {
+    return this.json<{ ok: boolean }>("POST", "/auth/webauthn/register/verify", {
+      body: { response, name },
+      headers: reauthHeader(reauthToken),
+    });
+  }
+  /** Ré-authentification : défi signé (+ code 2FA si actif) → jeton de 5 minutes. */
+  reauth(body: { challengeId: string; signature: string; code?: string }) {
+    return this.json<{ reauthToken: string }>("POST", "/auth/reauth", { body });
   }
   webauthnCredentials() {
     return this.json<{ credentials: { id: string; name: string; createdAt: string; lastUsedAt: string | null }[] }>(
@@ -345,8 +355,10 @@ export class DriveApi {
       "/auth/webauthn/credentials",
     );
   }
-  webauthnRemoveCredential(id: string) {
-    return this.json<{ ok: boolean }>("DELETE", `/auth/webauthn/credentials/${id}`);
+  webauthnRemoveCredential(id: string, reauthToken: string) {
+    return this.json<{ ok: boolean }>("DELETE", `/auth/webauthn/credentials/${id}`, {
+      headers: reauthHeader(reauthToken),
+    });
   }
   /** Connexion 2e facteur : options à passer à navigator.credentials.get. */
   webauthnLoginOptions(mfaToken: string) {
@@ -533,17 +545,24 @@ export class DriveApi {
   setOrgSso(
     orgId: string,
     config: { issuer: string; clientId: string; jwks?: unknown[]; jwksUri?: string; allowedDomains?: string[] },
+    reauthToken: string,
   ) {
-    return this.json<{ ok: boolean }>("PUT", `/orgs/${orgId}/sso`, { body: config });
+    return this.json<{ ok: boolean }>("PUT", `/orgs/${orgId}/sso`, {
+      body: config,
+      headers: reauthHeader(reauthToken),
+    });
   }
   getOrgSso(orgId: string) {
     return this.json<{ sso: unknown | null }>("GET", `/orgs/${orgId}/sso`);
   }
-  disableOrgSso(orgId: string) {
-    return this.json<{ ok: boolean }>("DELETE", `/orgs/${orgId}/sso`);
+  disableOrgSso(orgId: string, reauthToken: string) {
+    return this.json<{ ok: boolean }>("DELETE", `/orgs/${orgId}/sso`, { headers: reauthHeader(reauthToken) });
   }
-  createScimToken(orgId: string) {
-    return this.json<{ token: string }>("POST", `/orgs/${orgId}/scim-token`, { body: {} });
+  createScimToken(orgId: string, reauthToken: string) {
+    return this.json<{ token: string }>("POST", `/orgs/${orgId}/scim-token`, {
+      body: {},
+      headers: reauthHeader(reauthToken),
+    });
   }
   /** SCIM provisioning config: default role + IdP group → Elium role mapping. */
   getOrgScimConfig(orgId: string) {
@@ -552,8 +571,15 @@ export class DriveApi {
       `/orgs/${orgId}/scim-config`,
     );
   }
-  setOrgScimConfig(orgId: string, config: { defaultRoleKey: string; groupRoleMap?: Record<string, string> }) {
-    return this.json<{ ok: boolean }>("PUT", `/orgs/${orgId}/scim-config`, { body: config });
+  setOrgScimConfig(
+    orgId: string,
+    config: { defaultRoleKey: string; groupRoleMap?: Record<string, string> },
+    reauthToken: string,
+  ) {
+    return this.json<{ ok: boolean }>("PUT", `/orgs/${orgId}/scim-config`, {
+      body: config,
+      headers: reauthHeader(reauthToken),
+    });
   }
   // === Account (RGPD) =======================================================
   /** What (if anything) blocks erasing my account. */

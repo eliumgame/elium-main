@@ -62,22 +62,10 @@ const lookupSchema = z
     message: "Fournir exactement un critère : email OU fingerprint.",
   });
 
-const patchMeSchema = z.object({
-  displayName: z.string().max(120).optional(),
-  keyBundle: z.record(z.string(), z.unknown()).optional(),
-  // Password change: the new login verifier (auth-sign public key) + a proof of
-  // possession (signature over the email by the new key).
-  authSignPublicHex: z
-    .string()
-    .regex(/^[0-9a-f]{64}$/)
-    .optional(),
-  authSignProof: z
-    .string()
-    .regex(/^[0-9a-f]{128}$/)
-    .optional(),
-  kdfSalt: z.string().min(8).max(256).optional(),
-  kdfParams: z.record(z.string(), z.unknown()).optional(),
-});
+// Profil : SEUL le nom affiché est modifiable ici. Les clés, le paquet de clés et le vérificateur
+// de connexion changent par « change-password » (preuve du mot de passe actuel sur défi) : un
+// jeton d'accès volé ne doit pas pouvoir remplacer les clés ni détruire le paquet de clés.
+const patchMeSchema = z.strictObject({ displayName: z.string().max(120).optional() });
 
 function currentSessionHash(header: string | string[] | undefined): string | null {
   const raw = Array.isArray(header) ? header[0] : header;
@@ -117,27 +105,6 @@ export default async function userRoutes(app: FastifyInstance): Promise<void> {
       sets.push(`display_name = $${i++}`);
       params.push(b.displayName);
     }
-    if (b.keyBundle !== undefined) {
-      sets.push(`key_bundle = $${i++}`);
-      params.push(JSON.stringify(b.keyBundle));
-    }
-    if (b.kdfSalt !== undefined) {
-      sets.push(`kdf_salt = $${i++}`);
-      params.push(b.kdfSalt);
-    }
-    if (b.kdfParams !== undefined) {
-      sets.push(`kdf_params = $${i++}`);
-      params.push(JSON.stringify(b.kdfParams));
-    }
-    if (b.authSignPublicHex !== undefined) {
-      // Verify possession of the NEW auth key before rotating the verifier, so a
-      // stolen session cannot lock the owner out with a key they don't control.
-      if (!b.authSignProof || !verifyEd25519(user.email.toLowerCase(), b.authSignProof, b.authSignPublicHex)) {
-        throw badRequest("Preuve de possession de la nouvelle clé d'authentification invalide.");
-      }
-      sets.push(`auth_sign_public_hex = $${i++}`);
-      params.push(b.authSignPublicHex);
-    }
 
     const row = await queryOne<PublicUserRow>(
       `UPDATE users SET ${sets.join(", ")} WHERE id = $1 RETURNING ${PUBLIC_COLS}`,
@@ -145,18 +112,7 @@ export default async function userRoutes(app: FastifyInstance): Promise<void> {
     );
     if (!row) throw notFound("Utilisateur introuvable.");
 
-    await audit(
-      null,
-      user.id,
-      "user.update",
-      "user",
-      user.id,
-      {
-        fields: Object.keys(b),
-        passwordChanged: b.authSignPublicHex !== undefined,
-      },
-      req.ip,
-    );
+    await audit(null, user.id, "user.update", "user", user.id, { fields: Object.keys(b) }, req.ip);
     return { user: publicUserDto(row) };
   });
 

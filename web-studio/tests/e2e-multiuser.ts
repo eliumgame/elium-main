@@ -842,7 +842,15 @@ async function main(): Promise<void> {
     const ISS = "https://idp.test";
     const AUD = "elium-drive";
 
-    await alice.api.setOrgSso(org.id, { issuer: ISS, clientId: AUD, jwks: [jwk], allowedDomains: ["acme.fr"] });
+    // SSO/SCIM : propriétaire + confirmation fraîche. Le vrai flux /auth/reauth est couvert par
+    // e2e-owner-portal ; ici on émet directement le jeton (le rate-limit de /login/init est déjà bien entamé).
+    const { issueReauthToken } = await import("../../server/src/lib/reauth");
+    const reauthA = async () => issueReauthToken(alice.user.id);
+    await alice.api.setOrgSso(
+      org.id,
+      { issuer: ISS, clientId: AUD, jwks: [jwk], allowedDomains: ["acme.fr"] },
+      await reauthA(),
+    );
     ok("configuration SSO (OIDC) enregistrée", !!(await alice.api.getOrgSso(org.id)).sso);
 
     const b64u = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
@@ -876,6 +884,20 @@ async function main(): Promise<void> {
       ssoKeys.recipient.privateHex === bob.keys.recipient.privateHex,
     );
 
+    // Un compte avec 2FA locale ne s'ouvre PAS sur le seul jeton d'identité (IdP faux/compromis).
+    const { totpNow: totpSso } = await import("../../server/src/lib/totp");
+    const bobSetup = await bob.api.mfaSetup();
+    await bob.api.mfaEnable(totpSso(bobSetup.secret));
+    const ssoMfa = (await ssoApi.ssoVerify(org.id, signIdToken(claimsFor(bob.user.email)))) as unknown as {
+      mfaRequired?: boolean;
+      mfaToken?: string;
+      accessToken?: string;
+    };
+    ok("SSO : un compte avec 2FA reçoit un défi, pas de session", ssoMfa.mfaRequired === true && !ssoMfa.accessToken);
+    const ssoDone = await new DriveApi({ baseUrl: base }).loginMfa(ssoMfa.mfaToken!, totpSso(bobSetup.secret));
+    ok("SSO + code 2FA : session émise", !!ssoDone.accessToken);
+    await bob.api.mfaDisable(totpSso(bobSetup.secret));
+
     await expectStatus(
       "SSO : mauvaise audience → 401",
       ssoApi.ssoVerify(org.id, signIdToken(claimsFor(bob.user.email, { aud: "autre" }))),
@@ -904,7 +926,7 @@ async function main(): Promise<void> {
     );
 
     // --- SCIM : provisioning + DÉ-provisioning --------------------------------
-    const { token: scimTok } = await alice.api.createScimToken(org.id);
+    const { token: scimTok } = await alice.api.createScimToken(org.id, await reauthA());
     const scim = (path: string, method: string, body?: unknown, tok = scimTok) =>
       fetch(`${base}/scim/v2/Users${path}`, {
         method,
@@ -953,10 +975,14 @@ async function main(): Promise<void> {
       });
 
     // Rôle de provisioning configurable + mapping groupe IdP "Ingénierie" → manager.
-    await alice.api.setOrgScimConfig(org.id, { defaultRoleKey: "editor", groupRoleMap: { Ingénierie: "manager" } });
+    await alice.api.setOrgScimConfig(
+      org.id,
+      { defaultRoleKey: "editor", groupRoleMap: { Ingénierie: "manager" } },
+      await reauthA(),
+    );
     ok(
       "SCIM config : rôle invalide refusé (400)",
-      await alice.api.setOrgScimConfig(org.id, { defaultRoleKey: "inconnu" }).then(
+      await alice.api.setOrgScimConfig(org.id, { defaultRoleKey: "inconnu" }, await reauthA()).then(
         () => false,
         () => true,
       ),
@@ -999,7 +1025,7 @@ async function main(): Promise<void> {
 
     // Réinitialiser Bob en éditeur + purger le mapping pour ne pas perturber la suite.
     await alice.api.setMemberRole(org.id, bob.user.id, roleIdByKey["editor"]!);
-    await alice.api.setOrgScimConfig(org.id, { defaultRoleKey: "editor", groupRoleMap: {} });
+    await alice.api.setOrgScimConfig(org.id, { defaultRoleKey: "editor", groupRoleMap: {} }, await reauthA());
 
     // =========================================================================
     section("Recouvrement d'organisation (clé d'org)");

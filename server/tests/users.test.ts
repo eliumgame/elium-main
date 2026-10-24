@@ -135,28 +135,18 @@ describe("PATCH /api/users/me", () => {
     expect(res.json().user.displayName).toBe("New Name");
   });
 
-  it("rejects a password-change request without a valid proof of possession", async () => {
-    mVerifyEd25519.mockReturnValueOnce(false);
+  it("refuse de remplacer les clés, le paquet de clés ou le vérificateur (changement de mot de passe = change-password)", async () => {
     const app = await makeApp();
-    const res = await app.inject({
-      method: "PATCH",
-      url: "/api/users/me",
-      payload: { authSignPublicHex: HEX64, authSignProof: HEX128 },
-    });
-    expect(res.statusCode).toBe(400);
+    for (const payload of [
+      { authSignPublicHex: HEX64, authSignProof: HEX128 },
+      { keyBundle: { x: 1 } },
+      { kdfSalt: "abcdefgh12345678" },
+      { kdfParams: { alg: "argon2id", t: 1, m: 8192, p: 1 } },
+    ]) {
+      const res = await app.inject({ method: "PATCH", url: "/api/users/me", payload });
+      expect(res.statusCode, JSON.stringify(Object.keys(payload))).toBe(400);
+    }
     expect(mQueryOne).not.toHaveBeenCalledWith(expect.stringMatching(/UPDATE users/), expect.anything());
-  });
-
-  it("accepts a password change backed by a valid proof", async () => {
-    mQueryOne.mockResolvedValueOnce(userRow() as never);
-    const app = await makeApp();
-    const res = await app.inject({
-      method: "PATCH",
-      url: "/api/users/me",
-      payload: { authSignPublicHex: HEX64, authSignProof: HEX128 },
-    });
-    expect(res.statusCode).toBe(200);
-    expect(mVerifyEd25519).toHaveBeenCalledWith("u@example.org", HEX128, HEX64);
   });
 });
 

@@ -23,6 +23,7 @@ import { useDrive } from "../session";
 import { prepareLogin, signLoginChallenge } from "../account";
 import ChangePasswordSection from "./ChangePasswordSection";
 import DevicesSection from "./DevicesSection";
+import { useReauth } from "./useReauth";
 import { makeQrDataUrl } from "../../sign/qr";
 import type { MfaStatus } from "../types";
 
@@ -37,6 +38,7 @@ type Stage = "idle" | "enrolling" | "showing-codes";
 
 export default function SecurityPanel() {
   const d = useDrive();
+  const reauth = useReauth();
   const [status, setStatus] = useState<MfaStatus | null>(null);
   const [stage, setStage] = useState<Stage>("idle");
   const [secret, setSecret] = useState("");
@@ -87,11 +89,13 @@ export default function SecurityPanel() {
     setUnlockMsg(null);
     setPkBusy(true);
     try {
+      const tok = await reauth(); // ajout d'une clé = opération sensible : confirmation fraîche
+      if (!tok) return;
       const { startRegistration } = await import("@simplewebauthn/browser");
       const options = await d.api.webauthnRegisterOptions();
       const attestation = await startRegistration({ optionsJSON: options as never });
       const name = window.prompt("Nom de cette clé (ex. « iPhone », « YubiKey ») :", "Passkey") ?? "Passkey";
-      const { ok } = await d.api.webauthnRegisterVerify(attestation, name.trim() || "Passkey");
+      const { ok } = await d.api.webauthnRegisterVerify(attestation, name.trim() || "Passkey", tok);
       if (!ok) throw new Error("Enrôlement refusé.");
       await reload();
       // Propose immédiatement le déverrouillage local par cette clé (PRF), tant
@@ -134,7 +138,9 @@ export default function SecurityPanel() {
     setErr(null);
     setPkBusy(true);
     try {
-      await d.api.webauthnRemoveCredential(id);
+      const tok = await reauth();
+      if (!tok) return;
+      await d.api.webauthnRemoveCredential(id, tok);
       await reload();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Suppression impossible.");
@@ -153,10 +159,12 @@ export default function SecurityPanel() {
     try {
       let credentialId: string | null = null;
       if (passkeys.length === 0) {
+        const tok = await reauth();
+        if (!tok) return;
         const { startRegistration } = await import("@simplewebauthn/browser");
         const options = await d.api.webauthnRegisterOptions();
         const attestation = await startRegistration({ optionsJSON: options as never });
-        const { ok } = await d.api.webauthnRegisterVerify(attestation, "Cet appareil");
+        const { ok } = await d.api.webauthnRegisterVerify(attestation, "Cet appareil", tok);
         if (!ok) throw new Error("Enrôlement de la clé refusé.");
         credentialId = attestation.id;
         await reload();

@@ -24,6 +24,7 @@ import * as ops from "../src/drive-cloud/ops";
 import { generateRecipientKeypair, encryptForRecipients } from "../src/crypto/recipients";
 import { fromHex } from "../src/format/canonical";
 import { restoreOwnedNodes } from "../src/drive-cloud/recovery";
+import { reauthenticate } from "../src/drive-cloud/reauth";
 import type { KdfParams } from "../src/drive-cloud/kdf";
 
 const enc = new TextEncoder();
@@ -632,6 +633,146 @@ async function main(): Promise<void> {
       rAudits.has("site.user.password_reset") && rAudits.has("auth.password_reset.complete"),
       [...rAudits].join(","),
     );
+
+    // =========================================================================
+    section("Durcissement : ré-authentification, plafond de privilège, SSO réservé au propriétaire");
+    // PATCH /users/me : seul le nom affiché est modifiable (plus de remplacement de clés par jeton volé).
+    await expectStatus(
+      "PATCH /users/me : remplacer le paquet de clés est refusé",
+      nl.api.updateMe({ keyBundle: { x: 1 } }),
+      400,
+    );
+    await expectStatus(
+      "PATCH /users/me : remplacer le vérificateur de connexion est refusé",
+      nl.api.updateMe({ authSignPublicHex: "a".repeat(64), authSignProof: "b".repeat(128) }),
+      400,
+    );
+    ok(
+      "PATCH /users/me : le nom affiché reste modifiable",
+      (await nl.api.updateMe({ displayName: "Alice B." })).user.displayName === "Alice B.",
+    );
+
+    // Plafond de privilège : un gestionnaire ne s'élève pas en admin/propriétaire.
+    await boss.api.patchSiteUser(carol.user.id, { roleId: roleIdByKey["manager"]! });
+    await expectStatus(
+      "gestionnaire : attribuer « admin » à un membre refusé",
+      carol.api.setMemberRole(org.id, alice.user.id, roleIdByKey["admin"]!),
+      403,
+    );
+    await expectStatus(
+      "gestionnaire : inviter quelqu'un en « admin » refusé",
+      carol.api.invite(org.id, { email: "x@acme.fr", roleId: roleIdByKey["admin"]! }),
+      403,
+    );
+    await expectStatus(
+      "gestionnaire : se donner « admin » refusé",
+      carol.api.setMemberRole(org.id, carol.user.id, roleIdByKey["admin"]!),
+      403,
+    );
+    await expectStatus(
+      "gestionnaire : se donner « owner » refusé",
+      carol.api.setMemberRole(org.id, carol.user.id, roleIdByKey["owner"]!),
+      403,
+    );
+    await expectStatus(
+      "gestionnaire : rétrograder le propriétaire refusé",
+      carol.api.setMemberRole(org.id, boss.user.id, roleIdByKey["viewer"]!),
+      403,
+    );
+    await carol.api.setMemberRole(org.id, alice.user.id, roleIdByKey["viewer"]!);
+    ok(
+      "gestionnaire : attribuer un rôle de niveau inférieur reste permis",
+      (await boss.api.siteUsers()).users.find((u) => u.email === "alice@acme.fr")!.roleKey === "viewer",
+    );
+    await boss.api.patchSiteUser(alice.user.id, { roleId: roleIdByKey["editor"]! });
+    await boss.api.patchSiteUser(carol.user.id, { roleId: roleIdByKey["viewer"]! });
+
+    // Passkeys : ajout/retrait exigent une confirmation fraîche (mot de passe + code 2FA).
+    const aSetup = await nl.api.mfaSetup();
+    await nl.api.mfaEnable(totpNow(aSetup.secret));
+    await query(
+      `INSERT INTO webauthn_credentials (user_id, credential_id, public_key, counter) VALUES ($1, 'e2e-reauth-cred', $2, 0)`,
+      [alice.user.id, Buffer.from("k")],
+    );
+    const credId = (await nl.api.webauthnCredentials()).credentials[0]!.id;
+    await expectStatus(
+      "retirer une passkey sans ré-authentification : refusé",
+      nl.api.webauthnRemoveCredential(credId, ""),
+      403,
+      "reauth_required",
+    );
+    await expectStatus(
+      "ré-authentification avec un mauvais mot de passe : refusée",
+      reauthenticate(nl.api, "alice@acme.fr", "Mauvais!mdp-1", totpNow(aSetup.secret)),
+      401,
+    );
+    await expectStatus(
+      "ré-authentification sans code 2FA (compte avec TOTP) : refusée",
+      reauthenticate(nl.api, "alice@acme.fr", newPw),
+      403,
+      "mfa_code_required",
+    );
+    await expectStatus(
+      "ré-authentification avec un mauvais code 2FA : refusée",
+      reauthenticate(nl.api, "alice@acme.fr", newPw, "000000"),
+      401,
+    );
+    const tok = await reauthenticate(nl.api, "alice@acme.fr", newPw, totpNow(aSetup.secret));
+    const bossTok = await reauthenticate(boss.api, "boss@acme.fr", boss.password);
+    await expectStatus(
+      "le jeton de ré-authentification d'un autre utilisateur est refusé",
+      nl.api.webauthnRemoveCredential(credId, bossTok),
+      403,
+      "reauth_required",
+    );
+    await nl.api.webauthnRemoveCredential(credId, tok);
+    ok(
+      "avec une ré-authentification valide, la passkey est retirée",
+      (await nl.api.webauthnCredentials()).credentials.length === 0,
+    );
+    await expectStatus(
+      "ajouter une passkey sans ré-authentification : refusé",
+      nl.api.webauthnRegisterVerify({}, "x", ""),
+      403,
+      "reauth_required",
+    );
+
+    // SSO/SCIM : propriétaire seulement, avec ré-authentification.
+    const ssoCfg = {
+      issuer: "https://idp.example.com",
+      clientId: "elium",
+      jwks: [{ kty: "OKP", crv: "Ed25519", x: "x".repeat(43) }],
+    };
+    await boss.api.patchSiteUser(alice.user.id, { roleId: roleIdByKey["admin"]! });
+    const adminTok = await reauthenticate(nl.api, "alice@acme.fr", newPw, totpNow(aSetup.secret));
+    await expectStatus(
+      "administrateur (non propriétaire) : configurer le SSO refusé, même ré-authentifié",
+      nl.api.setOrgSso(org.id, ssoCfg, adminTok),
+      403,
+    );
+    await expectStatus("administrateur : générer un jeton SCIM refusé", nl.api.createScimToken(org.id, adminTok), 403);
+    await expectStatus(
+      "administrateur : SCIM → rôle propriétaire refusé",
+      nl.api.setOrgScimConfig(org.id, { defaultRoleKey: "owner" }, adminTok),
+      403,
+    );
+    await expectStatus(
+      "propriétaire sans ré-authentification : configurer le SSO refusé",
+      boss.api.setOrgSso(org.id, ssoCfg, ""),
+      403,
+      "reauth_required",
+    );
+    await boss.api.setOrgSso(org.id, ssoCfg, bossTok);
+    ok("propriétaire ré-authentifié : SSO configuré", !!(await boss.api.getOrgSso(org.id)).sso);
+    await expectStatus(
+      "SCIM : le rôle propriétaire ne s'attribue pas par l'annuaire",
+      boss.api.setOrgScimConfig(org.id, { defaultRoleKey: "owner" }, bossTok),
+      400,
+    );
+    await boss.api.disableOrgSso(org.id, bossTok);
+    await boss.api.patchSiteUser(alice.user.id, { roleId: roleIdByKey["editor"]! });
+    // Alice garde son TOTP : on le retire pour ne pas perturber la suite.
+    await nl.api.mfaDisable(totpNow(aSetup.secret));
 
     // =========================================================================
     section("2FA obligatoire");

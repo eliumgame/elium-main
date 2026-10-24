@@ -10,14 +10,17 @@
  * Mounted at "/api": org-scoped SSO/SCIM-token config is authenticated; the
  * `/auth/sso/verify` endpoint is public (like /auth/login).
  */
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { query, queryOne } from "../db/pool.js";
 import { authenticate, requireUser, requireOrgPerm } from "../middleware/auth.js";
-import { issueAccessToken, newRefreshToken } from "../lib/tokens.js";
+import { issueAccessToken, newRefreshToken, issueScopedToken } from "../lib/tokens.js";
+import { MFA_LOGIN_PURPOSE } from "../lib/second-factor.js";
+import { hasWebauthn } from "../lib/webauthn.js";
+import { requireReauth } from "../lib/reauth.js";
 import { sha256Hex, randomToken } from "../lib/crypto-server.js";
 import { verifyIdTokenAsync, OidcError, type OidcConfig } from "../lib/oidc.js";
-import { badRequest, unauthorized, notFound } from "../lib/errors.js";
+import { badRequest, unauthorized, notFound, forbidden } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
 import { resyncOrgGroupRoles } from "./scim.js";
 
@@ -75,13 +78,24 @@ async function issueSession(userId: string, fingerprint: string, ua: string, ip:
   return { accessToken: access.token, accessTokenExpiresAt: access.expiresAt, refreshToken: refresh.raw };
 }
 
+/**
+ * La configuration de l'identité (SSO/SCIM) décide QUI peut ouvrir une session : réservée au
+ * PROPRIÉTAIRE de l'organisation, avec ré-authentification fraîche. Sans cela, un simple
+ * administrateur enregistrerait un faux fournisseur et se connecterait au nom de n'importe qui.
+ */
+async function requireOwnerWithReauth(req: FastifyRequest, orgId: string, userId: string): Promise<void> {
+  const ctx = await requireOrgPerm(req, orgId, "org.settings.manage");
+  if (!ctx.isOwner) throw forbidden("La configuration SSO/SCIM est réservée au propriétaire de l'organisation.");
+  requireReauth(req, userId);
+}
+
 export default async function ssoRoutes(app: FastifyInstance): Promise<void> {
   // --- Configure an org's OIDC provider ------------------------------------
   app.put("/orgs/:orgId/sso", { preHandler: authenticate }, async (req) => {
     const { orgId } = z.object({ orgId: z.string().uuid() }).parse(req.params);
     const b = ssoConfigSchema.parse(req.body);
     const actor = requireUser(req);
-    await requireOrgPerm(req, orgId, "org.settings.manage");
+    await requireOwnerWithReauth(req, orgId, actor.id);
     await query(`UPDATE organizations SET sso_config = $2, updated_at = now() WHERE id = $1`, [
       orgId,
       JSON.stringify(b),
@@ -106,7 +120,7 @@ export default async function ssoRoutes(app: FastifyInstance): Promise<void> {
   app.delete("/orgs/:orgId/sso", { preHandler: authenticate }, async (req) => {
     const { orgId } = z.object({ orgId: z.string().uuid() }).parse(req.params);
     const actor = requireUser(req);
-    await requireOrgPerm(req, orgId, "org.settings.manage");
+    await requireOwnerWithReauth(req, orgId, actor.id);
     await query(`UPDATE organizations SET sso_config = NULL WHERE id = $1`, [orgId]);
     await audit(orgId, actor.id, "org.sso.disable", "org", orgId, {}, req.ip);
     return { ok: true };
@@ -116,7 +130,7 @@ export default async function ssoRoutes(app: FastifyInstance): Promise<void> {
   app.post("/orgs/:orgId/scim-token", { preHandler: authenticate }, async (req) => {
     const { orgId } = z.object({ orgId: z.string().uuid() }).parse(req.params);
     const actor = requireUser(req);
-    await requireOrgPerm(req, orgId, "org.settings.manage");
+    await requireOwnerWithReauth(req, orgId, actor.id);
     const token = randomToken(32);
     await query(`UPDATE organizations SET scim_token_hash = $2 WHERE id = $1`, [orgId, sha256Hex(token)]);
     await audit(orgId, actor.id, "org.scim.token", "org", orgId, {}, req.ip);
@@ -146,8 +160,12 @@ export default async function ssoRoutes(app: FastifyInstance): Promise<void> {
       })
       .parse(req.body);
     const actor = requireUser(req);
-    await requireOrgPerm(req, orgId, "org.settings.manage");
+    await requireOwnerWithReauth(req, orgId, actor.id);
 
+    // Jamais de rôle propriétaire via un annuaire : il ne s'attribue que par transfert de propriété.
+    if ([b.defaultRoleKey, ...Object.values(b.groupRoleMap ?? {})].includes("owner")) {
+      throw badRequest("Le rôle propriétaire ne peut pas être attribué par SCIM/SSO.");
+    }
     // Every referenced role key must exist in this org.
     const keys = [b.defaultRoleKey, ...Object.values(b.groupRoleMap ?? {})];
     const known = await query<{ key: string }>(`SELECT key FROM roles WHERE org_id = $1 AND key = ANY($2::text[])`, [
@@ -228,6 +246,7 @@ export default async function ssoRoutes(app: FastifyInstance): Promise<void> {
       kdf_params: unknown;
       status: string;
       sso_subject: string | null;
+      mfa_enabled: boolean;
       membership_status: string;
     }>(
       `SELECT u.*, m.status AS membership_status
@@ -239,11 +258,24 @@ export default async function ssoRoutes(app: FastifyInstance): Promise<void> {
       await audit(b.orgId, null, "auth.sso.denied", "user", null, { email: claims.email }, req.ip);
       throw unauthorized("Aucun compte Elium actif pour cet e-mail dans cette organisation.");
     }
-    // Bind the OIDC subject on first use; refuse a mismatched subject later.
+    if (row.sso_subject && row.sso_subject !== claims.sub) {
+      throw unauthorized("L'identité SSO ne correspond pas au compte lié.");
+    }
+    // Un compte qui a un second facteur LOCAL (TOTP/clé d'accès) ne s'ouvre pas sur le seul jeton
+    // d'identité : on renvoie le même défi que la connexion par mot de passe (et on ne lie pas
+    // le `sub` sans ce second facteur). Un fournisseur d'identité faux ou compromis ne contourne donc pas la 2FA.
+    const webauthn = await hasWebauthn(row.id);
+    if (row.mfa_enabled || webauthn) {
+      await audit(b.orgId, row.id, "auth.sso.mfa_required", "user", row.id, {}, req.ip);
+      return {
+        mfaRequired: true as const,
+        mfaToken: issueScopedToken(row.id, MFA_LOGIN_PURPOSE),
+        methods: { totp: row.mfa_enabled, webauthn },
+      };
+    }
+    // Bind the OIDC subject on first use.
     if (!row.sso_subject) {
       await query(`UPDATE users SET sso_subject = $2 WHERE id = $1`, [row.id, claims.sub]);
-    } else if (row.sso_subject !== claims.sub) {
-      throw unauthorized("L'identité SSO ne correspond pas au compte lié.");
     }
 
     const session = await issueSession(row.id, row.fingerprint, req.headers["user-agent"] ?? "", req.ip);

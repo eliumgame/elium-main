@@ -18,11 +18,12 @@ import { verifyEd25519, sha256Hex, randomHex, encryptServerSecret, decryptServer
 import { issueAccessToken, newRefreshToken, hashToken, issueScopedToken, verifyScopedToken } from "../lib/tokens.js";
 import { generateTotpSecret, verifyTotp, otpauthUri, generateBackupCodes } from "../lib/totp.js";
 import { authenticate, requireUser } from "../middleware/auth.js";
-import { badRequest, unauthorized, conflict, notFound } from "../lib/errors.js";
+import { badRequest, unauthorized, conflict, notFound, ApiError } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
 import { config } from "../config.js";
 import { assertSignupAllowed, autoJoinSiteOrg, getSiteState } from "../lib/site-settings.js";
-import { verifySecondFactor } from "../lib/second-factor.js";
+import { verifySecondFactor, MFA_LOGIN_PURPOSE } from "../lib/second-factor.js";
+import { issueReauthToken, requireReauth } from "../lib/reauth.js";
 import {
   hasWebauthn,
   listCredentials,
@@ -36,7 +37,6 @@ import {
   consumeLoginChallenge,
 } from "../lib/webauthn.js";
 
-const MFA_LOGIN_PURPOSE = "mfa-login";
 // Standard client KDF parameters (mirror of DEFAULT_KDF_PARAMS in
 // web-studio/src/drive-cloud/kdf.ts). The prelogin DECOY must return these so
 // an unknown email is shape-identical to a real account (real accounts store
@@ -244,6 +244,8 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
       // Toutes les sessions s'arrêtent : seul le nouveau mot de passe ouvre le compte.
       await c.query(`UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`, [r.user_id]);
       await c.query(`UPDATE password_resets SET used_at = now() WHERE user_id = $1 AND used_at IS NULL`, [r.user_id]);
+      // Une passkey (éventuellement posée par un attaquant) ne doit pas survivre à une réinitialisation.
+      await c.query(`DELETE FROM webauthn_credentials WHERE user_id = $1`, [r.user_id]);
     });
     await audit((await getSiteState()).orgId, r.user_id, "auth.password_reset.complete", "user", r.user_id, {}, req.ip);
     return { ok: true, email: r.email };
@@ -542,6 +544,7 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
   app.post("/webauthn/register/verify", { preHandler: authenticate }, async (req) => {
     const b = responseSchema.parse(req.body);
     const user = requireUser(req);
+    requireReauth(req, user.id); // une passkey ajoutée par un voleur de jeton serait une porte dérobée durable
     const okReg = await verifyRegistration(user.id, b.response as never, b.name ?? "Passkey");
     if (!okReg) throw badRequest("Enrôlement WebAuthn invalide ou expiré.");
     await audit(null, user.id, "auth.webauthn.register", "user", user.id, {}, req.ip);
@@ -561,6 +564,7 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
   app.delete("/webauthn/credentials/:id", { preHandler: authenticate }, async (req) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const user = requireUser(req);
+    requireReauth(req, user.id);
     const r = await query(`DELETE FROM webauthn_credentials WHERE id = $1 AND user_id = $2 RETURNING id`, [
       id,
       user.id,
@@ -648,6 +652,45 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
       kdfParams: row.kdf_params,
       ...session,
     };
+  });
+
+  // --- Ré-authentification (opérations sensibles) ------------------------------
+  // Même défi-réponse que la connexion : prouve la connaissance du mot de passe (signature d'un
+  // défi frais par la clé d'authentification) et, si le compte a un TOTP, un code valide.
+  app.post("/reauth", { preHandler: authenticate, ...rl(10) }, async (req) => {
+    const user = requireUser(req);
+    const b = z
+      .object({ challengeId: z.string().uuid(), signature: hex(128), code: z.string().max(32).optional() })
+      .parse(req.body);
+    const row = await queryOne<{ auth_sign_public_hex: string | null; mfa_enabled: boolean }>(
+      `SELECT auth_sign_public_hex, mfa_enabled FROM users WHERE id = $1 AND status = 'active'`,
+      [user.id],
+    );
+    const ch = await queryOne<{ user_id: string; nonce: string; expires_at: string; used_at: string | null }>(
+      `SELECT user_id, nonce, expires_at, used_at FROM login_challenges WHERE id = $1`,
+      [b.challengeId],
+    );
+    if (ch) await query(`UPDATE login_challenges SET used_at = now() WHERE id = $1`, [b.challengeId]); // usage unique
+    if (
+      !row?.auth_sign_public_hex ||
+      !ch ||
+      ch.user_id !== user.id ||
+      ch.used_at ||
+      new Date(ch.expires_at).getTime() < Date.now() ||
+      !verifyEd25519(ch.nonce, b.signature, row.auth_sign_public_hex)
+    ) {
+      await audit(null, user.id, "auth.reauth.denied", "user", user.id, {}, req.ip);
+      throw unauthorized("Mot de passe incorrect.");
+    }
+    if (row.mfa_enabled) {
+      if (!b.code) throw new ApiError(403, "mfa_code_required", "Saisissez aussi un code de vérification.");
+      if (!(await verifySecondFactor(user.id, b.code))) {
+        await audit(null, user.id, "auth.reauth.denied", "user", user.id, { reason: "mfa" }, req.ip);
+        throw unauthorized("Code de vérification invalide.");
+      }
+    }
+    await audit(null, user.id, "auth.reauth", "user", user.id, {}, req.ip);
+    return { reauthToken: issueReauthToken(user.id) };
   });
 
   // --- Change password / key passphrase ------------------------------------

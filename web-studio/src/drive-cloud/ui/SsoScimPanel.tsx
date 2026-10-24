@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { KeyRound, Copy, Check, Trash2, ShieldCheck, RefreshCw } from "lucide-react";
 import { useDrive } from "../session";
+import { useReauth } from "./useReauth";
 
 /** Accept a raw JWKS array or a `{ keys: [...] }` object; throw on anything else. */
 function parseJwks(text: string): unknown[] {
@@ -19,6 +20,7 @@ function parseJwks(text: string): unknown[] {
 
 export default function SsoScimPanel() {
   const d = useDrive();
+  const reauth = useReauth(); // SSO/SCIM : réservé au propriétaire, avec confirmation fraîche
   const orgId = d.currentOrg?.id ?? "";
 
   const [issuer, setIssuer] = useState("");
@@ -81,7 +83,9 @@ export default function SsoScimPanel() {
         const g = row.group.trim();
         if (g && row.roleKey) groupRoleMap[g] = row.roleKey;
       }
-      await d.api.setOrgScimConfig(orgId, { defaultRoleKey, groupRoleMap });
+      const tok = await reauth();
+      if (!tok) return;
+      await d.api.setOrgScimConfig(orgId, { defaultRoleKey, groupRoleMap }, tok);
       setMsg("Configuration de provisioning SCIM enregistrée.");
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Échec de l'enregistrement de la configuration SCIM.");
@@ -116,13 +120,19 @@ export default function SsoScimPanel() {
         .split(/[,\s]+/)
         .map((s) => s.trim())
         .filter(Boolean);
-      await d.api.setOrgSso(orgId, {
-        issuer: issuer.trim(),
-        clientId: clientId.trim(),
-        ...(uri ? { jwksUri: uri } : {}),
-        ...(keys.length ? { jwks: keys } : {}),
-        allowedDomains,
-      });
+      const tok = await reauth();
+      if (!tok) return;
+      await d.api.setOrgSso(
+        orgId,
+        {
+          issuer: issuer.trim(),
+          clientId: clientId.trim(),
+          ...(uri ? { jwksUri: uri } : {}),
+          ...(keys.length ? { jwks: keys } : {}),
+          allowedDomains,
+        },
+        tok,
+      );
       setConfigured(true);
       setMsg("Configuration SSO enregistrée.");
     } catch (e) {
@@ -137,7 +147,9 @@ export default function SsoScimPanel() {
     setMsg(null);
     setBusy(true);
     try {
-      await d.api.disableOrgSso(orgId);
+      const tok = await reauth();
+      if (!tok) return;
+      await d.api.disableOrgSso(orgId, tok);
       setConfigured(false);
       setIssuer("");
       setClientId("");
@@ -156,7 +168,9 @@ export default function SsoScimPanel() {
     setErr(null);
     setBusy(true);
     try {
-      const { token } = await d.api.createScimToken(orgId);
+      const tok = await reauth();
+      if (!tok) return;
+      const { token } = await d.api.createScimToken(orgId, tok);
       setScimToken(token);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Échec de la génération du jeton SCIM.");

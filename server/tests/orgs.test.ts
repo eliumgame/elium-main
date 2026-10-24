@@ -72,8 +72,13 @@ async function makeApp(): Promise<FastifyInstance> {
   return app;
 }
 
-function txDispatch(map: Array<[RegExp, (params?: unknown[]) => { rows: unknown[]; rowCount?: number }]>, sink?: string[]) {
-  return async (fn: (c: { query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[]; rowCount?: number }> }) => unknown) =>
+function txDispatch(
+  map: Array<[RegExp, (params?: unknown[]) => { rows: unknown[]; rowCount?: number }]>,
+  sink?: string[],
+) {
+  return async (
+    fn: (c: { query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[]; rowCount?: number }> }) => unknown,
+  ) =>
     fn({
       query: async (sql: string, params?: unknown[]) => {
         sink?.push(sql);
@@ -204,7 +209,16 @@ describe("GET /api/orgs", () => {
     const res = await app.inject({ method: "GET", url: `/api/orgs` });
     expect(res.statusCode).toBe(200);
     expect(res.json().organizations).toEqual([
-      { id: ORG, name: "Acme", slug: "acme", orgPublicHex: HEX130, settings: {}, storageQuotaBytes: null, roleId: ROLE, roleKey: "owner" },
+      {
+        id: ORG,
+        name: "Acme",
+        slug: "acme",
+        orgPublicHex: HEX130,
+        settings: {},
+        storageQuotaBytes: null,
+        roleId: ROLE,
+        roleKey: "owner",
+      },
     ]);
     await app.close();
   });
@@ -220,7 +234,14 @@ describe("GET /api/orgs/:orgId", () => {
       permissions: new Set(["org.settings.view"]),
       isOwner: true,
     } as never);
-    mQueryOne.mockResolvedValueOnce({ id: ORG, name: "Acme", slug: "acme", org_public_hex: HEX130, settings: {}, storage_quota_bytes: null });
+    mQueryOne.mockResolvedValueOnce({
+      id: ORG,
+      name: "Acme",
+      slug: "acme",
+      org_public_hex: HEX130,
+      settings: {},
+      storage_quota_bytes: null,
+    });
     const app = await makeApp();
     const res = await app.inject({ method: "GET", url: `/api/orgs/${ORG}` });
     expect(res.statusCode).toBe(200);
@@ -240,7 +261,9 @@ describe("GET /api/orgs/:orgId", () => {
   });
 
   it("403 when the caller isn't a member of the org", async () => {
-    mRequireOrgPerm.mockRejectedValueOnce(new ApiError(403, "forbidden", "Vous n'êtes pas membre de cette organisation."));
+    mRequireOrgPerm.mockRejectedValueOnce(
+      new ApiError(403, "forbidden", "Vous n'êtes pas membre de cette organisation."),
+    );
     const app = await makeApp();
     const res = await app.inject({ method: "GET", url: `/api/orgs/${ORG}` });
     expect(res.statusCode).toBe(403);
@@ -383,7 +406,11 @@ describe("POST /api/orgs/invites/accept", () => {
       ]) as never,
     );
     const app = await makeApp();
-    const res = await app.inject({ method: "POST", url: `/api/orgs/invites/accept`, payload: { token: "a-valid-token-1234" } });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/orgs/invites/accept`,
+      payload: { token: "a-valid-token-1234" },
+    });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ orgId: ORG, roleId: ROLE });
     expect(mAudit).toHaveBeenCalledWith(ORG, USER, "member.invite.accept", "membership", null, {}, expect.any(String));
@@ -393,7 +420,11 @@ describe("POST /api/orgs/invites/accept", () => {
   it("400 for an unknown token", async () => {
     mWithTx.mockImplementation(txDispatch([]) as never);
     const app = await makeApp();
-    const res = await app.inject({ method: "POST", url: `/api/orgs/invites/accept`, payload: { token: "unknown-token-1234" } });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/orgs/invites/accept`,
+      payload: { token: "unknown-token-1234" },
+    });
     expect(res.statusCode).toBe(400);
     await app.close();
   });
@@ -405,14 +436,24 @@ describe("POST /api/orgs/invites/accept", () => {
           /SELECT id, org_id, role_id, expires_at, accepted_at/,
           () => ({
             rows: [
-              { id: "invite-1", org_id: ORG, role_id: ROLE, expires_at: new Date(Date.now() + 10_000).toISOString(), accepted_at: "2026-01-01T00:00:00Z" },
+              {
+                id: "invite-1",
+                org_id: ORG,
+                role_id: ROLE,
+                expires_at: new Date(Date.now() + 10_000).toISOString(),
+                accepted_at: "2026-01-01T00:00:00Z",
+              },
             ],
           }),
         ],
       ]) as never,
     );
     const app = await makeApp();
-    const res = await app.inject({ method: "POST", url: `/api/orgs/invites/accept`, payload: { token: "used-token-1234567" } });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/orgs/invites/accept`,
+      payload: { token: "used-token-1234567" },
+    });
     expect(res.statusCode).toBe(400);
     await app.close();
   });
@@ -423,13 +464,25 @@ describe("POST /api/orgs/invites/accept", () => {
         [
           /SELECT id, org_id, role_id, expires_at, accepted_at/,
           () => ({
-            rows: [{ id: "invite-1", org_id: ORG, role_id: ROLE, expires_at: new Date(Date.now() - 10_000).toISOString(), accepted_at: null }],
+            rows: [
+              {
+                id: "invite-1",
+                org_id: ORG,
+                role_id: ROLE,
+                expires_at: new Date(Date.now() - 10_000).toISOString(),
+                accepted_at: null,
+              },
+            ],
           }),
         ],
       ]) as never,
     );
     const app = await makeApp();
-    const res = await app.inject({ method: "POST", url: `/api/orgs/invites/accept`, payload: { token: "expired-token-123" } });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/orgs/invites/accept`,
+      payload: { token: "expired-token-123" },
+    });
     expect(res.statusCode).toBe(400);
     await app.close();
   });
@@ -439,9 +492,76 @@ describe("POST /api/orgs/invites/accept", () => {
 //  Member role changes / removal
 // =============================================================================
 
+describe("plafond de privilège (un gestionnaire ne s'élève pas)", () => {
+  const manager = () =>
+    mRequireOrgPerm.mockResolvedValue({
+      orgId: ORG,
+      membershipId: "m1",
+      roleId: "r1",
+      roleKey: "manager",
+      permissions: new Set<string>(["member.role.assign", "member.invite", "node.view", "node.edit"]),
+      isOwner: false,
+    } as never);
+  const patch = (app: FastifyInstance, userId = OTHER_USER) =>
+    app.inject({ method: "PATCH", url: `/api/orgs/${ORG}/members/${userId}`, payload: { roleId: ROLE } });
+
+  it("refuse d'attribuer un rôle plus puissant que le sien (admin) — attribution et invitation", async () => {
+    manager();
+    const app = await makeApp();
+    mQueryOne.mockResolvedValueOnce({
+      id: ROLE,
+      key: "admin",
+      permissions: ["node.view", "role.manage", "org.settings.manage"],
+    });
+    expect((await patch(app)).statusCode).toBe(403);
+    mQueryOne.mockResolvedValueOnce({ id: ROLE, key: "admin", permissions: ["role.manage"] });
+    const inv = await app.inject({
+      method: "POST",
+      url: `/api/orgs/${ORG}/invites`,
+      payload: { email: "x@example.org", roleId: ROLE },
+    });
+    expect(inv.statusCode).toBe(403);
+    await app.close();
+  });
+
+  it("n'attribue jamais le rôle propriétaire, même à un administrateur", async () => {
+    mRequireOrgPerm.mockResolvedValue({
+      orgId: ORG,
+      membershipId: "m1",
+      roleId: "r1",
+      roleKey: "admin",
+      permissions: new Set<string>(["member.role.assign", "member.invite", "role.manage"]),
+      isOwner: false,
+    } as never);
+    const app = await makeApp();
+    mQueryOne.mockResolvedValueOnce({ id: ROLE, key: "owner", permissions: [] });
+    expect((await patch(app)).statusCode).toBe(403);
+    await app.close();
+  });
+
+  it("refuse de modifier son propre rôle et celui d'un membre plus puissant (ou du propriétaire)", async () => {
+    manager();
+    const app = await makeApp();
+    mQueryOne.mockResolvedValueOnce({ id: ROLE, key: "editor", permissions: ["node.view"] });
+    expect((await patch(app, USER)).statusCode).toBe(403);
+    mQueryOne
+      .mockResolvedValueOnce({ id: ROLE, key: "editor", permissions: ["node.view"] })
+      .mockResolvedValueOnce({ key: "admin", permissions: ["role.manage", "node.view"] });
+    expect((await patch(app)).statusCode).toBe(403);
+    mQueryOne
+      .mockResolvedValueOnce({ id: ROLE, key: "editor", permissions: ["node.view"] })
+      .mockResolvedValueOnce({ key: "owner", permissions: [] });
+    expect((await patch(app)).statusCode).toBe(403);
+    await app.close();
+  });
+});
+
 describe("PATCH /api/orgs/:orgId/members/:userId", () => {
   it("changes a member's role", async () => {
-    mQueryOne.mockResolvedValueOnce({ id: ROLE }).mockResolvedValueOnce({ id: "m2", role_id: ROLE });
+    mQueryOne
+      .mockResolvedValueOnce({ id: ROLE, key: "editor", permissions: [] })
+      .mockResolvedValueOnce({ key: "viewer", permissions: [] }) // rôle actuel de la cible
+      .mockResolvedValueOnce({ id: "m2", role_id: ROLE });
     const app = await makeApp();
     const res = await app.inject({
       method: "PATCH",
@@ -450,12 +570,20 @@ describe("PATCH /api/orgs/:orgId/members/:userId", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ userId: OTHER_USER, roleId: ROLE });
-    expect(mAudit).toHaveBeenCalledWith(ORG, USER, "member.role.assign", "membership", "m2", { userId: OTHER_USER, roleId: ROLE }, expect.any(String));
+    expect(mAudit).toHaveBeenCalledWith(
+      ORG,
+      USER,
+      "member.role.assign",
+      "membership",
+      "m2",
+      { userId: OTHER_USER, roleId: ROLE },
+      expect.any(String),
+    );
     await app.close();
   });
 
   it("404 when the target isn't a member of this org", async () => {
-    mQueryOne.mockResolvedValueOnce({ id: ROLE }).mockResolvedValueOnce(null);
+    mQueryOne.mockResolvedValueOnce({ id: ROLE }).mockResolvedValueOnce(null).mockResolvedValueOnce(null);
     const app = await makeApp();
     const res = await app.inject({
       method: "PATCH",
@@ -498,7 +626,15 @@ describe("DELETE /api/orgs/:orgId/members/:userId", () => {
     const res = await app.inject({ method: "DELETE", url: `/api/orgs/${ORG}/members/${OTHER_USER}` });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ ok: true });
-    expect(mAudit).toHaveBeenCalledWith(ORG, USER, "member.remove", "membership", "m3", { userId: OTHER_USER }, expect.any(String));
+    expect(mAudit).toHaveBeenCalledWith(
+      ORG,
+      USER,
+      "member.remove",
+      "membership",
+      "m3",
+      { userId: OTHER_USER },
+      expect.any(String),
+    );
     await app.close();
   });
 
@@ -554,7 +690,15 @@ describe("POST /api/orgs/:orgId/transfer-ownership", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ ok: true });
-    expect(mAudit).toHaveBeenCalledWith(ORG, USER, "org.ownership.transfer", "org", ORG, { newOwnerUserId: OTHER_USER }, expect.any(String));
+    expect(mAudit).toHaveBeenCalledWith(
+      ORG,
+      USER,
+      "org.ownership.transfer",
+      "org",
+      ORG,
+      { newOwnerUserId: OTHER_USER },
+      expect.any(String),
+    );
     await app.close();
   });
 
@@ -646,7 +790,15 @@ describe("PATCH /api/orgs/:orgId/quota", () => {
     const res = await app.inject({ method: "PATCH", url: `/api/orgs/${ORG}/quota`, payload: { quotaBytes: 2048 } });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ quotaBytes: 2048 });
-    expect(mAudit).toHaveBeenCalledWith(ORG, USER, "org.quota.update", "org", ORG, { quotaBytes: 2048 }, expect.any(String));
+    expect(mAudit).toHaveBeenCalledWith(
+      ORG,
+      USER,
+      "org.quota.update",
+      "org",
+      ORG,
+      { quotaBytes: 2048 },
+      expect.any(String),
+    );
     await app.close();
   });
 
@@ -710,7 +862,11 @@ describe("PATCH /api/orgs/:orgId/settings", () => {
   it("updates settings", async () => {
     mQueryOne.mockResolvedValueOnce({ settings: { theme: "light" } });
     const app = await makeApp();
-    const res = await app.inject({ method: "PATCH", url: `/api/orgs/${ORG}/settings`, payload: { settings: { theme: "light" } } });
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/orgs/${ORG}/settings`,
+      payload: { settings: { theme: "light" } },
+    });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ settings: { theme: "light" } });
     expect(mAudit).toHaveBeenCalledWith(ORG, USER, "org.settings.update", "org", ORG, {}, expect.any(String));
@@ -776,7 +932,15 @@ describe("POST /api/orgs/:orgId/recovery/admins", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ ok: true });
-    expect(mAudit).toHaveBeenCalledWith(ORG, USER, "recovery.admin.grant", "org", ORG, { adminUserId: OTHER_USER }, expect.any(String));
+    expect(mAudit).toHaveBeenCalledWith(
+      ORG,
+      USER,
+      "recovery.admin.grant",
+      "org",
+      ORG,
+      { adminUserId: OTHER_USER },
+      expect.any(String),
+    );
     await app.close();
   });
 
@@ -813,7 +977,15 @@ describe("DELETE /api/orgs/:orgId/recovery/admins/:userId", () => {
     const res = await app.inject({ method: "DELETE", url: `/api/orgs/${ORG}/recovery/admins/${OTHER_USER}` });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ ok: true });
-    expect(mAudit).toHaveBeenCalledWith(ORG, USER, "recovery.admin.revoke", "org", ORG, { adminUserId: OTHER_USER }, expect.any(String));
+    expect(mAudit).toHaveBeenCalledWith(
+      ORG,
+      USER,
+      "recovery.admin.revoke",
+      "org",
+      ORG,
+      { adminUserId: OTHER_USER },
+      expect.any(String),
+    );
     await app.close();
   });
 
@@ -927,7 +1099,9 @@ describe("POST /api/orgs/:orgId/recovery/rotate-org", () => {
   });
 
   it("409 conflict when expectedEpoch is stale (concurrent rotation)", async () => {
-    mWithTx.mockImplementation(txDispatch([[/SELECT org_key_epoch/, () => ({ rows: [{ org_key_epoch: 5 }] })]]) as never);
+    mWithTx.mockImplementation(
+      txDispatch([[/SELECT org_key_epoch/, () => ({ rows: [{ org_key_epoch: 5 }] })]]) as never,
+    );
     const app = await makeApp();
     const res = await app.inject({
       method: "POST",
@@ -943,7 +1117,10 @@ describe("POST /api/orgs/:orgId/recovery/rotate-org", () => {
       txDispatch([
         [/SELECT org_key_epoch/, () => ({ rows: [{ org_key_epoch: 0 }] })],
         // A current admin (OTHER_USER) is not covered by the payload's recoveryKeys.
-        [/SELECT admin_user_id FROM org_recovery_keys/, () => ({ rows: [{ admin_user_id: USER }, { admin_user_id: OTHER_USER }] })],
+        [
+          /SELECT admin_user_id FROM org_recovery_keys/,
+          () => ({ rows: [{ admin_user_id: USER }, { admin_user_id: OTHER_USER }] }),
+        ],
       ]) as never,
     );
     const app = await makeApp();
@@ -1002,7 +1179,11 @@ describe("GET/PUT /api/orgs/:orgId/recovery/rotation-config", () => {
 
   it("GET surfaces a configured cadence and due-since flag", async () => {
     mQueryOne.mockResolvedValueOnce({
-      settings: { keyRotationDays: 90, keyRotationLastRotatedAt: "2026-01-01T00:00:00.000Z", keyRotationDueSince: "2026-04-01T00:00:00.000Z" },
+      settings: {
+        keyRotationDays: 90,
+        keyRotationLastRotatedAt: "2026-01-01T00:00:00.000Z",
+        keyRotationDueSince: "2026-04-01T00:00:00.000Z",
+      },
     } as never);
     const app = await makeApp();
     const res = await app.inject({ method: "GET", url: `/api/orgs/${ORG}/recovery/rotation-config` });
@@ -1091,7 +1272,9 @@ describe("GET/PUT /api/orgs/:orgId/recovery/rotation-config", () => {
 
 describe("GET /api/orgs/:orgId/recovery/admins", () => {
   it("lists the admins who hold a wrapped org private key", async () => {
-    mQuery.mockResolvedValueOnce([{ user_id: USER, email: "u@example.org", display_name: "U", created_at: "t" }] as never);
+    mQuery.mockResolvedValueOnce([
+      { user_id: USER, email: "u@example.org", display_name: "U", created_at: "t" },
+    ] as never);
     const app = await makeApp();
     const res = await app.inject({ method: "GET", url: `/api/orgs/${ORG}/recovery/admins` });
     expect(res.statusCode).toBe(200);

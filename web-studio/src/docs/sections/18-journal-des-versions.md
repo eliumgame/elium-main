@@ -2,6 +2,16 @@
 
 > Dernière version publiée : **4.10.0**, étiquetée le 4 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
 
+### Version 4.26.0 — version officielle : fin des gels, portail du propriétaire, fichiers locaux
+
+Cette version rassemble le travail des versions 4.16 à 4.25 :
+
+- **Plus de gel** : import Excel en flux dans un Worker (avec progression, annulation et choix de plage), enregistrement et lecture PDF dans un Worker, Documents, Présentations, collaboration, Tableur, espace de travail et Détecteur sans tâche bloquante ; veille des tâches longues dans le journal d'incidents.
+- **Portail du propriétaire** : un Drive par déploiement, compte obligatoire, réglages sans toucher au code (inscription, quotas, sauvegarde obligatoire, 2FA, sessions), code d'activation à usage unique et jauge de stockage réel.
+- **App Windows** : enregistrement en fichiers locaux (Documents\Elium).
+- **Reprise après mise à jour** : plus d'écran d'erreur si l'application est mise à jour pendant qu'une page est ouverte.
+- **Serveur** : zod 4 et fastify 5.12.7 (audit de dépendances au vert).
+
 ### Version 4.25.0 — Documents : publipostage, import Word et recherche sans gel
 
 - **Publipostage** : fusion par tranches (l'interface reste réactive, avec compteur), plafonnée à 200 enregistrements par document fusionné — au-delà, un message invite à fusionner par lots. Les champs utilisés ne sont plus recalculés à chaque rendu de la fenêtre.

@@ -14,6 +14,7 @@ import "../drive-cloud.css";
 import { useDrive } from "../session";
 import AuthPanel from "./AuthPanel";
 import SecurityPanel from "./SecurityPanel";
+import ResetPasswordPage, { resetTokenFromSearch } from "./ResetPasswordPage";
 
 /**
  * Pages publiques par conception, ouvertes SANS compte (le secret de déchiffrement
@@ -32,6 +33,12 @@ export function isPublicEntry(search: string): boolean {
 export default function SiteGate({ children }: { children: ReactNode }) {
   const d = useDrive();
   if (d.policy === null) return <>{children}</>; // pas de serveur Drive : mode local
+  // Lien de réinitialisation de mot de passe (?reset=…) : page dédiée, sans compte.
+  const resetToken = resetTokenFromSearch(typeof window === "undefined" ? "" : window.location.search);
+  if (resetToken) {
+    if (d.policy === undefined) return <div className="dc-loading" role="status">Chargement…</div>;
+    return <ResetPasswordPage token={resetToken} />;
+  }
   if (isPublicEntry(typeof window === "undefined" ? "" : window.location.search)) return <>{children}</>;
   if (d.policy === undefined || d.status === "loading") {
     return (

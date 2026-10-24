@@ -29,6 +29,7 @@ vi.mock("../src/middleware/auth.js", () => ({
 }));
 vi.mock("../src/lib/audit.js", () => ({ audit: vi.fn(async () => {}) }));
 vi.mock("../src/lib/webauthn.js", () => ({ hasWebauthn: vi.fn(async () => false) }));
+vi.mock("../src/lib/second-factor.js", () => ({ verifySecondFactor: vi.fn(async (_u: string, code: string) => code === "123456") }));
 
 import { query, queryOne } from "../src/db/pool.js";
 import { ApiError } from "../src/lib/errors.js";
@@ -167,8 +168,48 @@ describe("routes propriétaire", () => {
     expect(refused.statusCode).toBe(409);
     db({ siteOrg: ORG, mfa: true });
     invalidateSiteSettings();
-    const ok = await app.inject({ method: "PUT", url: "/api/site/admin/settings", payload });
+    const ok = await app.inject({ method: "PUT", url: "/api/site/admin/settings", payload: { ...payload, mfaProof: "123456" } });
     expect(ok.statusCode).toBe(200);
+  });
+
+  it("PUT settings : imposer la 2FA exige une RÉ-AUTHENTIFICATION (code valide) — sinon 403", async () => {
+    db({ siteOrg: ORG, mfa: true });
+    const app = await makeApp();
+    const base = { settings: { ...validSettings, mfaPolicy: "required" }, globalQuotaBytes: null };
+    const none = await app.inject({ method: "PUT", url: "/api/site/admin/settings", payload: base });
+    expect(none.statusCode).toBe(403);
+    expect(none.json().error.code).toBe("mfa_proof_required");
+    const bad = await app.inject({ method: "PUT", url: "/api/site/admin/settings", payload: { ...base, mfaProof: "000000" } });
+    expect(bad.statusCode).toBe(403);
+    expect(bad.json().error.code).toBe("mfa_proof_invalid");
+    expect(mQuery.mock.calls.some((c) => String(c[0]).includes("INSERT INTO site_settings"))).toBe(false);
+    // déjà imposée : enregistrer un autre réglage ne redemande pas de code
+    invalidateSiteSettings();
+    db({ siteOrg: ORG, mfa: true, settings: { mfaPolicy: "required" } });
+    const again = await app.inject({ method: "PUT", url: "/api/site/admin/settings", payload: base });
+    expect(again.statusCode).toBe(200);
+  });
+
+  it("POST password-reset : lien à usage unique, interdit pour soi-même, audit", async () => {
+    mQueryOne.mockImplementation((async (sql: string) => {
+      if (sql.includes("FROM site_settings")) return { org_id: ORG, settings: {} };
+      if (sql.includes("SELECT owner_user_id FROM organizations")) return { owner_user_id: OWNER };
+      if (sql.includes("FROM memberships WHERE org_id")) return { id: "m1" };
+      return null;
+    }) as never);
+    const app = await makeApp();
+    const self = await app.inject({ method: "POST", url: `/api/site/admin/users/${OWNER}/password-reset` });
+    expect(self.statusCode).toBe(409);
+    const res = await app.inject({ method: "POST", url: `/api/site/admin/users/${MEMBER}/password-reset` });
+    expect(res.statusCode).toBe(200);
+    const { token, expiresAt } = res.json();
+    expect(token.length).toBeGreaterThan(20);
+    expect(new Date(expiresAt).getTime()).toBeGreaterThan(Date.now());
+    const ins = mQuery.mock.calls.find((c) => String(c[0]).includes("INSERT INTO password_resets"))!;
+    expect(JSON.stringify(ins[1])).not.toContain(token); // seule l'empreinte est stockée
+    expect(vi.mocked(audit)).toHaveBeenCalledWith(ORG, OWNER, "site.user.password_reset", "user", MEMBER, expect.anything(), expect.anything());
+    acting = MEMBER;
+    expect((await app.inject({ method: "POST", url: `/api/site/admin/users/${OWNER}/password-reset` })).statusCode).toBe(403);
   });
 
   it("PATCH user : le propriétaire ne peut être ni suspendu ni rétrogradé", async () => {

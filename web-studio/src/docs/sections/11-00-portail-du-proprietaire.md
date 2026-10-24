@@ -49,6 +49,32 @@ Dans **Stockage & sauvegarde**, le portail affiche l'espace **réellement libre 
 - **Alertes** : bandeau d'avertissement quand il reste moins de deux marges libres, bandeau critique sous la marge.
 - Avec `STORAGE_DRIVER=s3`, il n'y a pas de disque local à mesurer : la jauge est remplacée par une explication, et le garde-fou ne s'applique pas (surveillez le stockage chez votre fournisseur).
 
+### Ne pas s'enfermer dehors (2FA obligatoire)
+
+Imposer la 2FA à tous est le seul réglage capable de vous bloquer vous-même. Le portail ajoute donc trois protections :
+
+1. **Confirmation explicite** : une fenêtre rappelle qu'il faut disposer de l'application d'authentification **et** des codes de secours, et exige de cocher la case correspondante.
+2. **Ré-authentification** : vous saisissez, à cet instant, un code valide de votre application (ou un code de secours). Le serveur le vérifie (`403 mfa_proof_required` / `mfa_proof_invalid` sinon) : le réglage n'est pas enregistré sans lui. Un propriétaire qui n'utilise que des clés d'accès n'a pas de code à saisir ; la confirmation suffit.
+3. **Procédure de secours sur le serveur**, si le pire arrive :
+
+```bash
+docker compose exec api node dist/scripts/reset-owner-access.js proprietaire@exemple.fr
+```
+
+La commande demande de retaper l'adresse pour confirmer (ou `--yes` sans terminal : `docker compose exec -T api node dist/scripts/reset-owner-access.js <e-mail> --yes`). Elle **désactive la 2FA** du compte (application, codes de secours, clés d'accès), **remet la politique à « facultative »** si elle était imposée, **révoque ses sessions** et écrit l'opération (`owner.access.reset`) dans le journal d'audit chaîné. Elle ne touche ni au mot de passe ni aux clés. Reconnectez-vous ensuite avec votre mot de passe et réactivez la 2FA — en notant vos codes de secours.
+
+Connexion avec 2FA : le champ accepte le code de l'application **ou** un code de secours (majuscules, espaces ou tiret omis tolérés) ; le lien « Je n'ai plus mon application » rappelle la marche à suivre. Chaque code de secours ne sert qu'une fois.
+
+### Réinitialiser le mot de passe d'un utilisateur
+
+Le chiffrement de bout en bout lie les clés privées de chacun à son mot de passe : **le serveur ne peut pas « changer » un mot de passe en gardant les clés**. La réinitialisation est donc en deux temps, depuis **Utilisateurs → Mot de passe** :
+
+1. Le portail génère un **lien à usage unique, valable 24 h** (un seul lien actif par utilisateur ; seule son empreinte est stockée). Transmettez-le par un canal sûr.
+2. L'utilisateur ouvre le lien, choisit un nouveau mot de passe : un **nouveau jeu de clés** est créé dans son navigateur. Toutes ses sessions s'arrêtent. Sa 2FA, son rôle et son quota sont conservés.
+3. Vous cliquez sur **Rétablir ses accès** : avec la clé d'organisation (le mécanisme de recouvrement existant), les éléments dont il est propriétaire sont ré-enveloppés pour ses nouvelles clés.
+
+**Ce qui n'est pas rétabli automatiquement** : les éléments que d'autres lui avaient partagés (à rétablir un par un dans *Recouvrement*), ses équipes et ses anciennes signatures. Sans recouvrement d'organisation, ses anciens fichiers privés restent illisibles. Le propriétaire ne peut pas se réinitialiser lui-même par ce lien (utilisez « Changer de mot de passe » dans Sécurité, ou la procédure de secours pour la 2FA).
+
 ### Réglages de déploiement (`.env`)
 
 Ces valeurs ne se changent pas depuis l'interface :
@@ -77,4 +103,5 @@ Menu **Sécurité** :
 
 - Serveur : `server/tests/site.test.ts` (routes, validation, contrôle d'inscription) et `server/tests/activation-disk.test.ts` (code d'activation, disque), lancés par `npm test` dans `server/`.
 - Client : `web-studio/tests/owner-portal.test.ts`.
-- Multi-utilisateurs de bout en bout (vrai PostgreSQL embarqué, vraie API, vrai SDK chiffré) : `npm run test:e2e:portal` dans `web-studio/`.
+- Multi-utilisateurs de bout en bout (vrai PostgreSQL embarqué, vraie API, vrai SDK chiffré) : `npm run test:e2e:portal` dans `web-studio/` (dont réinitialisation de mot de passe, codes de secours et procédure de secours).
+- Parcours de connexion dans un vrai navigateur (inscription, verrou de session, TOTP, code de secours, 2FA obligatoire, enrôlement forcé, réinitialisation, suspension) : `npm run test:e2e:login` dans `web-studio/`.

@@ -49,6 +49,7 @@ export default function AuthPanel({ onHome, gated = false }: { onHome?: () => vo
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [mfaCode, setMfaCode] = useState("");
+  const [noApp, setNoApp] = useState(false);
 
   const locked = d.status === "locked";
   const mfa = d.status === "mfa";
@@ -202,21 +203,35 @@ export default function AuthPanel({ onHome, gated = false }: { onHome?: () => vo
               {(d.mfaMethods?.totp ?? true) && (
                 <form onSubmit={submit} className="dc-auth__form">
                   <label className="field">
-                    <span className="field__label">Code de vérification</span>
+                    <span className="field__label">Code de vérification ou code de secours</span>
                     <input
                       className="input"
                       value={mfaCode}
                       onChange={(e) => setMfaCode(e.target.value)}
-                      inputMode="numeric"
+                      inputMode="text"
+                      autoCapitalize="none"
+                      spellCheck={false}
                       autoComplete="one-time-code"
                       autoFocus
                       required
-                      placeholder="123456"
+                      placeholder={noApp ? "abcd-efgh" : "123456"}
+                      data-testid="mfa-code"
                     />
                   </label>
                   <button className="eb eb--primary eb--block" disabled={d.busy || mfaCode.trim().length < 6}>
                     <ShieldCheck size={16} /> Vérifier
                   </button>
+                  <button type="button" className="dc-auth__switch" onClick={() => setNoApp((v) => !v)} data-testid="mfa-noapp">
+                    Je n'ai plus mon application
+                  </button>
+                  {noApp && (
+                    <p className="muted" data-testid="mfa-noapp-help">
+                      Saisissez l'un de vos <b>codes de secours</b> (format <code>abcd-efgh</code>) dans le champ
+                      ci-dessus : chacun ne sert qu'une fois. Plus de codes de secours ? Demandez au propriétaire du
+                      Drive de vous aider ; s'il s'agit du propriétaire, une procédure de secours existe sur le
+                      serveur (voir la documentation, « Portail du propriétaire »).
+                    </p>
+                  )}
                 </form>
               )}
               {d.error && <p className="dc-error">{d.error}</p>}

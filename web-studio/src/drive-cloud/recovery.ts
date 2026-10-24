@@ -111,6 +111,41 @@ export async function restoreNodeAccess(
 }
 
 /**
+ * Rétablit, avec la clé d'organisation, l'accès d'un membre à TOUS les nœuds dont il
+ * est propriétaire — après une réinitialisation de mot de passe (nouvelles clés :
+ * les anciens enveloppements ne lui servent plus). Une seule ouverture de la clé
+ * d'organisation pour tout le lot. Renvoie le nombre d'éléments rétablis.
+ */
+export async function restoreOwnedNodes(
+  ctx: RecoveryContext,
+  target: { userId: string; publicHex: string },
+  roleId: string,
+): Promise<number> {
+  const { nodes } = await ctx.api.listRecoveryNodes(ctx.orgId);
+  const mine = nodes.filter((n) => n.ownerUserId === target.userId);
+  if (!mine.length) return 0;
+  return withOrgKey(ctx, async (orgKp) => {
+    let done = 0;
+    for (const n of mine) {
+      const cek = await unwrapNodeKey(n.orgWrappedKey, orgKp);
+      try {
+        const wrappedKey = await wrapNodeKeyFor(cek, target.publicHex);
+        await ctx.api.recoveryGrant(ctx.orgId, {
+          nodeId: n.id,
+          targetUserId: target.userId,
+          roleId,
+          wrappedKey,
+        });
+        done++;
+      } finally {
+        wipe(cek);
+      }
+    }
+    return done;
+  });
+}
+
+/**
  * ROTATE the org keypair. Generates a new org keypair, re-wraps every node's
  * org-principal CEK to the new org public key, and re-wraps the new org private
  * key to each recovery admin — all client-side. The server then atomically swaps

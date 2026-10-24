@@ -55,28 +55,31 @@ export default function SecurityPanel() {
   const [delBusy, setDelBusy] = useState(false);
 
   const reload = useCallback(async () => {
-    let factor = false;
     try {
       const st = await d.api.mfaStatus();
       setStatus(st);
-      factor = st.enabled;
     } catch {
       setStatus(null);
     }
     try {
       const creds = (await d.api.webauthnCredentials()).credentials;
       setPasskeys(creds);
-      factor = factor || creds.length > 0;
     } catch {
       setPasskeys([]);
     }
-    // 2FA imposée par le propriétaire : dès qu'un facteur existe, on débloque l'accès.
-    if (factor && d.mfaEnrollRequired) void d.refreshSite();
+
   }, [d.api]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  // 2FA imposée par le propriétaire : une fois un facteur actif ET les codes de secours vus
+  // (stage « idle »), on débloque l'accès — sans cacher les codes à l'utilisateur.
+  useEffect(() => {
+    if (d.mfaEnrollRequired && stage === "idle" && (status?.enabled || passkeys.length > 0)) void d.refreshSite();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [d.mfaEnrollRequired, stage, status?.enabled, passkeys.length]);
 
   // Enrôler une clé : cérémonie navigator.credentials.create pilotée par
   // @simplewebauthn/browser, puis vérification côté serveur.

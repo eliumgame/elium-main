@@ -2,6 +2,15 @@
 
 > Dernière version publiée : **4.10.0**, étiquetée le 4 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
 
+### Version 4.27.0 — protections contre l'auto-blocage et réinitialisation de mot de passe
+
+- **Imposer la 2FA ne peut plus vous enfermer dehors par inadvertance** : le portail demande une confirmation explicite (application et codes de secours en lieu sûr) ET un code valide saisi à l'instant (ré-authentification, vérifiée par le serveur).
+- **Procédure de secours propriétaire** en ligne de commande sur le serveur : désactive la 2FA du compte, remet la politique à « facultative », coupe les sessions et écrit une entrée dans le journal d'audit.
+- **Connexion avec 2FA** : champ « code de vérification ou code de secours », lien « Je n'ai plus mon application », saisie tolérante des codes de secours (majuscules, espace, sans tiret).
+- **Enrôlement forcé** : l'écran laisse désormais voir les codes de secours avant d'ouvrir l'application.
+- **Réinitialisation de mot de passe par le propriétaire** : lien à usage unique valable 24 h ; l'utilisateur choisit un nouveau mot de passe (nouveau jeu de clés) ; le propriétaire rétablit ses accès par la clé d'organisation (« Rétablir ses accès »).
+- Parcours de connexion de bout en bout testé dans un vrai navigateur (`npm run test:e2e:login`).
+
 ### Version 4.26.0 — version officielle : fin des gels, portail du propriétaire, fichiers locaux
 
 Cette version rassemble le travail des versions 4.16 à 4.25 :

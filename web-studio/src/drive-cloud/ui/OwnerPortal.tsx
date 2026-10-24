@@ -25,6 +25,9 @@ import {
 import { useDrive } from "../session";
 import type { SiteAdminSettings, SiteDisk, SiteSettings, SiteUser, SignupMode } from "../api";
 import MembersPanel from "./MembersPanel";
+import { EnforceMfaDialog, PasswordResetDialog, RestoreAccessDialog } from "./PortalDialogs";
+import { restoreOwnedNodes } from "../recovery";
+import { ApiError } from "../api";
 
 export type PortalLink = "recovery" | "sso" | "roles" | "audit";
 type Section = "access" | "users" | "storage" | "security" | "invites";
@@ -204,6 +207,14 @@ export default function OwnerPortal({ onNavigate }: { onNavigate?: (t: PortalLin
   const [users, setUsers] = useState<SiteUser[]>([]);
   const [msg, setMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  // Dialogues : imposer la 2FA (ré-authentification), réinitialiser un mot de passe, rétablir des accès.
+  const [mfaDialog, setMfaDialog] = useState(false);
+  const [dialogBusy, setDialogBusy] = useState(false);
+  const [dialogErr, setDialogErr] = useState<string | null>(null);
+  const [resetFor, setResetFor] = useState<SiteUser | null>(null);
+  const [resetLink, setResetLink] = useState<string | null>(null);
+  const [restoreFor, setRestoreFor] = useState<SiteUser | null>(null);
+  const [restored, setRestored] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -243,19 +254,72 @@ export default function OwnerPortal({ onNavigate }: { onNavigate?: (t: PortalLin
     [data, draft, globalQuota],
   );
 
+  // Imposer la 2FA passe par une confirmation explicite + un code valide (anti auto-blocage).
   const save = async () => {
+    if (!draft || !data) return;
+    if (draft.mfaPolicy === "required" && data.settings.mfaPolicy !== "required") {
+      setDialogErr(null);
+      setMfaDialog(true);
+      return;
+    }
+    await doSave();
+  };
+
+  const doSave = async (mfaProof?: string) => {
     if (!draft) return;
     setBusy(true);
+    setDialogBusy(true);
     setMsg(null);
+    setDialogErr(null);
     try {
-      await d.api.putSiteSettings(draft, globalQuota);
+      await d.api.putSiteSettings(draft, globalQuota, mfaProof);
+      setMfaDialog(false);
       setMsg({ tone: "ok", text: "Réglages enregistrés." });
       await load();
       await d.refreshSite();
     } catch (e) {
-      setMsg({ tone: "err", text: e instanceof Error ? e.message : "Enregistrement impossible." });
+      const text = e instanceof Error ? e.message : "Enregistrement impossible.";
+      if (mfaDialog || (e instanceof ApiError && e.code.startsWith("mfa_proof"))) setDialogErr(text);
+      else setMsg({ tone: "err", text });
     } finally {
       setBusy(false);
+      setDialogBusy(false);
+    }
+  };
+
+  const startReset = async () => {
+    if (!resetFor) return;
+    setDialogBusy(true);
+    setDialogErr(null);
+    try {
+      const { token } = await d.api.createPasswordReset(resetFor.userId);
+      setResetLink(`${location.origin}/?reset=${token}`);
+    } catch (e) {
+      setDialogErr(e instanceof Error ? e.message : "Impossible de générer le lien.");
+    } finally {
+      setDialogBusy(false);
+    }
+  };
+
+  const runRestore = async () => {
+    if (!restoreFor || !data || !d.keys || !d.currentOrg?.orgPublicHex) return;
+    setDialogBusy(true);
+    setDialogErr(null);
+    try {
+      const { members } = await d.api.listMembers(data.orgId);
+      const m = (members as { userId: string; p256PublicHex: string }[]).find((x) => x.userId === restoreFor.userId);
+      if (!m) throw new Error("Membre introuvable.");
+      const roleId = d.roleIdByKey["owner"] ?? d.roleIdByKey["editor"] ?? "";
+      const n = await restoreOwnedNodes(
+        { api: d.api, orgId: data.orgId, orgPublicHex: d.currentOrg.orgPublicHex, adminKeys: d.keys.recipient },
+        { userId: m.userId, publicHex: m.p256PublicHex },
+        roleId,
+      );
+      setRestored(n);
+    } catch (e) {
+      setDialogErr(e instanceof Error ? e.message : "Rétablissement impossible.");
+    } finally {
+      setDialogBusy(false);
     }
   };
 
@@ -461,6 +525,30 @@ export default function OwnerPortal({ onNavigate }: { onNavigate?: (t: PortalLin
                           >
                             <LogOut size={13} />
                           </button>
+                          <button
+                            className="elx-mini"
+                            title="Générer un lien de réinitialisation du mot de passe"
+                            onClick={() => {
+                              setResetLink(null);
+                              setDialogErr(null);
+                              setResetFor(u);
+                            }}
+                            data-testid={`reset-${u.email}`}
+                          >
+                            <KeyRound size={13} /> Mot de passe
+                          </button>
+                          <button
+                            className="elx-mini"
+                            title="Rétablir l'accès à ses éléments (clé d'organisation)"
+                            onClick={() => {
+                              setRestored(null);
+                              setDialogErr(null);
+                              setRestoreFor(u);
+                            }}
+                            data-testid={`restore-${u.email}`}
+                          >
+                            <LifeBuoy size={13} /> Rétablir ses accès
+                          </button>
                           {u.suspended ? (
                             <button
                               className="elx-mini"
@@ -631,6 +719,36 @@ export default function OwnerPortal({ onNavigate }: { onNavigate?: (t: PortalLin
           </p>
           <MembersPanel />
         </section>
+      )}
+
+      {mfaDialog && (
+        <EnforceMfaDialog
+          ownerHasTotp={users.find((u) => u.isOwner)?.mfa === true}
+          busy={dialogBusy}
+          error={dialogErr}
+          onConfirm={(proof) => void doSave(proof)}
+          onCancel={() => setMfaDialog(false)}
+        />
+      )}
+      {resetFor && (
+        <PasswordResetDialog
+          user={resetFor}
+          busy={dialogBusy}
+          link={resetLink}
+          error={dialogErr}
+          onConfirm={() => void startReset()}
+          onClose={() => setResetFor(null)}
+        />
+      )}
+      {restoreFor && (
+        <RestoreAccessDialog
+          user={restoreFor}
+          busy={dialogBusy}
+          result={restored}
+          error={dialogErr}
+          onConfirm={() => void runRestore()}
+          onClose={() => setRestoreFor(null)}
+        />
       )}
 
       {(section === "access" || section === "storage" || section === "security") && (

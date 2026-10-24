@@ -13,7 +13,7 @@
 import type { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { query, queryOne } from "../db/pool.js";
+import { query, queryOne, withTx } from "../db/pool.js";
 import { verifyEd25519, sha256Hex, randomHex, encryptServerSecret, decryptServerSecret } from "../lib/crypto-server.js";
 import { issueAccessToken, newRefreshToken, hashToken, issueScopedToken, verifyScopedToken } from "../lib/tokens.js";
 import { generateTotpSecret, verifyTotp, otpauthUri, generateBackupCodes } from "../lib/totp.js";
@@ -21,7 +21,8 @@ import { authenticate, requireUser } from "../middleware/auth.js";
 import { badRequest, unauthorized, conflict, notFound } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
 import { config } from "../config.js";
-import { assertSignupAllowed, autoJoinSiteOrg } from "../lib/site-settings.js";
+import { assertSignupAllowed, autoJoinSiteOrg, getSiteState } from "../lib/site-settings.js";
+import { verifySecondFactor } from "../lib/second-factor.js";
 import {
   hasWebauthn,
   listCredentials,
@@ -46,35 +47,6 @@ const DECOY_KDF_PARAMS = { alg: "argon2id", t: 3, m: 262144, p: 4 } as const;
 // can never be used to enumerate which emails have an account — only the
 // (oracle-free) challenge-response outcome distinguishes them.
 const LOGIN_FAILURE_MESSAGE = "E-mail ou mot de passe incorrect, ou session de connexion expirée.";
-
-/** Verify a submitted 6-digit TOTP OR consume a one-time backup code. */
-async function verifySecondFactor(userId: string, code: string): Promise<boolean> {
-  const norm = code.replace(/\s/g, "");
-  const u = await queryOne<{ mfa_secret_enc: Buffer | null; mfa_secret_nonce: Buffer | null }>(
-    `SELECT mfa_secret_enc, mfa_secret_nonce FROM users WHERE id = $1 AND mfa_enabled = true`,
-    [userId],
-  );
-  if (u?.mfa_secret_enc && u.mfa_secret_nonce && /^\d{6}$/.test(norm)) {
-    try {
-      const secret = decryptServerSecret(u.mfa_secret_enc, u.mfa_secret_nonce);
-      if (verifyTotp(secret, norm)) return true;
-    } catch {
-      // The stored secret failed to decrypt (e.g. TOKEN_SECRET was rotated
-      // since enrollment). Don't crash the request with an uncaught 500 —
-      // fall through to the backup-code path below, which still works
-      // (backup codes are hashed, not encrypted under TOKEN_SECRET) and is
-      // the account's only remaining way out of a permanent lockout.
-    }
-  }
-  // Backup code fallback: single-use, matched by hash, then burned.
-  const used = await queryOne<{ id: string }>(
-    `UPDATE mfa_backup_codes SET used_at = now()
-      WHERE user_id = $1 AND code_hash = $2 AND used_at IS NULL
-      RETURNING id`,
-    [userId, sha256Hex(norm.toLowerCase())],
-  );
-  return !!used;
-}
 
 const hex = (len?: number) =>
   len ? z.string().regex(new RegExp(`^[0-9a-f]{${len}}$`)) : z.string().regex(/^[0-9a-f]+$/);
@@ -102,6 +74,27 @@ const registerSchema = z.object({
 });
 
 // Same bounds as the client decoders (core/container.py, crypto/kdf-profiles.ts).
+/** Preuves de possession d'un jeu de clés (inscription ET réinitialisation de mot de passe). */
+export function assertRegistrationProofs(b: z.infer<typeof registerSchema>): void {
+  // Convention Elium : l'empreinte est sha256 des OCTETS BRUTS de la clé
+  // publique (voir web-studio/src/sign/keys.ts), pas de sa représentation hex.
+  if (sha256Hex(Buffer.from(b.ed25519PublicHex, "hex")) !== b.fingerprint) {
+    throw badRequest("Empreinte incohérente avec la clé publique.");
+  }
+  const bindingMsg = `${b.email.toLowerCase()}|${b.ed25519PublicHex}|${b.p256PublicHex}`;
+  if (!verifyEd25519(bindingMsg, b.bindingProof, b.ed25519PublicHex)) {
+    throw badRequest("Preuve de possession de clé invalide.");
+  }
+  // Prove the client also holds the auth-sign private key it is registering.
+  if (!verifyEd25519(b.email.toLowerCase(), b.authSignProof, b.authSignPublicHex)) {
+    throw badRequest("Preuve de possession de la clé d'authentification invalide.");
+  }
+}
+
+const resetCompleteSchema = registerSchema
+  .omit({ inviteToken: true, activationCode: true })
+  .extend({ token: z.string().min(10).max(200) });
+
 const kdfParamsSchema = z.object({
   alg: z.literal("argon2id"),
   t: z.number().int().min(1).max(6),
@@ -164,19 +157,7 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
     const b = registerSchema.parse(req.body);
     await assertSignupAllowed(b.email, b.inviteToken, { activationCode: b.activationCode, ip: req.ip });
 
-    // Convention Elium : l'empreinte est sha256 des OCTETS BRUTS de la clé
-    // publique (voir web-studio/src/sign/keys.ts), pas de sa représentation hex.
-    if (sha256Hex(Buffer.from(b.ed25519PublicHex, "hex")) !== b.fingerprint) {
-      throw badRequest("Empreinte incohérente avec la clé publique.");
-    }
-    const bindingMsg = `${b.email.toLowerCase()}|${b.ed25519PublicHex}|${b.p256PublicHex}`;
-    if (!verifyEd25519(bindingMsg, b.bindingProof, b.ed25519PublicHex)) {
-      throw badRequest("Preuve de possession de clé invalide.");
-    }
-    // Prove the client also holds the auth-sign private key it is registering.
-    if (!verifyEd25519(b.email.toLowerCase(), b.authSignProof, b.authSignPublicHex)) {
-      throw badRequest("Preuve de possession de la clé d'authentification invalide.");
-    }
+    assertRegistrationProofs(b);
 
     const existing = await queryOne(`SELECT id FROM users WHERE email = $1`, [b.email]);
     if (existing) throw conflict("Un compte existe déjà pour cet e-mail.");
@@ -211,6 +192,61 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
     const session = await issueSession(app, row.id, row.fingerprint, req.headers["user-agent"] ?? "", req.ip);
     await audit(null, row.id, "auth.register", "user", row.id, {}, req.ip);
     return { user: userDto(row), ...session };
+  });
+
+  // --- Réinitialisation de mot de passe (lien émis par le propriétaire) -------
+  // Le serveur ne peut pas changer le mot de passe en gardant les clés (elles sont
+  // chiffrées par lui) : l'utilisateur choisit un mot de passe et génère un NOUVEAU
+  // jeu de clés ; ses anciens fichiers privés ne redeviennent lisibles que par le
+  // recouvrement d'organisation (le propriétaire les ré-enveloppe pour les nouvelles clés).
+  const resetRow = async (token: string) =>
+    queryOne<{ id: string; user_id: string; email: string; display_name: string; expires_at: string }>(
+      `SELECT r.id, r.user_id, u.email, u.display_name, r.expires_at
+         FROM password_resets r JOIN users u ON u.id = r.user_id
+        WHERE r.token_hash = $1 AND r.used_at IS NULL AND r.expires_at > now() AND u.status = 'active'`,
+      [sha256Hex(token)],
+    );
+
+  app.post("/reset/info", rl(30), async (req) => {
+    const { token } = z.object({ token: z.string().min(10).max(200) }).parse(req.body);
+    const r = await resetRow(token);
+    if (!r) throw notFound("Lien de réinitialisation invalide, expiré ou déjà utilisé.");
+    return { email: r.email, displayName: r.display_name, expiresAt: r.expires_at };
+  });
+
+  app.post("/reset/complete", rl(10), async (req) => {
+    const b = resetCompleteSchema.parse(req.body);
+    const r = await resetRow(b.token);
+    if (!r) throw notFound("Lien de réinitialisation invalide, expiré ou déjà utilisé.");
+    if (b.email.toLowerCase() !== r.email.toLowerCase()) throw badRequest("Ce lien ne correspond pas à cette adresse.");
+    assertRegistrationProofs({ ...b, inviteToken: undefined, activationCode: undefined });
+
+    await withTx(async (c) => {
+      const used = await c.query(`UPDATE password_resets SET used_at = now() WHERE id = $1 AND used_at IS NULL`, [
+        r.id,
+      ]);
+      if (!used.rowCount) throw notFound("Lien de réinitialisation invalide, expiré ou déjà utilisé.");
+      await c.query(
+        `UPDATE users SET ed25519_public_hex = $2, p256_public_hex = $3, fingerprint = $4,
+                auth_sign_public_hex = $5, kdf_salt = $6, kdf_params = $7, key_bundle = $8, updated_at = now()
+          WHERE id = $1`,
+        [
+          r.user_id,
+          b.ed25519PublicHex,
+          b.p256PublicHex,
+          b.fingerprint,
+          b.authSignPublicHex,
+          b.kdfSalt,
+          JSON.stringify(b.kdfParams),
+          JSON.stringify(b.keyBundle),
+        ],
+      );
+      // Toutes les sessions s'arrêtent : seul le nouveau mot de passe ouvre le compte.
+      await c.query(`UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`, [r.user_id]);
+      await c.query(`UPDATE password_resets SET used_at = now() WHERE user_id = $1 AND used_at IS NULL`, [r.user_id]);
+    });
+    await audit((await getSiteState()).orgId, r.user_id, "auth.password_reset.complete", "user", r.user_id, {}, req.ip);
+    return { ok: true, email: r.email };
   });
 
   // --- Prelogin: fetch the client KDF salt/params for an email -------------

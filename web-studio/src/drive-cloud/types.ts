@@ -96,6 +96,8 @@ export interface RecoveryNode {
   nameEncrypted: string;
   nameNonce: string;
   trashed: boolean;
+  /** Propriétaire du nœud (sert à rétablir en bloc les accès d'un utilisateur). */
+  ownerUserId?: string | null;
   orgWrappedKey: WrappedKey;
 }
 

@@ -443,8 +443,29 @@ export class DriveApi {
   getSiteSettings() {
     return this.json<SiteAdminSettings>("GET", "/site/admin/settings");
   }
-  putSiteSettings(settings: SiteSettings, globalQuotaBytes: number | null) {
-    return this.json<{ ok: boolean }>("PUT", "/site/admin/settings", { body: { settings, globalQuotaBytes } });
+  /** `mfaProof` : code TOTP ou de secours du propriétaire, exigé pour IMPOSER la 2FA. */
+  putSiteSettings(settings: SiteSettings, globalQuotaBytes: number | null, mfaProof?: string) {
+    return this.json<{ ok: boolean }>("PUT", "/site/admin/settings", {
+      body: { settings, globalQuotaBytes, ...(mfaProof ? { mfaProof } : {}) },
+    });
+  }
+  /** Lien de réinitialisation de mot de passe (usage unique, 24 h) pour un utilisateur. */
+  createPasswordReset(userId: string) {
+    return this.json<{ token: string; expiresAt: string }>("POST", `/site/admin/users/${userId}/password-reset`, {
+      body: {},
+    });
+  }
+  resetInfo(token: string) {
+    return this.json<{ email: string; displayName: string; expiresAt: string }>("POST", "/auth/reset/info", {
+      body: { token },
+      auth: false,
+    });
+  }
+  resetComplete(token: string, payload: RegistrationPayload) {
+    return this.json<{ ok: boolean; email: string }>("POST", "/auth/reset/complete", {
+      body: { ...payload, token },
+      auth: false,
+    });
   }
   siteUsers() {
     return this.json<{ defaultQuotaBytes: number | null; users: SiteUser[] }>("GET", "/site/admin/users");

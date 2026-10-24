@@ -21,12 +21,15 @@ import { z } from "zod";
 import { config } from "../config.js";
 import { query, queryOne, withTx } from "../db/pool.js";
 import { authenticate, requireUser } from "../middleware/auth.js";
-import { badRequest, conflict, notFound } from "../lib/errors.js";
+import { ApiError, badRequest, conflict, notFound } from "../lib/errors.js";
+import { verifySecondFactor } from "../lib/second-factor.js";
+import { randomToken, sha256Hex } from "../lib/crypto-server.js";
 import { audit } from "../lib/audit.js";
 import { isActivationRequired } from "../lib/activation.js";
 import { diskMarginBytes, getDiskStats } from "../lib/disk.js";
 import {
   getSiteState,
+  getSiteSettings,
   invalidateSiteSettings,
   isSiteOwner,
   mfaEnrollmentRequired,
@@ -38,7 +41,30 @@ import {
   userUsageBytes,
 } from "../lib/site-settings.js";
 
+const RESET_TTL_MS = 24 * 60 * 60 * 1000;
 const idParam = z.object({ userId: z.string().uuid() });
+
+/**
+ * Imposer la 2FA à tous est la seule réglage capable d'enfermer le propriétaire
+ * dehors : on exige donc une RÉ-AUTHENTIFICATION — un code TOTP (ou de secours)
+ * valide, produit à l'instant. Un propriétaire qui n'a que des clés d'accès (pas de
+ * TOTP) n'a pas de code à fournir : la confirmation explicite de l'interface suffit.
+ */
+async function assertMfaProofForEnforcement(userId: string, currentPolicy: string, proof?: string): Promise<void> {
+  if (currentPolicy === "required") return; // pas un changement
+  const u = await queryOne<{ mfa_enabled: boolean }>(`SELECT mfa_enabled FROM users WHERE id = $1`, [userId]);
+  if (!u?.mfa_enabled) return;
+  if (!proof) {
+    throw new ApiError(
+      403,
+      "mfa_proof_required",
+      "Saisissez un code de votre application d'authentification (ou un code de secours) pour imposer la 2FA.",
+    );
+  }
+  if (!(await verifySecondFactor(userId, proof))) {
+    throw new ApiError(403, "mfa_proof_invalid", "Code de vérification invalide : la 2FA n'a pas été imposée.");
+  }
+}
 
 /** Jauge de stockage réel + allocation des quotas (null si pas de disque local à mesurer). */
 async function diskReport(orgId: string, settings: SiteSettings) {
@@ -146,9 +172,15 @@ export default async function siteRoutes(app: FastifyInstance): Promise<void> {
       const user = requireUser(req);
       const orgId = await requireSiteOwner(user.id);
       const b = z
-        .object({ settings: siteSettingsSchema, globalQuotaBytes: z.number().int().nonnegative().nullable() })
+        .object({
+          settings: siteSettingsSchema,
+          globalQuotaBytes: z.number().int().nonnegative().nullable(),
+          // Ré-authentification : code TOTP ou code de secours du propriétaire, exigé pour IMPOSER la 2FA.
+          mfaProof: z.string().max(32).optional(),
+        })
         .parse(req.body);
 
+      const current = await getSiteSettings();
       const role = await queryOne<{ id: string }>(`SELECT id FROM roles WHERE org_id = $1 AND key = $2`, [
         orgId,
         b.settings.defaultRoleKey,
@@ -160,6 +192,7 @@ export default async function siteRoutes(app: FastifyInstance): Promise<void> {
       // Garde-fou : ne pas s'enfermer dehors. Imposer la 2FA exige que le
       // propriétaire en ait une lui-même.
       if (b.settings.mfaPolicy === "required") {
+        await assertMfaProofForEnforcement(user.id, current.mfaPolicy, b.mfaProof);
         if (!(await hasSecondFactor(user.id))) {
           throw conflict("Activez d'abord votre propre vérification en deux étapes avant de l'imposer à tous.");
         }
@@ -310,6 +343,32 @@ export default async function siteRoutes(app: FastifyInstance): Promise<void> {
         );
       }
       return { ok: true, usedBytes: await userUsageBytes(orgId, userId) };
+    });
+
+    // ---- Réinitialisation de mot de passe (lien à usage unique) ------------
+    priv.post("/admin/users/:userId/password-reset", async (req) => {
+      const actor = requireUser(req);
+      const orgId = await requireSiteOwner(actor.id);
+      const { userId } = idParam.parse(req.params);
+      if (userId === actor.id)
+        throw conflict("Pour votre propre compte, utilisez « Changer de mot de passe » (menu Sécurité).");
+      const mem = await queryOne<{ id: string }>(`SELECT id FROM memberships WHERE org_id = $1 AND user_id = $2`, [
+        orgId,
+        userId,
+      ]);
+      if (!mem) throw notFound("Utilisateur introuvable dans ce Drive.");
+      const token = randomToken(32);
+      const expiresAt = new Date(Date.now() + RESET_TTL_MS);
+      // Un seul lien valable à la fois par utilisateur.
+      await query(`UPDATE password_resets SET used_at = now() WHERE user_id = $1 AND used_at IS NULL`, [userId]);
+      await query(`INSERT INTO password_resets (user_id, token_hash, created_by, expires_at) VALUES ($1,$2,$3,$4)`, [
+        userId,
+        sha256Hex(token),
+        actor.id,
+        expiresAt,
+      ]);
+      await audit(orgId, actor.id, "site.user.password_reset", "user", userId, { expiresAt }, req.ip);
+      return { token, expiresAt };
     });
 
     priv.post("/admin/users/:userId/revoke-sessions", async (req) => {

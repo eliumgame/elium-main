@@ -643,9 +643,10 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
       name_encrypted: Buffer | null;
       name_nonce: Buffer | null;
       trashed_at: string | null;
+      owner_user_id: string | null;
       org_wrapped_key: unknown;
     }>(
-      `SELECT n.id, n.parent_id, n.kind, n.app_kind, n.name_encrypted, n.name_nonce, n.trashed_at,
+      `SELECT n.id, n.parent_id, n.kind, n.app_kind, n.name_encrypted, n.name_nonce, n.trashed_at, n.owner_user_id,
               nk.wrapped_key AS org_wrapped_key
          FROM nodes n
          JOIN node_keys nk
@@ -663,6 +664,7 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
         nameEncrypted: n.name_encrypted ? Buffer.from(n.name_encrypted).toString("hex") : "",
         nameNonce: n.name_nonce ? Buffer.from(n.name_nonce).toString("hex") : "",
         trashed: !!n.trashed_at,
+        ownerUserId: n.owner_user_id,
         orgWrappedKey: n.org_wrapped_key,
       })),
     };

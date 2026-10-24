@@ -20,6 +20,10 @@ vi.mock("../src/drive-cloud/session", () => ({
   useDrive: () => ({ api, currentOrg: { id: "org-1", name: "Acme" } }),
 }));
 
+// La confirmation d'identité (mot de passe + code 2FA, via les dialogues) est simulée : elle a ses propres tests
+// (E2E portail). Ici on vérifie que le panneau la demande et transmet le jeton obtenu.
+vi.mock("../src/drive-cloud/ui/useReauth", () => ({ useReauth: () => async () => "reauth-tok" }));
+
 import SsoScimPanel from "../src/drive-cloud/ui/SsoScimPanel";
 
 beforeEach(() => {
@@ -57,12 +61,16 @@ describe("SsoScimPanel (component)", () => {
     await userEvent.click(screen.getByRole("button", { name: /Enregistrer le SSO/ }));
 
     await waitFor(() => expect(api.setOrgSso).toHaveBeenCalledTimes(1));
-    expect(api.setOrgSso).toHaveBeenCalledWith("org-1", {
-      issuer: "https://acme.okta.com",
-      clientId: "client-42",
-      jwks: [{ kid: "k1" }],
-      allowedDomains: ["acme.fr", "filiale.fr"],
-    });
+    expect(api.setOrgSso).toHaveBeenCalledWith(
+      "org-1",
+      {
+        issuer: "https://acme.okta.com",
+        clientId: "client-42",
+        jwks: [{ kid: "k1" }],
+        allowedDomains: ["acme.fr", "filiale.fr"],
+      },
+      "reauth-tok",
+    );
     expect(await screen.findByText(/Configuration SSO enregistrée/)).toBeTruthy();
   });
 
@@ -74,12 +82,16 @@ describe("SsoScimPanel (component)", () => {
     await userEvent.click(screen.getByRole("button", { name: /Enregistrer le SSO/ }));
 
     await waitFor(() => expect(api.setOrgSso).toHaveBeenCalledTimes(1));
-    expect(api.setOrgSso).toHaveBeenCalledWith("org-1", {
-      issuer: "https://acme.okta.com",
-      clientId: "client-42",
-      jwksUri: "https://acme.okta.com/oauth2/v1/keys",
-      allowedDomains: [],
-    });
+    expect(api.setOrgSso).toHaveBeenCalledWith(
+      "org-1",
+      {
+        issuer: "https://acme.okta.com",
+        clientId: "client-42",
+        jwksUri: "https://acme.okta.com/oauth2/v1/keys",
+        allowedDomains: [],
+      },
+      "reauth-tok",
+    );
   });
 
   it("rejects an invalid static JWKS without calling the API", async () => {
@@ -96,7 +108,7 @@ describe("SsoScimPanel (component)", () => {
   it("generates a SCIM token and reveals it", async () => {
     render(<SsoScimPanel />);
     await userEvent.click(screen.getByRole("button", { name: /Générer un jeton SCIM/ }));
-    await waitFor(() => expect(api.createScimToken).toHaveBeenCalledWith("org-1"));
+    await waitFor(() => expect(api.createScimToken).toHaveBeenCalledWith("org-1", "reauth-tok"));
     expect(await screen.findByText("scim-secret-xyz")).toBeTruthy();
   });
 
@@ -107,7 +119,7 @@ describe("SsoScimPanel (component)", () => {
     render(<SsoScimPanel />);
     expect(await screen.findByText("Actif")).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: /Désactiver/ }));
-    await waitFor(() => expect(api.disableOrgSso).toHaveBeenCalledWith("org-1"));
+    await waitFor(() => expect(api.disableOrgSso).toHaveBeenCalledWith("org-1", "reauth-tok"));
     expect(await screen.findByText(/SSO désactivé/)).toBeTruthy();
   });
 });

@@ -135,6 +135,7 @@ export interface SiteSettings {
   siteName: string;
   diskMarginPercent: number;
   diskMarginBytes: number;
+  backupOverdueDays: number;
 }
 export type SiteDisk =
   | { available: false; reason: string }

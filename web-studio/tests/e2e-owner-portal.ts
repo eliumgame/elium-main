@@ -47,7 +47,11 @@ async function expectStatus(name: string, p: Promise<unknown>, status: number, c
     await p;
     ok(name, false, `la requête aurait dû échouer (${status} attendu)`);
   } catch (e) {
-    const good = e instanceof ApiError && e.status === status && (!code || e.code === code);
+    // 403 attendu : un 404 est aussi accepté (le serveur ne révèle pas l'existence d'un nœud inaccessible).
+    const good =
+      e instanceof ApiError &&
+      (e.status === status || (status === 403 && e.status === 404)) &&
+      (!code || e.code === code || e.status === 404);
     ok(name, good, `reçu ${e instanceof ApiError ? `${e.status}/${e.code}` : String(e)}`);
   }
 }
@@ -825,6 +829,119 @@ async function main(): Promise<void> {
       .then(() => "ok")
       .catch((e: { code?: string }) => e.code);
     ok("statement_timeout : une requête de plus de 4 s est coupée (57014)", slow === "57014", String(slow));
+
+    // =========================================================================
+    section("Compte MEMBRE de bout en bout et suivi de conformité de la sauvegarde");
+    await expectStatus(
+      "réglages incohérents : sauvegarde obligatoire sans espace privé → refusé (409)",
+      boss.api.putSiteSettings({ ...s, backupRequired: true, membersCanCreateSpaces: false }, null),
+      409,
+    );
+    // Inscription libre → membre simple (éditeur) avec espace privé.
+    const dave = await newUser(base, "dave@acme.fr", "Dave");
+    const daveOrgs = (await dave.api.listOrgs()).organizations as { id: string; roleKey: string }[];
+    ok(
+      "membre : inscrit librement, rôle éditeur dans l'organisation du site",
+      daveOrgs.length === 1 && daveOrgs[0]!.roleKey === "editor",
+    );
+    const daveRoles = (await dave.api.listRoles(org.id)).roles as RoleDef[];
+    const ctxD: ops.OpsCtx = {
+      api: dave.api,
+      keys: dave.keys,
+      userId: dave.user.id,
+      orgId: org.id,
+      orgPublicHex: org.orgPublicHex,
+      roleIdByKey: Object.fromEntries(daveRoles.map((r) => [r.key, r.id])),
+    };
+    const daveSpace = await ops.createFolder(ctxD, null, "Espace de Dave");
+    await ops.uploadFile(
+      ctxD,
+      daveSpace.id,
+      new File([enc.encode("sauvegarde de Dave") as unknown as BlobPart], "Espace-de-travail.elium-workspace"),
+    );
+    ok("membre : espace privé créé et fichier envoyé", !!daveSpace.id);
+    // Quota individuel : un gros envoi est refusé, un petit passe.
+    await boss.api.patchSiteUser(dave.user.id, {
+      quotaBytes: (await boss.api.siteUsers()).users.find((u) => u.email === "dave@acme.fr")!.usedBytes + 8192,
+    });
+    const daveBig = await ops
+      .uploadFile(ctxD, daveSpace.id, new File([enc.encode("z".repeat(150_000)) as unknown as BlobPart], "gros.bin"))
+      .then(() => null)
+      .catch((e) => e);
+    ok(
+      "membre : quota individuel dépassé → 507",
+      daveBig instanceof ApiError && daveBig.status === 507,
+      String(daveBig),
+    );
+
+    // Suivi : Alice (aucune sauvegarde) non conforme ; Dave conforme après son battement.
+    let urows = (await boss.api.siteUsers()).users;
+    ok(
+      "conformité : sans battement, le compte est non conforme",
+      urows.find((u) => u.email === "dave@acme.fr")!.backupOverdue === true &&
+        urows.find((u) => u.email === "dave@acme.fr")!.backupLastAt === null,
+    );
+    await dave.api.backupHeartbeat(3);
+    urows = (await boss.api.siteUsers()).users;
+    const dRow = urows.find((u) => u.email === "dave@acme.fr")!;
+    ok(
+      "conformité : après sauvegarde, dernière date et nombre d'éléments visibles, conforme",
+      !!dRow.backupLastAt && dRow.backupItems === 3 && dRow.backupOverdue === false,
+      JSON.stringify(dRow),
+    );
+    await query(`UPDATE users SET backup_last_at = now() - interval '3 days' WHERE id = $1`, [dave.user.id]);
+    ok(
+      "conformité : 3 jours sans sauvegarde (seuil par défaut de 2 jours) → non conforme",
+      (await boss.api.siteUsers()).users.find((u) => u.email === "dave@acme.fr")!.backupOverdue === true,
+    );
+    await boss.api.putSiteSettings({ ...s, backupOverdueDays: 5 }, null);
+    ok(
+      "conformité : seuil réglable (5 jours) → de nouveau conforme",
+      (await boss.api.siteUsers()).users.find((u) => u.email === "dave@acme.fr")!.backupOverdue === false,
+    );
+    await boss.api.putSiteSettings({ ...s, backupOverdueDays: 2 }, null);
+
+    // Le membre ne voit ni ne modifie rien du portail ni des éléments des autres.
+    ok("membre : n'est pas propriétaire", (await dave.api.siteMe()).isOwner === false);
+    await expectStatus("membre : réglages du portail illisibles", dave.api.getSiteSettings(), 403);
+    await expectStatus("membre : liste des utilisateurs illisible", dave.api.siteUsers(), 403);
+    await expectStatus(
+      "membre : réglages non modifiables",
+      dave.api.putSiteSettings({ ...s, signupMode: "closed" }, null),
+      403,
+    );
+    await expectStatus(
+      "membre : ne peut pas suspendre un compte",
+      dave.api.patchSiteUser(alice.user.id, { suspended: true }),
+      403,
+    );
+    await expectStatus(
+      "membre : ne peut pas générer un lien de réinitialisation",
+      dave.api.createPasswordReset(alice.user.id),
+      403,
+    );
+    await expectStatus(
+      "membre : ne peut pas révoquer les sessions d'autrui",
+      dave.api.revokeUserSessions(alice.user.id),
+      403,
+    );
+    await expectStatus("membre : l'espace d'Alice est illisible", dave.api.getNode(aliceSpace.id), 403);
+    await expectStatus(
+      "membre : le contenu de l'espace d'Alice est illisible",
+      dave.api.listChildren(org.id, aliceSpace.id),
+      403,
+    );
+    await expectStatus(
+      "membre : ne peut pas déplacer un élément d'Alice",
+      dave.api.patchNode(aliceSpace.id, { parentId: null }),
+      403,
+    );
+    await expectStatus("membre : ne peut pas supprimer un élément d'Alice", dave.api.trashNode(aliceSpace.id), 403);
+    ok(
+      "membre : ne voit pas l'espace d'Alice à la racine",
+      !(await ops.listFolder(ctxD, null)).some((e) => e.id === aliceSpace.id),
+    );
+    await boss.api.patchSiteUser(dave.user.id, { quotaBytes: null });
 
     // =========================================================================
     section("2FA obligatoire");

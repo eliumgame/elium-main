@@ -102,10 +102,9 @@ async function diskReport(orgId: string, settings: SiteSettings) {
   };
 }
 
-const BACKUP_OVERDUE_MS = 48 * 3600 * 1000;
-/** Aucune sauvegarde signalée, ou la dernière date de plus de deux jours. */
-export function backupOverdue(last: string | Date | null, now = Date.now()): boolean {
-  return !last || now - new Date(last).getTime() > BACKUP_OVERDUE_MS;
+/** Aucune sauvegarde signalée, ou la dernière date de plus de `days` jours (2 par défaut). */
+export function backupOverdue(last: string | Date | null, now = Date.now(), days = 2): boolean {
+  return !last || now - new Date(last).getTime() > days * 24 * 3600 * 1000;
 }
 
 export default async function siteRoutes(app: FastifyInstance): Promise<void> {
@@ -149,7 +148,8 @@ export default async function siteRoutes(app: FastifyInstance): Promise<void> {
         backupLastAt: bk?.backup_last_at ?? null,
         backupItems: bk?.backup_items ?? null,
         // Sauvegarde imposée mais aucune sauvegarde aboutie depuis plus de deux jours.
-        backupOverdue: settings.backupRequired && backupOverdue(bk?.backup_last_at ?? null),
+        backupOverdue:
+          settings.backupRequired && backupOverdue(bk?.backup_last_at ?? null, Date.now(), settings.backupOverdueDays),
         orgId,
         isOwner: await isSiteOwner(user.id),
         // Politique effective pour CE compte (quota personnel inclus).
@@ -209,6 +209,14 @@ export default async function siteRoutes(app: FastifyInstance): Promise<void> {
       ]);
       if (!role || b.settings.defaultRoleKey === "owner") {
         throw badRequest("Rôle par défaut invalide (le rôle propriétaire ne peut pas être attribué par défaut).");
+      }
+
+      // Réglages incohérents : la sauvegarde imposée crée des éléments à la racine de l'espace de chaque
+      // membre ; sans « espace privé par membre », chaque envoi serait refusé (403).
+      if (b.settings.backupRequired && !b.settings.membersCanCreateSpaces) {
+        throw conflict(
+          "Réglages incohérents : la sauvegarde obligatoire exige que chaque membre puisse créer son espace privé. Activez « Chaque membre a son espace privé » ou désactivez la sauvegarde obligatoire.",
+        );
       }
 
       // Garde-fou : ne pas s'enfermer dehors. Imposer la 2FA exige que le
@@ -289,7 +297,8 @@ export default async function siteRoutes(app: FastifyInstance): Promise<void> {
           isOwner: r.is_owner,
           backupLastAt: r.backup_last_at,
           backupItems: r.backup_items,
-          backupOverdue: settings.backupRequired && backupOverdue(r.backup_last_at),
+          backupOverdue:
+            settings.backupRequired && backupOverdue(r.backup_last_at, Date.now(), settings.backupOverdueDays),
         })),
       };
     });

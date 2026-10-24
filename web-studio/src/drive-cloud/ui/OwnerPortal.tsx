@@ -458,6 +458,16 @@ export default function OwnerPortal({ onNavigate }: { onNavigate?: (t: PortalLin
           <h2>
             <Users size={18} /> Utilisateurs ({users.length})
           </h2>
+          {draft.backupRequired && (
+            <p
+              className={users.some((u) => u.backupOverdue) ? "dc-portal__warn" : "muted"}
+              data-testid="backup-compliance"
+            >
+              Sauvegarde obligatoire : {users.filter((u) => !u.suspended && !u.backupOverdue).length} conforme(s),{" "}
+              {users.filter((u) => !u.suspended && u.backupOverdue).length} non conforme(s) (sans sauvegarde depuis plus
+              de {draft.backupOverdueDays} jour{draft.backupOverdueDays > 1 ? "s" : ""}).
+            </p>
+          )}
           <div className="dc-portal__tablewrap">
             <table className="dcx-table" data-testid="portal-users">
               <thead>
@@ -513,7 +523,7 @@ export default function OwnerPortal({ onNavigate }: { onNavigate?: (t: PortalLin
                     <td>{u.activeSessions}</td>
                     <td className={u.backupOverdue ? "dc-portal__warn" : undefined}>
                       {u.backupLastAt ? new Date(u.backupLastAt).toLocaleString("fr-FR") : "jamais"}
-                      {u.backupOverdue ? " ⚠" : ""}
+                      {u.backupOverdue ? " ⚠ non conforme" : ""}
                     </td>
                     <td className="dc-portal__actions">
                       {!u.isOwner && (
@@ -649,6 +659,34 @@ export default function OwnerPortal({ onNavigate }: { onNavigate?: (t: PortalLin
             desc="L'espace de travail de chaque utilisateur est envoyé automatiquement dans son Drive (une minute après chaque modification). L'option ne peut plus être désactivée par l'utilisateur."
             testId="backup-required"
           />
+          {draft.backupRequired && !draft.membersCanCreateSpaces && (
+            <p className="dc-portal__warn" role="alert" data-testid="backup-spaces-conflict">
+              Réglages incohérents : la sauvegarde obligatoire crée des éléments à la racine de l'espace de chaque
+              membre. Sans « espace privé par membre », chaque envoi serait refusé.{" "}
+              <button className="elx-mini" onClick={() => set("membersCanCreateSpaces", true)}>
+                Activer les espaces privés
+              </button>
+            </p>
+          )}
+          {draft.backupRequired && (
+            <label className="field dc-portal__field">
+              <span className="field__label">Non conforme sans sauvegarde depuis (jours)</span>
+              <input
+                className="input"
+                type="number"
+                min={1}
+                max={90}
+                value={draft.backupOverdueDays}
+                data-testid="backup-overdue-days"
+                onChange={(e) =>
+                  set("backupOverdueDays", Math.min(90, Math.max(1, Math.floor(Number(e.target.value) || 2))))
+                }
+              />
+              <span className="muted dc-portal__hint">
+                Le portail signale, dans l'onglet Utilisateurs, les comptes sans sauvegarde récente.
+              </span>
+            </label>
+          )}
           <div className="dc-portal__row">
             <label className="field dc-portal__field">
               <span className="field__label">Conserver les anciennes versions (jours)</span>

@@ -40,6 +40,8 @@ export const siteSettingsSchema = z.object({
   /** Marge de sécurité disque : envois refusés sous le plus grand de X % du disque et de N octets libres. */
   diskMarginPercent: z.number().int().min(0).max(50),
   diskMarginBytes: z.number().int().min(0),
+  /** Sauvegarde imposée : un utilisateur est « non conforme » sans sauvegarde depuis N jours. */
+  backupOverdueDays: z.number().int().min(1).max(90),
 });
 export type SiteSettings = z.infer<typeof siteSettingsSchema>;
 
@@ -59,6 +61,7 @@ export function defaultSiteSettings(): SiteSettings {
     siteName: "",
     diskMarginPercent: 5,
     diskMarginBytes: 2 * 1024 ** 3,
+    backupOverdueDays: 2,
   };
 }
 

@@ -29,7 +29,9 @@ vi.mock("../src/middleware/auth.js", () => ({
 }));
 vi.mock("../src/lib/audit.js", () => ({ audit: vi.fn(async () => {}) }));
 vi.mock("../src/lib/webauthn.js", () => ({ hasWebauthn: vi.fn(async () => false) }));
-vi.mock("../src/lib/second-factor.js", () => ({ verifySecondFactor: vi.fn(async (_u: string, code: string) => code === "123456") }));
+vi.mock("../src/lib/second-factor.js", () => ({
+  verifySecondFactor: vi.fn(async (_u: string, code: string) => code === "123456"),
+}));
 
 import { query, queryOne } from "../src/db/pool.js";
 import { ApiError } from "../src/lib/errors.js";
@@ -56,7 +58,8 @@ function db(opts: { siteOrg?: string | null; settings?: Record<string, unknown>;
 async function makeApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
   app.setErrorHandler((err, _req, reply) => {
-    if (err instanceof ApiError) return reply.status(err.statusCode).send({ error: { code: err.code, message: err.message } });
+    if (err instanceof ApiError)
+      return reply.status(err.statusCode).send({ error: { code: err.code, message: err.message } });
     if (err instanceof ZodError) return reply.status(400).send({ error: { code: "validation" } });
     return reply.status(500).send({ error: { message: String(err) } });
   });
@@ -85,10 +88,19 @@ describe("GET /api/site/policy (public)", () => {
   });
 
   it("reflète les réglages enregistrés", async () => {
-    db({ siteOrg: ORG, settings: { signupMode: "invite", mfaPolicy: "required", passwordMinLength: 14, backupRequired: true } });
+    db({
+      siteOrg: ORG,
+      settings: { signupMode: "invite", mfaPolicy: "required", passwordMinLength: 14, backupRequired: true },
+    });
     const app = await makeApp();
     const b = (await app.inject({ method: "GET", url: "/api/site/policy" })).json();
-    expect(b).toMatchObject({ bootstrapped: true, signupMode: "invite", mfaPolicy: "required", passwordMinLength: 14, backupRequired: true });
+    expect(b).toMatchObject({
+      bootstrapped: true,
+      signupMode: "invite",
+      mfaPolicy: "required",
+      passwordMinLength: 14,
+      backupRequired: true,
+    });
   });
 });
 
@@ -126,14 +138,25 @@ describe("routes propriétaire", () => {
     const res = await app.inject({
       method: "PUT",
       url: "/api/site/admin/settings",
-      payload: { settings: { ...validSettings, signupMode: "closed", perUserQuotaBytes: 5_000_000 }, globalQuotaBytes: 100_000_000 },
+      payload: {
+        settings: { ...validSettings, signupMode: "closed", perUserQuotaBytes: 5_000_000 },
+        globalQuotaBytes: 100_000_000,
+      },
     });
     expect(res.statusCode).toBe(200);
     const sqls = mQuery.mock.calls.map((c) => c[0] as string);
     expect(sqls.some((s) => s.includes("INSERT INTO site_settings"))).toBe(true);
     const quotaCall = mQuery.mock.calls.find((c) => (c[0] as string).includes("storage_quota_bytes = $2"));
     expect(quotaCall?.[1]).toEqual([ORG, 100_000_000]);
-    expect(vi.mocked(audit)).toHaveBeenCalledWith(ORG, OWNER, "site.settings.update", "org", ORG, expect.anything(), expect.anything());
+    expect(vi.mocked(audit)).toHaveBeenCalledWith(
+      ORG,
+      OWNER,
+      "site.settings.update",
+      "org",
+      ORG,
+      expect.anything(),
+      expect.anything(),
+    );
   });
 
   it("PUT settings : valeurs invalides rejetées (mot de passe < 8, mode inconnu)", async () => {
@@ -147,6 +170,30 @@ describe("routes propriétaire", () => {
       });
       expect(res.statusCode, JSON.stringify(bad)).toBe(400);
     }
+  });
+
+  it("PUT settings : sauvegarde obligatoire sans espace privé par membre → 409 explicite", async () => {
+    db({ siteOrg: ORG });
+    const app = await makeApp();
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/site/admin/settings",
+      payload: {
+        settings: { ...validSettings, backupRequired: true, membersCanCreateSpaces: false },
+        globalQuotaBytes: null,
+      },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.message).toMatch(/espace privé/);
+    const ok = await app.inject({
+      method: "PUT",
+      url: "/api/site/admin/settings",
+      payload: {
+        settings: { ...validSettings, backupRequired: true, membersCanCreateSpaces: true },
+        globalQuotaBytes: null,
+      },
+    });
+    expect(ok.statusCode).toBe(200);
   });
 
   it("PUT settings : refuse le rôle propriétaire par défaut", async () => {
@@ -168,7 +215,11 @@ describe("routes propriétaire", () => {
     expect(refused.statusCode).toBe(409);
     db({ siteOrg: ORG, mfa: true });
     invalidateSiteSettings();
-    const ok = await app.inject({ method: "PUT", url: "/api/site/admin/settings", payload: { ...payload, mfaProof: "123456" } });
+    const ok = await app.inject({
+      method: "PUT",
+      url: "/api/site/admin/settings",
+      payload: { ...payload, mfaProof: "123456" },
+    });
     expect(ok.statusCode).toBe(200);
   });
 
@@ -179,7 +230,11 @@ describe("routes propriétaire", () => {
     const none = await app.inject({ method: "PUT", url: "/api/site/admin/settings", payload: base });
     expect(none.statusCode).toBe(403);
     expect(none.json().error.code).toBe("mfa_proof_required");
-    const bad = await app.inject({ method: "PUT", url: "/api/site/admin/settings", payload: { ...base, mfaProof: "000000" } });
+    const bad = await app.inject({
+      method: "PUT",
+      url: "/api/site/admin/settings",
+      payload: { ...base, mfaProof: "000000" },
+    });
     expect(bad.statusCode).toBe(403);
     expect(bad.json().error.code).toBe("mfa_proof_invalid");
     expect(mQuery.mock.calls.some((c) => String(c[0]).includes("INSERT INTO site_settings"))).toBe(false);
@@ -207,9 +262,19 @@ describe("routes propriétaire", () => {
     expect(new Date(expiresAt).getTime()).toBeGreaterThan(Date.now());
     const ins = mQuery.mock.calls.find((c) => String(c[0]).includes("INSERT INTO password_resets"))!;
     expect(JSON.stringify(ins[1])).not.toContain(token); // seule l'empreinte est stockée
-    expect(vi.mocked(audit)).toHaveBeenCalledWith(ORG, OWNER, "site.user.password_reset", "user", MEMBER, expect.anything(), expect.anything());
+    expect(vi.mocked(audit)).toHaveBeenCalledWith(
+      ORG,
+      OWNER,
+      "site.user.password_reset",
+      "user",
+      MEMBER,
+      expect.anything(),
+      expect.anything(),
+    );
     acting = MEMBER;
-    expect((await app.inject({ method: "POST", url: `/api/site/admin/users/${OWNER}/password-reset` })).statusCode).toBe(403);
+    expect(
+      (await app.inject({ method: "POST", url: `/api/site/admin/users/${OWNER}/password-reset` })).statusCode,
+    ).toBe(403);
   });
 
   it("PATCH user : le propriétaire ne peut être ni suspendu ni rétrogradé", async () => {
@@ -221,7 +286,11 @@ describe("routes propriétaire", () => {
       return null;
     }) as never);
     const app = await makeApp();
-    const res = await app.inject({ method: "PATCH", url: `/api/site/admin/users/${OWNER}`, payload: { suspended: true } });
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/site/admin/users/${OWNER}`,
+      payload: { suspended: true },
+    });
     expect(res.statusCode).toBe(409);
   });
 
@@ -247,7 +316,11 @@ describe("routes propriétaire", () => {
     expect(res.statusCode).toBe(200);
     expect(executed.some((s) => s.includes("UPDATE users SET status"))).toBe(true);
     expect(executed.some((s) => s.includes("UPDATE sessions SET revoked_at"))).toBe(true);
-    expect(mQuery.mock.calls.some((c) => (c[0] as string).includes("SET quota_bytes = $3") && (c[1] as unknown[])[2] === 1234)).toBe(true);
+    expect(
+      mQuery.mock.calls.some(
+        (c) => (c[0] as string).includes("SET quota_bytes = $3") && (c[1] as unknown[])[2] === 1234,
+      ),
+    ).toBe(true);
   });
 });
 

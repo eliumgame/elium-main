@@ -10,4 +10,10 @@ describe("sauvegarde imposée : retard signalé au propriétaire", () => {
     expect(backupOverdue("2026-10-23T12:00:00Z", now)).toBe(false);
     expect(backupOverdue(new Date("2026-10-22T11:59:00Z"), now)).toBe(true);
   });
+
+  it("seuil réglable en jours", () => {
+    const now = Date.parse("2026-10-24T12:00:00Z");
+    expect(backupOverdue("2026-10-21T12:00:00Z", now, 5)).toBe(false);
+    expect(backupOverdue("2026-10-21T12:00:00Z", now, 2)).toBe(true);
+  });
 });

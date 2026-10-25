@@ -62,6 +62,7 @@ export class EncryptedCollabChannel {
   private ws: WebSocket | null = null;
   private lastSeq = 0;
   private closedByUser = false;
+  private generation = 0;
 
   constructor(
     private readonly api: DriveApi,
@@ -73,7 +74,11 @@ export class EncryptedCollabChannel {
   /** Replay the encrypted backlog, then open the live socket. */
   async connect(): Promise<void> {
     this.closedByUser = false;
+    // Génération : si `close()` ou un nouveau `connect()` survient pendant le rattrapage, ce connect-ci n'ouvre
+    // PAS de socket (sinon deux sockets vivants, dont un jamais fermé — double montage d'effet en développement).
+    const gen = ++this.generation;
     await this.catchUp();
+    if (gen !== this.generation || this.closedByUser) return;
     this.open();
   }
 
@@ -263,6 +268,7 @@ export class EncryptedCollabChannel {
 
   close(): void {
     this.closedByUser = true;
+    this.generation++;
     const ws = this.ws;
     // Laisser partir les modifications en cours de chiffrement avant de couper : fermer le document juste
     // après une frappe ne doit pas perdre la dernière modification (le socket reste donc référencé).

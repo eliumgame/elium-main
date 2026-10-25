@@ -2,6 +2,15 @@
 
 > Dernière version publiée : **4.10.0**, étiquetée le 4 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
 
+### Version 4.29.0 — campagne de tests complets et corrections
+
+- **Tableur** : la frappe directe dans la grille garde son premier caractère ; nombres saisis à la française (12,5 ; 1 234,5) reconnus par les formules, le tri et le remplacement ; fonctions VALUE, REPT, SWITCH ; FLOOR/CEILING avec multiple ; menus lisibles en fenêtre étroite.
+- **Présentations** : l'édition du texte d'une diapositive fonctionne (focus au double-clic, Échap), aperçus réels des modèles ; en collaboration, aucune modification n'est perdue pendant une coupure.
+- **PDF et Détecteur** : Ctrl+Maj+P ouvre la palette du PDF, aperçu du Détecteur corrigé, parcours testés dans un vrai navigateur.
+- **Drive, portail et Parapheur** : correctifs issus de 34 parcours navigateur multi-comptes ; une seule connexion temps réel quand ouverture et fermeture se croisent.
+- **Documents** : raccourci exposant/indice corrigé (Ctrl+Maj+= sur un texte déjà en indice).
+- **App Windows** : parcours complet lanceur + navigateur testé (fichiers, restauration, changement de port, conflit, sécurité).
+
 ### Version 4.28.2 — sauvegarde : derniers trous comblés, testée avec un compte membre
 
 - **Ajouts à la sauvegarde Drive** : signatures et initiales manuscrites du PDF et identités de confiance (les identités privées de signature restent sur l'appareil), ainsi que les réglages du Détecteur (signaux désactivés, moteur de recherche, confiance C2PA ; la clé API de recherche n'est jamais envoyée). Les sources bibliographiques et tampons PDF personnalisés étaient déjà inclus ; les annexes du Passeport et les polices sont restaurées avec le reste.

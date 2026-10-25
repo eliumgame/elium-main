@@ -326,6 +326,22 @@ function ElementView({
     if (node && editing && document.activeElement !== node && el.html != null && node.innerHTML !== el.html)
       node.innerHTML = el.html;
   }, [editing, el.html]);
+  // Entrée en édition (double-clic, Entrée) : le champ est un nouveau nœud DOM, il faut lui donner le
+  // focus — sinon Ctrl+A et la saisie partent dans le vide — et placer le curseur en fin de texte.
+  useEffect(() => {
+    const node = ref.current;
+    if (!editing || !node || el.type !== "text") return;
+    node.focus({ preventScroll: true });
+    const sel = window.getSelection();
+    if (sel) {
+      const r = document.createRange();
+      r.selectNodeContents(node);
+      r.collapse(false);
+      sel.removeAllRanges();
+      sel.addRange(r);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
 
   if (el.type === "shape") {
     return (
@@ -650,6 +666,16 @@ export default function SlideCanvas({
     announce(at >= 0 ? `${describeElement(elements[at]!, at, elements.length)}, sélectionné` : "Aucune sélection");
   };
   const onCanvasKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    // Échap termine l'édition en place (comme l'annonce vocale le promet) et rend le focus à la diapositive,
+    // sinon les touches suivantes (Suppr, flèches, Tab) ne parviennent plus à son clavier.
+    if (editable && editingId && e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      setEditingId(null);
+      boxRef.current?.focus({ preventScroll: true });
+      announce("Édition terminée");
+      return;
+    }
     // Typing inside an element (or a cell) belongs to that element.
     if (!editable || editingId || e.target !== e.currentTarget) return;
     if (e.key === "Tab") {

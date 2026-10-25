@@ -31,6 +31,14 @@ const KIND_COLOR: Record<PlaceholderKind, string> = {
   slideNumber: "#7c3aed",
 };
 
+/** Teintes de texte assombries (contraste AA sur fond clair) : le liseré garde la couleur vive de KIND_COLOR. */
+const KIND_TEXT_COLOR: Record<PlaceholderKind, string> = {
+  title: "#1d4ed8",
+  body: "#15803d",
+  footer: "#b45309",
+  slideNumber: "#6d28d9",
+};
+
 export default function MasterEditor({
   master,
   onApply,
@@ -189,7 +197,7 @@ export default function MasterEditor({
                   width: `${p.w}%`,
                   height: `${p.h}%`,
                   borderColor: KIND_COLOR[p.kind],
-                  color: KIND_COLOR[p.kind],
+                  color: KIND_TEXT_COLOR[p.kind],
                 }}
               >
                 {KIND_LABEL[p.kind]}

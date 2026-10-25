@@ -99,6 +99,7 @@ import { makeDelta, PRESENTER_CHANNEL, type PresenterMsg } from "./presenter-syn
 import { importPptxFile, PptxImportError } from "./pptx-import";
 import SlideCanvas, { themeDefaultBg } from "./canvas";
 import SlideThumb from "./SlideThumb";
+import TemplatePreview from "./TemplatePreview";
 import { CtxMenu, ToolbarPopover, type MenuEntry } from "./ActionMenu";
 import { cloneElements } from "./selection";
 import MorphCanvas from "./MorphCanvas";
@@ -296,16 +297,19 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
     store.addEl(elm);
     setSelId(elm.id);
   };
+  /** Aligne sur un bord / le centre de la diapositive : TOUTE la sélection (pas seulement l'élément principal). */
   const alignSlide = (dir: "l" | "c" | "r" | "t" | "m" | "b") => {
-    if (!sel) return;
-    const p: Partial<SlideElement> = {};
-    if (dir === "l") p.x = 2;
-    if (dir === "c") p.x = 50 - sel.w / 2;
-    if (dir === "r") p.x = 98 - sel.w;
-    if (dir === "t") p.y = 2;
-    if (dir === "m") p.y = 50 - sel.h / 2;
-    if (dir === "b") p.y = 98 - sel.h;
-    store.updateEl(sel.id, p, true);
+    const targets = selIds.length > 1 ? elements.filter((e) => selIds.includes(e.id)) : sel ? [sel] : [];
+    targets.forEach((t, i) => {
+      const p: Partial<SlideElement> = {};
+      if (dir === "l") p.x = 2;
+      if (dir === "c") p.x = 50 - t.w / 2;
+      if (dir === "r") p.x = 98 - t.w;
+      if (dir === "t") p.y = 2;
+      if (dir === "m") p.y = 50 - t.h / 2;
+      if (dir === "b") p.y = 98 - t.h;
+      store.updateEl(t.id, p, i === targets.length - 1);
+    });
   };
   const onImage = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1703,17 +1707,9 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                               setTplMenu(false);
                             }}
                           >
-                            <span
-                              className="sv-tpl-preview"
-                              style={
-                                tpl.background
-                                  ? {
-                                      backgroundImage: tpl.background.startsWith("linear") ? tpl.background : undefined,
-                                      background: tpl.background.startsWith("linear") ? undefined : tpl.background,
-                                    }
-                                  : undefined
-                              }
-                            />
+                            <span className="sv-tpl-preview" aria-hidden="true">
+                              <TemplatePreview tpl={tpl} theme={theme} />
+                            </span>
                             <span className="sv-tpl-item__label">{tpl.label}</span>
                           </button>
                         ))}
@@ -1845,6 +1841,9 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                     key={c}
                     className={`sv-swatch ${active?.background === c ? "is-active" : ""}`}
                     style={{ background: c }}
+                    title={`Fond ${c}`}
+                    aria-label={`Fond ${c}`}
+                    aria-pressed={active?.background === c}
                     onClick={() => applyBg(c)}
                   />
                 ))}
@@ -1854,11 +1853,14 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
               </div>
               <div className="sv-bg-label">Dégradé</div>
               <div className="sv-bg-swatches">
-                {GRADIENT_PRESETS.map((g) => (
+                {GRADIENT_PRESETS.map((g, gi) => (
                   <button
                     key={g}
                     className={`sv-swatch sv-swatch--grad ${active?.background === g ? "is-active" : ""}`}
                     style={{ backgroundImage: g }}
+                    title={`Dégradé ${gi + 1}`}
+                    aria-label={`Dégradé ${gi + 1}`}
+                    aria-pressed={active?.background === g}
                     onClick={() => applyBg(g)}
                   />
                 ))}
@@ -1981,7 +1983,13 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
               <button className="present-close icon-btn" title="Quitter (Échap)" onClick={stopPresent}>
                 <X size={22} />
               </button>
-              <button className="present-arrow present-arrow--prev icon-btn" onClick={goPrev} disabled={atStart}>
+              <button
+                className="present-arrow present-arrow--prev icon-btn"
+                title="Diapositive précédente"
+                aria-label="Diapositive précédente"
+                onClick={goPrev}
+                disabled={atStart}
+              >
                 <ChevronLeft size={28} />
               </button>
               <div className="present-stage" onClick={goNext}>
@@ -2012,7 +2020,13 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                   </div>
                 )}
               </div>
-              <button className="present-arrow present-arrow--next icon-btn" onClick={goNext} disabled={atEnd}>
+              <button
+                className="present-arrow present-arrow--next icon-btn"
+                title="Diapositive suivante"
+                aria-label="Diapositive suivante"
+                onClick={goNext}
+                disabled={atEnd}
+              >
                 <ChevronRight size={28} />
               </button>
               <div className="present-nav">

@@ -626,6 +626,9 @@
   white-space: nowrap;
 }
 .sv-tpl-preview {
+  position: relative;
+  overflow: hidden;
+  pointer-events: none;
   width: 100%;
   aspect-ratio: 16 / 9;
   border-radius: 6px;

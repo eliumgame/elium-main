@@ -121,8 +121,17 @@ export function ToolbarPopover({
       const pad = 8;
       let left = right ? r.right - w : r.left;
       left = Math.max(pad, Math.min(left, window.innerWidth - w - pad));
-      const top = r.bottom + 4;
-      setPos({ left, top, maxHeight: Math.max(160, window.innerHeight - top - pad) });
+      const below = window.innerHeight - r.bottom - 4 - pad;
+      const above = r.top - 4 - pad;
+      const natural = pop.scrollHeight;
+      if (below < Math.min(natural, 320) && above > below) {
+        // Déclencheur bas dans la fenêtre (rampe de diapositives longue) : ouvrir AU-DESSUS plutôt que de sortir de l'écran.
+        const maxHeight = Math.max(160, above);
+        setPos({ left, top: Math.max(pad, r.top - 4 - Math.min(natural, maxHeight)), maxHeight });
+      } else {
+        const top = r.bottom + 4;
+        setPos({ left, top, maxHeight: Math.max(160, window.innerHeight - top - pad) });
+      }
     };
     place();
     window.addEventListener("resize", place);

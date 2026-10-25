@@ -1,6 +1,6 @@
 # --- Elium Web Studio — static SPA image (multi-stage) ---------------------
 # Bases épinglées par DIGEST (tag conservé pour la lisibilité ; mises à jour par dependabot).
-FROM node:20.17-alpine@sha256:2d07db07a2df6830718ae2a47db6fedce6745f5bcd174c398f2acdda90a11c03 AS build
+FROM node:20.20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund

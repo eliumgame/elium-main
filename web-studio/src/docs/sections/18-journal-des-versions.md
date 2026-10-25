@@ -8,7 +8,6 @@
 - **Présentations** : l'édition du texte d'une diapositive fonctionne (focus au double-clic, Échap), aperçus réels des modèles ; en collaboration, aucune modification n'est perdue pendant une coupure.
 - **PDF et Détecteur** : Ctrl+Maj+P ouvre la palette du PDF, aperçu du Détecteur corrigé, parcours testés dans un vrai navigateur.
 - **Drive, portail et Parapheur** : correctifs issus de 34 parcours navigateur multi-comptes ; une seule connexion temps réel quand ouverture et fermeture se croisent.
-- **Documents** : raccourci exposant/indice corrigé (Ctrl+Maj+= sur un texte déjà en indice).
 - **App Windows** : parcours complet lanceur + navigateur testé (fichiers, restauration, changement de port, conflit, sécurité).
 
 ### Version 4.28.2 — sauvegarde : derniers trous comblés, testée avec un compte membre

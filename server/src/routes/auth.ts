@@ -1,12 +1,21 @@
 /**
- * Authentication routes. Zero-knowledge, ORACLE-FREE model:
+ * Authentication routes. Password never crosses the wire:
  *  - The client derives an Ed25519 `authSign` key and the `masterKey` from the
  *    password via Argon2id + HKDF (DISTINCT info). Only the auth-sign PUBLIC key
  *    reaches the server (at registration). Login is a challenge-response: the
  *    server sends a random nonce, the client signs it — no password-equivalent
- *    ever crosses the wire, so a compromised/observing server cannot mount an
- *    offline dictionary attack (the goal of SRP/OPAQUE, reached with a vetted
- *    Ed25519 primitive rather than hand-rolled PAKE arithmetic).
+ *    is sent or observable on the wire, so a passive network observer gains
+ *    nothing, and a captured login exchange cannot be replayed.
+ *  - IMPORTANT LIMIT: this is NOT an OPAQUE/SRP-equivalent guarantee. The server
+ *    still stores `auth_sign_public_hex` plus the KDF salt/params — a verifier
+ *    deterministically derived from the password, i.e. a salted-password-hash
+ *    equivalent. Anyone who gets a copy of that record (leaked DB, compromised
+ *    server) can run an offline dictionary/brute-force attack by re-deriving
+ *    Argon2id+HKDF for candidate passwords and comparing the public key.
+ *    Argon2id raises the per-guess cost; it does not prevent this. A real
+ *    OPAQUE/SRP deployment avoids exposing any offline-crackable verifier at
+ *    all — reaching that bar needs an augmented PAKE, not signature-based
+ *    challenge-response, and is tracked as follow-up work, not implemented here.
  *  - The `masterKey` never leaves the client; private keys live in `keyBundle`,
  *    encrypted client-side by masterKey.
  */

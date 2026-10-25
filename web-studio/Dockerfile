@@ -15,7 +15,9 @@ FROM caddy:2.8-alpine@sha256:af32e97399febea808609119bb21544d0265c58a02836576e32
 # Ne tourne PLUS en root : le serveur statique écoute sur 8080 (port > 1024, aucune capacité
 # nécessaire) ; le caddy de bordure (docker-compose) fait le 80/443. Caddy écrit son état dans /tmp.
 COPY --from=build /app/dist /usr/share/caddy
-RUN printf '{\n\tauto_https off\n\tadmin off\n}\n:8080 {\n\troot * /usr/share/caddy\n\ttry_files {path} /index.html\n\tfile_server\n}\n' > /etc/caddy/Caddyfile
+# robots.txt est un vrai fichier statique (web-studio/public/robots.txt) servi avant le repli SPA.
+# sitemap.xml n'existe pas (portail privé, rien à indexer) : 404 explicite plutôt que le HTML de la SPA.
+RUN printf '{\n\tauto_https off\n\tadmin off\n}\n:8080 {\n\trespond /sitemap.xml 404\n\troot * /usr/share/caddy\n\ttry_files {path} /index.html\n\tfile_server\n}\n' > /etc/caddy/Caddyfile
 ENV XDG_DATA_HOME=/tmp/caddy-data XDG_CONFIG_HOME=/tmp/caddy-config
 USER 1000:1000
 EXPOSE 8080

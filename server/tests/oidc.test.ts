@@ -132,6 +132,23 @@ describe("claim validation", () => {
     expect(() => verifyIdToken(token, cfg([pub]))).toThrow(/pas encore valide/);
   });
 
+  it("rejects a token without an exp claim", () => {
+    const p = defaultPayload();
+    delete p.exp;
+    expect(() => verifyIdToken(makeToken("ES256", priv, p), cfg([pub]))).toThrow(/exp/);
+  });
+
+  it("rejects a token without a sub claim", () => {
+    const p = defaultPayload();
+    delete p.sub;
+    expect(() => verifyIdToken(makeToken("ES256", priv, p), cfg([pub]))).toThrow(/sub/);
+  });
+
+  it("rejects a token with an empty sub claim", () => {
+    const token = makeToken("ES256", priv, defaultPayload({ sub: "" }));
+    expect(() => verifyIdToken(token, cfg([pub]))).toThrow(/sub/);
+  });
+
   it("rejects a token without an email", () => {
     const p = defaultPayload();
     delete p.email;

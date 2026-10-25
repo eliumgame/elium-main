@@ -5,6 +5,7 @@ du tag) et utilisable en local.
 
 Emplacements APPLICATIFS mis à jour (source unique runtime = src/elium/__init__.py) :
   - src/elium/__init__.py        __version__ = "X.Y.Z"           (version complète)
+  - pyproject.toml               version = "X.Y.Z"              (packaging Python, version complète)
   - web-studio/package.json      "version": "X.Y.Z"             (version complète)
   - installer/elium.wxs          <?define Version = "X.Y.Z" ?>  (cœur numérique, MSI)
   - installer/version_info.txt   filevers/prodvers + FileVersion/ProductVersion (ressource EXE)
@@ -67,6 +68,12 @@ def main() -> int:
         root / "src" / "elium" / "__init__.py",
         r'__version__ = "[^"]*"',
         f'__version__ = "{full}"',
+    )
+    _sub_in_file(
+        root / "pyproject.toml",
+        r'^version = "[^"]*"',
+        f'version = "{full}"',
+        count=1,
     )
     _sub_in_file(
         root / "web-studio" / "package.json",

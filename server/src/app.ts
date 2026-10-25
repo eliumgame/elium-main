@@ -74,6 +74,12 @@ export async function buildApp(): Promise<FastifyInstance> {
     credentials: true,
     exposedHeaders: ["x-content-nonce"],
   });
+  // Toute réponse d'API peut porter des données de compte (profil, organisation,
+  // ACL…) : jamais mise en cache par le navigateur ni un intermédiaire partagé, y
+  // compris le service worker (qui exclut /api/ côté client en complément).
+  app.addHook("onSend", async (_req, reply) => {
+    reply.header("cache-control", "no-store, private");
+  });
   // Global limiter (per IP). Sensitive auth routes tighten this via per-route
   // `config.rateLimit` (see routes/auth.ts). En multi-instance (REDIS_URL défini)
   // le compteur est PARTAGÉ via Redis → non contournable en répartissant les

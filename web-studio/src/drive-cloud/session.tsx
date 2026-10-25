@@ -614,6 +614,13 @@ export function DriveProvider({ children }: { children: ReactNode }) {
     } catch {
       /* best effort */
     }
+    // Un changement de compte sur le même profil navigateur ne doit pas réutiliser
+    // une réponse mise en cache par le service worker pour le compte précédent.
+    try {
+      navigator.serviceWorker?.controller?.postMessage("clear-cache");
+    } catch {
+      /* best effort */
+    }
     localStorage.removeItem(STORAGE_KEY);
     masterKeyRef.current = null;
     snapshotRef.current = null;

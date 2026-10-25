@@ -43,6 +43,14 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+self.addEventListener("message", (event) => {
+  // Déconnexion : vider le cache pour qu'un prochain compte sur ce profil
+  // navigateur ne réutilise jamais une réponse mise en cache par le précédent.
+  if (event.data === "clear-cache") {
+    event.waitUntil(caches.delete(CACHE));
+  }
+});
+
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
@@ -53,6 +61,8 @@ self.addEventListener("fetch", (event) => {
   if (url.pathname.startsWith("/__")) return;
   // Identité du build + dernière version publiée : toujours frais (jamais servis depuis le cache).
   if (url.pathname === "/release.json") return;
+  // Réponses d'API : jamais mises en cache (données par compte, potentiellement sensibles).
+  if (url.pathname.startsWith("/api/")) return;
 
   if (req.mode === "navigate") {
     event.respondWith(

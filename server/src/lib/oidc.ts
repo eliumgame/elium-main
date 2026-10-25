@@ -149,9 +149,13 @@ export function verifyIdTokenWithKeys(
   const aud = payload.aud;
   const audOk = aud === config.clientId || (Array.isArray(aud) && aud.includes(config.clientId));
   if (!audOk) throw new OidcError("Audience (aud) inattendue.");
-  if (typeof payload.exp === "number" && payload.exp + skew < now) throw new OidcError("Jeton d'identité expiré.");
+  if (typeof payload.exp !== "number") throw new OidcError("Le jeton d'identité ne contient pas d'expiration (exp).");
+  if (payload.exp + skew < now) throw new OidcError("Jeton d'identité expiré.");
   if (typeof payload.nbf === "number" && payload.nbf - skew > now)
     throw new OidcError("Jeton d'identité pas encore valide.");
+
+  const sub = typeof payload.sub === "string" ? payload.sub : "";
+  if (!sub) throw new OidcError("Le jeton d'identité ne contient pas de sujet (sub).");
 
   const email = typeof payload.email === "string" ? payload.email.toLowerCase() : "";
   if (!email) throw new OidcError("Le jeton d'identité ne contient pas d'e-mail.");
@@ -164,7 +168,7 @@ export function verifyIdTokenWithKeys(
   }
 
   return {
-    sub: String(payload.sub ?? ""),
+    sub,
     email,
     emailVerified,
     name: typeof payload.name === "string" ? payload.name : undefined,

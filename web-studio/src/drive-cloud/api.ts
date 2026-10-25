@@ -121,6 +121,8 @@ export interface SitePolicy {
   passwordMinLength: number;
   backupRequired: boolean;
   siteName: string;
+  /** Les membres simples peuvent créer leur espace privé à la racine. */
+  membersCanCreateSpaces?: boolean;
 }
 export interface SiteSettings {
   signupMode: SignupMode;
@@ -684,6 +686,16 @@ export class DriveApi {
   }
 
   // === Groups ==============================================================
+  /** Mes équipes avec ma clé d'équipe enveloppée (tout membre : sert à déchiffrer les partages d'équipe). */
+  myGroups(orgId: string) {
+    return this.json<{
+      groups: { id: string; name: string; groupPublicHex: string; wrappedGroupPrivate: WrappedKey }[];
+    }>("GET", `/orgs/${orgId}/my-groups`);
+  }
+  /** Clés publiques des équipes (tout membre). */
+  groupKeys(orgId: string) {
+    return this.json<{ groups: { id: string; groupPublicHex: string }[] }>("GET", `/orgs/${orgId}/group-keys`);
+  }
   listGroups(orgId: string) {
     return this.json<{ groups: unknown[] }>("GET", `/orgs/${orgId}/groups`);
   }

@@ -10,7 +10,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { query, queryOne, withTx } from "../db/pool.js";
-import { authenticate, requireUser, requireOrgPerm } from "../middleware/auth.js";
+import { authenticate, requireUser, requireOrgPerm, requireMembership } from "../middleware/auth.js";
 import { badRequest, notFound } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
 
@@ -64,6 +64,44 @@ function groupDto(g: Record<string, unknown>, memberCount?: number) {
 
 export default async function groupRoutes(app: FastifyInstance): Promise<void> {
   app.addHook("preHandler", authenticate);
+
+  // --- MES équipes + ma clé d'équipe enveloppée (tout membre actif) ---------
+  // Sans cela, un membre sans `group.view` (rôle « Éditeur ») ne pouvait pas déchiffrer ce qu'on partage
+  // avec son équipe : la clé de l'élément est enveloppée pour l'ÉQUIPE, dont la clé privée n'est
+  // enveloppée que pour ses membres. On ne renvoie QUE les équipes dont l'appelant fait partie.
+  app.get("/:orgId/my-groups", async (req) => {
+    const { orgId } = z.object({ orgId: z.string().uuid() }).parse(req.params);
+    await requireMembership(req, orgId);
+    const user = requireUser(req);
+    const rows = await query<{ id: string; name: string; group_public_hex: string; wrapped_group_private: unknown }>(
+      `SELECT g.id, g.name, g.group_public_hex, gm.wrapped_group_private
+         FROM group_members gm JOIN groups g ON g.id = gm.group_id
+        WHERE gm.user_id = $1 AND g.org_id = $2
+        ORDER BY g.name`,
+      [user.id, orgId],
+    );
+    return {
+      groups: rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        groupPublicHex: r.group_public_hex,
+        wrappedGroupPrivate: r.wrapped_group_private,
+      })),
+    };
+  });
+
+  // --- Clés PUBLIQUES des équipes (tout membre actif) -------------------------
+  // Pour qu'un membre qui crée un élément dans un dossier partagé avec une équipe puisse aussi
+  // envelopper la clé de l'élément pour cette équipe (rien de secret : clés publiques seulement).
+  app.get("/:orgId/group-keys", async (req) => {
+    const { orgId } = z.object({ orgId: z.string().uuid() }).parse(req.params);
+    await requireMembership(req, orgId);
+    const rows = await query<{ id: string; group_public_hex: string }>(
+      `SELECT id, group_public_hex FROM groups WHERE org_id = $1`,
+      [orgId],
+    );
+    return { groups: rows.map((r) => ({ id: r.id, groupPublicHex: r.group_public_hex })) };
+  });
 
   // --- List groups of the org ----------------------------------------------
   app.get("/:orgId/groups", async (req) => {

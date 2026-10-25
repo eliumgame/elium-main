@@ -35,6 +35,7 @@ import {
 import { getPendingCircuitSync, setPendingCircuitSync, clearPendingCircuitSync } from "../circuit-sync";
 import type { SignRequestDto, SignParty } from "../api";
 import { fingerprintWords } from "../../sign/safety-words";
+import { useDialogA11y } from "./useDialogA11y";
 
 export default function SignRequestDialog({
   ctx,
@@ -323,6 +324,8 @@ export default function SignRequestDialog({
     }
   };
 
+  const dialogRef = useDialogA11y(onClose);
+
   return (
     <div
       className="dcx-modal-overlay elx"
@@ -330,7 +333,7 @@ export default function SignRequestDialog({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="dcx-modal dcx-modal--wide" role="dialog" aria-modal="true">
+      <div className="dcx-modal dcx-modal--wide" role="dialog" aria-modal="true" ref={dialogRef}>
         <header className="dcx-modal__head">
           <h2>
             <PenLine size={18} /> Demander une signature — « {entry.name} »

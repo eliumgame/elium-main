@@ -63,3 +63,15 @@
   font-size: 13px;
   max-width: calc(100vw - 24px);
 }
+
+/* Fenêtre étroite : la bannière ne recouvre plus la barre du haut ni le menu (elle passe en bas, pleine largeur). */
+@media (max-width: 760px) {
+  .sync-banner {
+    top: auto;
+    bottom: 12px;
+    left: 12px;
+    right: 12px;
+    transform: none;
+    flex-wrap: wrap;
+  }
+}

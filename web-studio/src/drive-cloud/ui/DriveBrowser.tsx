@@ -232,6 +232,25 @@ export default function DriveBrowser() {
 
   const currentId = path.length ? path[path.length - 1]!.id : null;
 
+  // Droits réels sur le dossier ouvert (rôle Lecteur, etc.) : sans eux les boutons de création restaient actifs
+  // dans un dossier partagé en lecture seule et chaque tentative finissait en erreur du serveur.
+  const [folderPerms, setFolderPerms] = useState<{ id: string; create: boolean } | null>(null);
+  useEffect(() => {
+    if (!currentId) return;
+    let alive = true;
+    d.api
+      .getNode(currentId)
+      .then((r) => {
+        if (alive) setFolderPerms({ id: currentId, create: r.permissions.includes("node.create") });
+      })
+      .catch(() => {
+        if (alive) setFolderPerms(null); // inconnu : le serveur reste juge
+      });
+    return () => {
+      alive = false;
+    };
+  }, [currentId, d.api]);
+
   // Une recherche dans tout le Drive est un instantané explicite : dès que la
   // requête change (nouvelle frappe), les résultats affichés deviennent
   // périmés — on les efface plutôt que de laisser une liste qui ne correspond
@@ -372,8 +391,14 @@ export default function DriveBrowser() {
   }, [ctx, d.api, entries.length]);
 
   const canCreateHere = currentId
-    ? true // server enforces node.create on the parent
-    : d.currentOrg?.roleKey === "owner" || d.currentOrg?.roleKey === "admin" || d.currentOrg?.roleKey === "manager";
+    ? folderPerms?.id === currentId
+      ? folderPerms.create // droits réels du dossier ; tant qu'ils sont inconnus, le serveur reste juge
+      : true
+    : d.currentOrg?.roleKey === "owner" ||
+      d.currentOrg?.roleKey === "admin" ||
+      d.currentOrg?.roleKey === "manager" ||
+      // Drive partagé : chaque membre actif ouvre SON espace privé (réglage du portail, appliqué par le serveur).
+      d.policy?.membersCanCreateSpaces === true;
 
   const shown = useMemo(() => visibleEntries(entries, filter, sortKey, sortDir), [entries, filter, sortKey, sortDir]);
   const shownIds = useMemo(() => shown.map((e) => e.id), [shown]);

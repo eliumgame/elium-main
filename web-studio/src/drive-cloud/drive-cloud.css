@@ -1567,6 +1567,23 @@
   .dc-nav {
     flex-direction: row;
     overflow-x: auto;
+    /* Sans min-width:0 la rangée de menus impose sa largeur (≈900 px) à toute la page : menus coupés. */
+    flex: 1 1 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .dc-nav__item {
+    flex: none;
+    white-space: nowrap;
+  }
+  .dc-app {
+    max-width: 100vw;
+    overflow-x: clip;
+  }
+  .dc-sidebar {
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
   }
   .dc-sidebar__foot {
     flex-direction: row;

@@ -944,6 +944,50 @@ async function main(): Promise<void> {
     await boss.api.patchSiteUser(dave.user.id, { quotaBytes: null });
 
     // =========================================================================
+    section("Partage à une équipe : un membre SANS group.view déchiffre et hérite");
+    const bossRoles = (await boss.api.listRoles(org.id)).roles as RoleDef[];
+    const bossOps: ops.OpsCtx = {
+      api: boss.api,
+      keys: boss.keys,
+      userId: boss.user.id,
+      orgId: org.id,
+      orgPublicHex: org.orgPublicHex,
+      roleIdByKey: Object.fromEntries(bossRoles.map((r) => [r.key, r.id])),
+    };
+    await expectStatus("l'éditeur n'a pas group.view (liste des équipes refusée)", dave.api.listGroups(org.id), 403);
+    const daveUser = (await boss.api.lookupUser({ email: "dave@acme.fr" })).user;
+    await ops.createTeam(bossOps, "Equipe E2E", "", "#123456", [daveUser]);
+    const team = (
+      (await boss.api.listGroups(org.id)).groups as { id: string; name: string; groupPublicHex: string }[]
+    ).find((g) => g.name === "Equipe E2E")!;
+    await ops.createFolder(bossOps, null, "Dossier équipe");
+    const teamFolder = (await ops.listFolder(bossOps, null)).find((e) => e.name === "Dossier équipe")!;
+    await ops.shareWithGroup(bossOps, teamFolder, team.id, team.groupPublicHex, bossOps.roleIdByKey["editor"]!);
+    const seen = (await ops.listFolder(ctxD, null)).find((e) => e.name === "Dossier équipe");
+    ok("membre d'équipe : le dossier partagé à l'équipe est visible et son nom déchiffré", !!seen);
+    const sub = await ops.createFolder(ctxD, teamFolder.id, "Sous-dossier de Dave");
+    const teamRows = await query<{ n: number }>(
+      `SELECT COUNT(*)::int AS n FROM node_keys WHERE node_id = $1 AND principal_type = 'group'`,
+      [sub.id],
+    );
+    ok("un sous-dossier créé par un membre sans group.view hérite du partage d'équipe", teamRows[0]!.n === 1);
+    const inSub = (await ops.listFolder(bossOps, teamFolder.id)).map((e) => e.name);
+    ok(
+      "le propriétaire du dossier voit le sous-dossier créé par le membre",
+      inSub.includes("Sous-dossier de Dave"),
+      JSON.stringify(inSub),
+    );
+    const mine = (await dave.api.myGroups(org.id)).groups;
+    ok(
+      "/my-groups : le membre ne reçoit QUE ses équipes (et sa clé enveloppée)",
+      mine.length === 1 && mine[0]!.id === team.id && !!mine[0]!.wrappedGroupPrivate,
+    );
+    ok(
+      "/my-groups : un non-membre de l'équipe n'en reçoit aucune",
+      (await carol.api.myGroups(org.id)).groups.length === 0,
+    );
+
+    // =========================================================================
     section("2FA obligatoire");
     await expectStatus(
       "impossible d'imposer la 2FA sans avoir la sienne (anti-verrouillage)",

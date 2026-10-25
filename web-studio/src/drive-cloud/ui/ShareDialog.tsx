@@ -10,6 +10,7 @@ import { useDrive } from "../session";
 import { shareWithUser, shareWithGroup, createShareLink, type DriveEntry, type OpsCtx } from "../ops";
 import { revokeShareWithRotation } from "../rotate";
 import { ApiError } from "../api";
+import { useDialogA11y } from "./useDialogA11y";
 
 interface TeamOption {
   id: string;
@@ -201,6 +202,8 @@ export default function ShareDialog({ ctx, entry, onClose }: { ctx: OpsCtx; entr
     void navigator.clipboard?.writeText(text);
   };
 
+  const dialogRef = useDialogA11y(onClose);
+
   return (
     <div
       className="dcx-modal-overlay elx"
@@ -208,7 +211,7 @@ export default function ShareDialog({ ctx, entry, onClose }: { ctx: OpsCtx; entr
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="dcx-modal dcx-modal--wide" role="dialog" aria-modal="true">
+      <div className="dcx-modal dcx-modal--wide" role="dialog" aria-modal="true" ref={dialogRef}>
         <header className="dcx-modal__head">
           <h2>
             <Share2 size={18} /> Partager « {entry.name} »
@@ -227,7 +230,12 @@ export default function ShareDialog({ ctx, entry, onClose }: { ctx: OpsCtx; entr
             onChange={(e) => setEmail(e.target.value)}
             required
           />
-          <select className="elx-select--surface" value={roleId} onChange={(e) => setRoleId(e.target.value)}>
+          <select
+            className="elx-select--surface"
+            aria-label="Rôle du membre"
+            value={roleId}
+            onChange={(e) => setRoleId(e.target.value)}
+          >
             {d.roles.map((r) => (
               <option key={r.id} value={r.id}>
                 {r.name}
@@ -253,7 +261,12 @@ export default function ShareDialog({ ctx, entry, onClose }: { ctx: OpsCtx; entr
         {teams.length > 0 && (
           <div className="dcx-inline">
             <Users2 size={16} style={{ color: "var(--x-mute)", flex: "none" }} />
-            <select className="elx-select--surface" value={teamId} onChange={(e) => setTeamId(e.target.value)}>
+            <select
+              className="elx-select--surface"
+              aria-label="Équipe"
+              value={teamId}
+              onChange={(e) => setTeamId(e.target.value)}
+            >
               <option value="">Partager avec une équipe…</option>
               {teams.map((t) => (
                 <option key={t.id} value={t.id}>
@@ -261,7 +274,12 @@ export default function ShareDialog({ ctx, entry, onClose }: { ctx: OpsCtx; entr
                 </option>
               ))}
             </select>
-            <select className="elx-select--surface" value={teamRoleId} onChange={(e) => setTeamRoleId(e.target.value)}>
+            <select
+              className="elx-select--surface"
+              aria-label="Rôle de l'équipe"
+              value={teamRoleId}
+              onChange={(e) => setTeamRoleId(e.target.value)}
+            >
               {d.roles.map((r) => (
                 <option key={r.id} value={r.id}>
                   {r.name}
@@ -286,7 +304,8 @@ export default function ShareDialog({ ctx, entry, onClose }: { ctx: OpsCtx; entr
                 <span className="elx-row__label">{s.name}</span>
                 <span className="elx-chip">{s.roleName}</span>
                 <span className="elx-row__meta">{s.principalType === "org" ? "recouvrement" : s.principalType}</span>
-                {s.principalType !== "org" && (
+                {/* Ni le recouvrement d'organisation, ni le propriétaire du nœud : le serveur refuse de les retirer. */}
+                {s.principalType !== "org" && !(s.principalType === "user" && s.principalId === entry.ownerUserId) && (
                   <button
                     className="elx-icon elx-icon--danger"
                     title="Retirer l'accès (rotation des clés)"

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { X, History, Download, RotateCcw } from "lucide-react";
 import { useDialogs } from "../../ui/dialogs";
 import { downloadVersion, triggerDownload, type DriveEntry, type OpsCtx } from "../ops";
+import { useDialogA11y } from "./useDialogA11y";
 
 interface Version {
   id: string;
@@ -72,6 +73,8 @@ export default function VersionsDialog({
     }
   };
 
+  const dialogRef = useDialogA11y(onClose);
+
   return (
     <div
       className="dcx-modal-overlay elx"
@@ -79,7 +82,7 @@ export default function VersionsDialog({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="dcx-modal" role="dialog" aria-modal="true">
+      <div className="dcx-modal" role="dialog" aria-modal="true" ref={dialogRef}>
         <header className="dcx-modal__head">
           <h2>
             <History size={18} /> Historique — « {entry.name} »

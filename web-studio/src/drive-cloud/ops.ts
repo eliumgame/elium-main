@@ -17,8 +17,8 @@ import {
   decryptName,
   type WrappedKey,
 } from "./node-crypto";
-import { generateRecipientKeypair } from "../crypto/recipients";
-import { fromHex } from "../format/canonical";
+import { generateRecipientKeypair, type RecipientKeypair } from "../crypto/recipients";
+import { fromHex, toHex } from "../format/canonical";
 import { readEliumPackage, writeEliumPackage } from "../format/elium-package";
 import { alignCircuitWithRequest, type KnownPartyProgress } from "../format/document";
 import type { EliumFile } from "../format/types";
@@ -51,8 +51,50 @@ export async function nodeKeyFrom(ctx: OpsCtx, wrapped: WrappedKey | null | unde
   try {
     return await unwrapNodeKey(wrapped, ctx.keys.recipient);
   } catch {
-    return null;
+    /* pas enveloppée pour nous : peut-être pour une de nos équipes */
   }
+  for (const attempt of [false, true]) {
+    for (const kp of await myTeamKeypairs(ctx, attempt)) {
+      try {
+        return await unwrapNodeKey(wrapped, kp);
+      } catch {
+        /* pas cette équipe */
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Paires de clés des équipes dont on est membre (clé d'équipe déchiffrée avec notre clé personnelle). Mises
+ * en cache quelques secondes ; `refresh` force un rechargement (on vient peut-être d'être ajouté à une équipe).
+ * Un échec réseau/permission renvoie une liste vide : on ne casse jamais l'affichage pour autant.
+ */
+const TEAM_KEYS_TTL_MS = 30_000;
+const teamKeyCache = new WeakMap<object, { at: number; orgId: string; keys: Promise<RecipientKeypair[]> }>();
+async function myTeamKeypairs(ctx: OpsCtx, refresh: boolean): Promise<RecipientKeypair[]> {
+  const hit = teamKeyCache.get(ctx.keys);
+  if (hit && hit.orgId === ctx.orgId && !refresh && Date.now() - hit.at < TEAM_KEYS_TTL_MS) return hit.keys;
+  if (refresh && hit && Date.now() - hit.at < 2_000) return hit.keys; // pas de rafale de rechargements
+  const keys = (async () => {
+    try {
+      const { groups } = await ctx.api.myGroups(ctx.orgId);
+      const out: RecipientKeypair[] = [];
+      for (const g of groups) {
+        try {
+          const priv = await unwrapNodeKey(g.wrappedGroupPrivate, ctx.keys.recipient);
+          out.push({ privateHex: toHex(priv), publicHex: g.groupPublicHex });
+        } catch {
+          /* clé d'équipe illisible : on l'ignore */
+        }
+      }
+      return out;
+    } catch {
+      return [];
+    }
+  })();
+  teamKeyCache.set(ctx.keys, { at: Date.now(), orgId: ctx.orgId, keys });
+  return keys;
 }
 
 /** The key shares to attach to a newly created node: the creator + org recovery. */
@@ -112,7 +154,11 @@ async function inheritedShares(
       let pub: string | null = null;
       if (s.principalType === "user") pub = (await ctx.api.getUser(s.principalId)).user.p256PublicHex;
       else if (s.principalType === "group") {
-        groups ??= ((await ctx.api.listGroups(ctx.orgId)).groups as { id: string; groupPublicHex: string }[]) ?? [];
+        // `group.view` n'est pas donné à tous les rôles : à défaut, les clés PUBLIQUES des équipes (tout membre).
+        groups ??= (await ctx.api.listGroups(ctx.orgId).catch(() => ctx.api.groupKeys(ctx.orgId))).groups as {
+          id: string;
+          groupPublicHex: string;
+        }[];
         pub = groups.find((g) => g.id === s.principalId)?.groupPublicHex ?? null;
       } else if (s.principalType === "org") pub = ctx.orgPublicHex || null;
       if (!pub) continue;

@@ -122,6 +122,8 @@ export default async function siteRoutes(app: FastifyInstance): Promise<void> {
       passwordMinLength: settings.passwordMinLength,
       backupRequired: settings.backupRequired,
       siteName: settings.siteName,
+      // Les membres simples peuvent ouvrir leur espace privé à la racine (l'interface en dépend).
+      membersCanCreateSpaces: settings.membersCanCreateSpaces,
     };
   });
 

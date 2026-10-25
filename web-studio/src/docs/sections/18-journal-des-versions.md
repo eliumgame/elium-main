@@ -2,6 +2,10 @@
 
 > Dernière version publiée : **4.10.0**, étiquetée le 4 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
 
+### Version 4.29.1 — Documents testé de bout en bout
+
+- **Documents** : 36 parcours automatisés au clavier réel (édition, références, mise en page, révision, recherche, publipostage) ; raccourci exposant/indice corrigé (Ctrl+Maj+= sur un texte déjà en indice ne faisait rien).
+
 ### Version 4.29.0 — campagne de tests complets et corrections
 
 - **Tableur** : la frappe directe dans la grille garde son premier caractère ; nombres saisis à la française (12,5 ; 1 234,5) reconnus par les formules, le tri et le remplacement ; fonctions VALUE, REPT, SWITCH ; FLOOR/CEILING avec multiple ; menus lisibles en fenêtre étroite.

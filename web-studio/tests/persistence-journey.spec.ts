@@ -198,7 +198,12 @@ async function register(page: Page, createOrg: boolean) {
   await authCard(page).getByRole("button", { name: "Créer un compte" }).click();
   await authCard(page).getByPlaceholder("Prénom Nom").fill(WHO.name);
   const code = page.getByTestId("activation-code");
-  if (await code.isVisible({ timeout: 5_000 }).catch(() => false)) await code.fill(ACTIVATION);
+  // `isVisible` n'attend pas : sur une machine chargée le champ du code apparaît après la lecture de la politique du site.
+  const needsCode = await code
+    .waitFor({ state: "visible", timeout: 20_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (needsCode) await code.fill(ACTIVATION);
   await authCard(page).locator('input[type="email"]').fill(WHO.email);
   const pws = authCard(page).locator('input[type="password"]');
   await pws.nth(0).fill(WHO.pw);

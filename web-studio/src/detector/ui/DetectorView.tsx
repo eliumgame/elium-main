@@ -348,7 +348,7 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
   })();
 
   return (
-    <div className="det-page">
+    <div className={`det-page${previewOpen ? " det-page--preview" : ""}`}>
       <header className="det-header">
         <Button variant="ghost" size="sm" className="det-header__back" onClick={onHome}>
           <ArrowLeft size={15} /> Retour à l'accueil
@@ -611,6 +611,7 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
                   if (!cat) return null;
                   return (
                     <CategoryPanel
+                      key={cat.category}
                       category={cat}
                       metadata={activeTab === "metadonnees" ? report.documentMetadata : undefined}
                       onShowInDocument={showInDocument}
@@ -726,6 +727,9 @@ function MetadataList({ meta }: { meta: DocumentMetadata }) {
   );
 }
 
+/** Constats montés d'un coup dans un onglet du rapport. */
+const FINDINGS_PAGE = 100;
+
 function CategoryPanel({
   category,
   metadata,
@@ -736,6 +740,9 @@ function CategoryPanel({
   onShowInDocument?: (id: string, paragraphIndex: number | undefined) => void;
 }) {
   const findings = sortedFindings(category.findings);
+  // Un long document peut produire des milliers de constats : on n'en monte qu'une page à la fois (le rendu de
+  // 3 600 cartes gelait l'onglet plus d'une demi-seconde) ; les plus importants sont en tête (tri par gravité).
+  const [shown, setShown] = useState(FINDINGS_PAGE);
   return (
     <div className="det-category">
       <div className="det-category__score">
@@ -746,9 +753,15 @@ function CategoryPanel({
         <EmptyState title="Aucun signal détecté dans cette catégorie." />
       ) : (
         <div className="det-findings">
-          {findings.map((f) => (
+          {findings.slice(0, shown).map((f) => (
             <FindingCard key={f.id} finding={f} onShowInDocument={onShowInDocument} />
           ))}
+          {findings.length > shown && (
+            <Button variant="outline" onClick={() => setShown((n) => n + FINDINGS_PAGE)}>
+              Afficher {Math.min(FINDINGS_PAGE, findings.length - shown)} constats de plus ({findings.length - shown}{" "}
+              restants)
+            </Button>
+          )}
         </div>
       )}
     </div>

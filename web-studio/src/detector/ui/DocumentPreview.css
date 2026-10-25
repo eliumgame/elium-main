@@ -119,3 +119,11 @@
     display: none !important;
   }
 }
+
+/* L'aperçu est un tiroir fixe à droite : le rapport lui laisse la place au lieu de passer dessous
+   (sinon les boutons d'export à droite devenaient inaccessibles au clic). */
+@media (min-width: 901px) {
+  .det-page--preview .det-body {
+    padding-right: min(480px, 42vw);
+  }
+}

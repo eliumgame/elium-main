@@ -28,6 +28,8 @@ est mémorisé sur l'appareil. Le bouton « Appliquer le préréglage style
 administratif/technique » coupe les signaux les plus sensibles à ce type de
 texte. Il n'y a pas de curseur de seuil.
 
+Un long document peut produire des milliers de constats : chaque onglet du rapport en affiche **100 à la fois** (les plus graves d'abord) avec un bouton « Afficher N constats de plus ». L'aperçu s'ouvre à droite sans masquer les boutons d'export.
+
 ### Aperçu annoté
 
 Le rapport propose « Aperçu du document » : les passages repérés sont soulignés en

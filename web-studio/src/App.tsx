@@ -1077,11 +1077,13 @@ export default function App() {
       };
       switch (id) {
         case "palette":
-          if (modeRef.current === "pdf") return; // le module PDF a sa propre palette sur ce raccourci
           take();
           setPaletteOpen((v) => !v);
           return;
         case "paletteGlobal":
+          // Le module PDF a sa propre palette (« Rechercher des outils ») sur Ctrl+Maj+P ; la palette globale y reste
+          // joignable par Ctrl+K.
+          if (modeRef.current === "pdf") return;
           take();
           setPaletteOpen((v) => !v);
           return;

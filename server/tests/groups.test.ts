@@ -40,9 +40,12 @@ vi.mock("../src/middleware/auth.js", () => ({
 
 vi.mock("../src/lib/audit.js", () => ({ audit: vi.fn(async () => {}) }));
 
+vi.mock("../src/collab/relay.js", () => ({ kickUser: vi.fn() }));
+
 import { query, queryOne, withTx } from "../src/db/pool.js";
 import { requireOrgPerm } from "../src/middleware/auth.js";
 import { audit } from "../src/lib/audit.js";
+import { kickUser } from "../src/collab/relay.js";
 import { ApiError } from "../src/lib/errors.js";
 import groupRoutes from "../src/routes/groups.js";
 
@@ -51,6 +54,7 @@ const mQueryOne = vi.mocked(queryOne);
 const mWithTx = vi.mocked(withTx);
 const mRequireOrgPerm = vi.mocked(requireOrgPerm);
 const mAudit = vi.mocked(audit);
+const mKickUser = vi.mocked(kickUser);
 
 async function makeApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
@@ -322,6 +326,7 @@ describe("DELETE /api/orgs/:orgId/groups/:groupId/members/:userId", () => {
     expect(res.json()).toEqual({ ok: true });
     expect(mQuery).toHaveBeenCalledWith(expect.stringMatching(/DELETE FROM group_members/), [GROUP, OTHER_USER]);
     expect(mAudit).toHaveBeenCalledWith(ORG, USER, "group.member.remove", "group", GROUP, { userId: OTHER_USER }, expect.any(String));
+    expect(mKickUser).toHaveBeenCalledWith(OTHER_USER, "group-member-removed");
     await app.close();
   });
 
@@ -351,6 +356,17 @@ describe("DELETE /api/orgs/:orgId/groups/:groupId", () => {
     expect(res.json()).toEqual({ ok: true });
     expect(mQuery).toHaveBeenCalledWith(expect.stringMatching(/DELETE FROM groups/), [GROUP, ORG]);
     expect(mAudit).toHaveBeenCalledWith(ORG, USER, "group.delete", "group", GROUP, {}, expect.any(String));
+    await app.close();
+  });
+
+  it("kicks every member's live connections when the group is deleted", async () => {
+    mQueryOne.mockResolvedValueOnce({ id: GROUP, org_id: ORG, name: "g", description: "", color: "#0ea5e9", group_public_hex: GROUP_PUBLIC_HEX, created_at: "t" });
+    mQuery.mockResolvedValueOnce([{ user_id: USER }, { user_id: OTHER_USER }] as never);
+    const app = await makeApp();
+    const res = await app.inject({ method: "DELETE", url: `/api/orgs/${ORG}/groups/${GROUP}` });
+    expect(res.statusCode).toBe(200);
+    expect(mKickUser).toHaveBeenCalledWith(USER, "group-deleted");
+    expect(mKickUser).toHaveBeenCalledWith(OTHER_USER, "group-deleted");
     await app.close();
   });
 

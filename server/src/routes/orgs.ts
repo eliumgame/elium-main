@@ -21,6 +21,7 @@ import { badRequest, notFound, conflict, forbidden } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
 import { assertCanCreateOrg, claimSiteOrg, getSiteState } from "../lib/site-settings.js";
 import { consumeActivation, isActivationRequired, verifyActivation } from "../lib/activation.js";
+import { kickUser } from "../collab/relay.js";
 
 const hex = (len?: number) =>
   len ? z.string().regex(new RegExp(`^[0-9a-f]{${len}}$`)) : z.string().regex(/^[0-9a-f]+$/);
@@ -259,7 +260,7 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
 
     const accepted = await withTx(async (c) => {
       const { rows } = await c.query(
-        `SELECT id, org_id, role_id, expires_at, accepted_at
+        `SELECT id, org_id, role_id, email, expires_at, accepted_at
            FROM invites
           WHERE token_hash = $1
           FOR UPDATE`,
@@ -268,6 +269,13 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
       const invite = rows[0];
       if (!invite || invite.accepted_at || new Date(invite.expires_at).getTime() < Date.now()) {
         throw badRequest("Invitation invalide, expirée ou déjà utilisée.");
+      }
+      // Le jeton est à usage unique et aléatoire, mais un lien peut être transféré :
+      // n'attribuer le rôle qu'au compte auquel l'invitation a réellement été envoyée.
+      if ((invite.email as string).toLowerCase() !== user.email.toLowerCase()) {
+        throw badRequest(
+          "Cette invitation est destinée à une autre adresse e-mail. Connectez-vous avec le compte invité, ou demandez une nouvelle invitation.",
+        );
       }
 
       // Membership for the current user with the invite's role.
@@ -343,6 +351,9 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
       userId,
     ]);
     if (!removed) throw notFound("Membre introuvable dans cette organisation.");
+    // Coupe immédiatement ses connexions temps réel (documents collab, canal
+    // d'événements) : sans ça il garderait son canal jusqu'à déconnexion naturelle.
+    kickUser(userId, "org-member-removed");
 
     await audit(orgId, actor.id, "member.remove", "membership", removed.id as string, { userId }, req.ip);
     return { ok: true };

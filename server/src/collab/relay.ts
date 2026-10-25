@@ -86,6 +86,43 @@ function broadcast(nodeId: string, from: Peer | null, message: unknown): void {
   }
 }
 
+/**
+ * Force un utilisateur hors de TOUTES ses connexions temps réel (salles de
+ * collaboration + canal d'événements d'organisation), sur toutes les instances.
+ * À appeler après tout retrait de droits qui doit couper l'accès immédiatement :
+ * retrait d'une organisation, d'un groupe, déprovisionnement SCIM. Un pair
+ * encore légitime ailleurs se contente de se reconnecter (ré-évalue son ACL à
+ * la reconnexion) ; un pair réellement révoqué échoue la porte RBAC. Même code
+ * de fermeture que `kickRoom` (4001 : ce n'est pas une coupure réseau).
+ */
+export function kickUser(userId: string, reason = "membership-revoked"): void {
+  kickUserLocal(userId, reason);
+  publishRelay({ k: "kickUser", userId, reason });
+}
+
+function kickUserLocal(userId: string, reason: string): void {
+  for (const room of rooms.values()) {
+    for (const peer of room) {
+      if (peer.userId !== userId) continue;
+      try {
+        peer.socket.close(4001, reason);
+      } catch {
+        /* already gone */
+      }
+    }
+  }
+  for (const room of orgRooms.values()) {
+    for (const peer of room) {
+      if (peer.userId !== userId) continue;
+      try {
+        peer.socket.close(4001, reason);
+      } catch {
+        /* already gone */
+      }
+    }
+  }
+}
+
 // --- Canal d'événements PAR ORGANISATION (notifications temps réel) ---------
 //  Sert à rafraîchir INSTANTANÉMENT le navigateur de fichiers des membres quand
 //  un nœud change (création/renommage/déplacement/corbeille/restauration), au
@@ -129,6 +166,7 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
     if (m.k === "bcast") broadcast(m.nodeId, null, m.message);
     else if (m.k === "kick") kickRoomLocal(m.nodeId, m.reason);
     else if (m.k === "org") notifyOrgLocal(m.orgId);
+    else if (m.k === "kickUser") kickUserLocal(m.userId, m.reason);
   }, app.log);
 
   // --- WebSocket : canal d'événements de l'organisation --------------------

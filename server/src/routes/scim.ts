@@ -25,6 +25,7 @@ import { sha256Hex, randomToken } from "../lib/crypto-server.js";
 import { unauthorized, notFound } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
 import { DEFAULT_MEMBER_ROLE_KEY } from "../rbac/roles.js";
+import { kickUser } from "../collab/relay.js";
 
 const USER_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:User";
 const GROUP_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:Group";
@@ -396,6 +397,7 @@ export default async function scimRoutes(app: FastifyInstance): Promise<void> {
     if (!row) throw notFound("Utilisateur SCIM introuvable.");
     if (active === false) {
       await query(`UPDATE memberships SET status = 'suspended' WHERE org_id = $1 AND user_id = $2`, [orgId, id]);
+      kickUser(id, "scim-deprovisioned");
       await audit(orgId, null, "scim.user.deprovision", "user", id, {}, req.ip);
       row.membership_status = "suspended";
     } else if (active === true) {
@@ -416,6 +418,7 @@ export default async function scimRoutes(app: FastifyInstance): Promise<void> {
       [orgId, id],
     );
     if (!r.length) throw notFound("Utilisateur SCIM introuvable.");
+    kickUser(id, "scim-deprovisioned");
     await audit(orgId, null, "scim.user.deprovision", "user", id, {}, req.ip);
     reply.code(204);
     return null;

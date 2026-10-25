@@ -28,7 +28,8 @@ import { config } from "../config.js";
 export type RelayMsg =
   | { k: "bcast"; nodeId: string; message: unknown }
   | { k: "kick"; nodeId: string; reason: string }
-  | { k: "org"; orgId: string };
+  | { k: "org"; orgId: string }
+  | { k: "kickUser"; userId: string; reason: string };
 
 export type BackplaneHealth = "disabled" | "ok" | "degraded";
 

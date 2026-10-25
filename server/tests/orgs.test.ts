@@ -43,9 +43,12 @@ vi.mock("../src/middleware/auth.js", () => ({
 
 vi.mock("../src/lib/audit.js", () => ({ audit: vi.fn(async () => {}) }));
 
+vi.mock("../src/collab/relay.js", () => ({ kickUser: vi.fn() }));
+
 import { query, queryOne, withTx } from "../src/db/pool.js";
 import { requireOrgPerm } from "../src/middleware/auth.js";
 import { audit } from "../src/lib/audit.js";
+import { kickUser } from "../src/collab/relay.js";
 import { ApiError } from "../src/lib/errors.js";
 import { SYSTEM_ROLE_TEMPLATES } from "../src/rbac/roles.js";
 import orgRoutes from "../src/routes/orgs.js";
@@ -55,6 +58,7 @@ const mQueryOne = vi.mocked(queryOne);
 const mWithTx = vi.mocked(withTx);
 const mRequireOrgPerm = vi.mocked(requireOrgPerm);
 const mAudit = vi.mocked(audit);
+const mKickUser = vi.mocked(kickUser);
 
 async function makeApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
@@ -388,13 +392,14 @@ describe("POST /api/orgs/invites/accept", () => {
     mWithTx.mockImplementation(
       txDispatch([
         [
-          /SELECT id, org_id, role_id, expires_at, accepted_at/,
+          /SELECT id, org_id, role_id, email, expires_at, accepted_at/,
           () => ({
             rows: [
               {
                 id: "invite-1",
                 org_id: ORG,
                 role_id: ROLE,
+                email: "u@example.org",
                 expires_at: new Date(Date.now() + 10_000).toISOString(),
                 accepted_at: null,
               },
@@ -417,6 +422,75 @@ describe("POST /api/orgs/invites/accept", () => {
     await app.close();
   });
 
+  it("matches the invite email case-insensitively", async () => {
+    mWithTx.mockImplementation(
+      txDispatch([
+        [
+          /SELECT id, org_id, role_id, email, expires_at, accepted_at/,
+          () => ({
+            rows: [
+              {
+                id: "invite-1",
+                org_id: ORG,
+                role_id: ROLE,
+                email: "U@EXAMPLE.ORG",
+                expires_at: new Date(Date.now() + 10_000).toISOString(),
+                accepted_at: null,
+              },
+            ],
+          }),
+        ],
+        [/INSERT INTO memberships/, () => ({ rows: [{ org_id: ORG, role_id: ROLE }] })],
+        [/UPDATE invites SET accepted_at/, () => ({ rows: [] })],
+      ]) as never,
+    );
+    const app = await makeApp();
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/orgs/invites/accept`,
+      payload: { token: "a-valid-token-1234" },
+    });
+    expect(res.statusCode).toBe(200);
+    await app.close();
+  });
+
+  it("400 when the invite was sent to a different e-mail (link forwarded/stolen)", async () => {
+    const executed: string[] = [];
+    mWithTx.mockImplementation(
+      txDispatch(
+        [
+          [
+            /SELECT id, org_id, role_id, email, expires_at, accepted_at/,
+            () => ({
+              rows: [
+                {
+                  id: "invite-1",
+                  org_id: ORG,
+                  role_id: ROLE,
+                  email: "someone-else@example.org",
+                  expires_at: new Date(Date.now() + 10_000).toISOString(),
+                  accepted_at: null,
+                },
+              ],
+            }),
+          ],
+          [/INSERT INTO memberships/, () => ({ rows: [{ org_id: ORG, role_id: ROLE }] })],
+        ],
+        executed,
+      ) as never,
+    );
+    const app = await makeApp();
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/orgs/invites/accept`,
+      payload: { token: "a-valid-token-1234" },
+    });
+    expect(res.statusCode).toBe(400);
+    // Le rôle n'a jamais dû être attribué à ce compte.
+    expect(executed.some((sql) => /INSERT INTO memberships/.test(sql))).toBe(false);
+    await app.close();
+  });
+
   it("400 for an unknown token", async () => {
     mWithTx.mockImplementation(txDispatch([]) as never);
     const app = await makeApp();
@@ -433,7 +507,7 @@ describe("POST /api/orgs/invites/accept", () => {
     mWithTx.mockImplementation(
       txDispatch([
         [
-          /SELECT id, org_id, role_id, expires_at, accepted_at/,
+          /SELECT id, org_id, role_id, email, expires_at, accepted_at/,
           () => ({
             rows: [
               {
@@ -462,7 +536,7 @@ describe("POST /api/orgs/invites/accept", () => {
     mWithTx.mockImplementation(
       txDispatch([
         [
-          /SELECT id, org_id, role_id, expires_at, accepted_at/,
+          /SELECT id, org_id, role_id, email, expires_at, accepted_at/,
           () => ({
             rows: [
               {
@@ -635,6 +709,7 @@ describe("DELETE /api/orgs/:orgId/members/:userId", () => {
       { userId: OTHER_USER },
       expect.any(String),
     );
+    expect(mKickUser).toHaveBeenCalledWith(OTHER_USER, "org-member-removed");
     await app.close();
   });
 

@@ -13,6 +13,7 @@ import { query, queryOne, withTx } from "../db/pool.js";
 import { authenticate, requireUser, requireOrgPerm, requireMembership } from "../middleware/auth.js";
 import { badRequest, notFound } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
+import { kickUser } from "../collab/relay.js";
 
 const envelope = z.record(z.string(), z.unknown()); // recipients envelope (opaque JSON)
 
@@ -275,6 +276,9 @@ export default async function groupRoutes(app: FastifyInstance): Promise<void> {
     await loadGroupInOrg(groupId, orgId);
 
     await query(`DELETE FROM group_members WHERE group_id = $1 AND user_id = $2`, [groupId, userId]);
+    // Un retrait de groupe peut retirer l'accès à des nœuds : coupe ses connexions
+    // temps réel plutôt que de les laisser vivre jusqu'à déconnexion naturelle.
+    kickUser(userId, "group-member-removed");
 
     await audit(orgId, user.id, "group.member.remove", "group", groupId, { userId }, req.ip);
 
@@ -289,7 +293,11 @@ export default async function groupRoutes(app: FastifyInstance): Promise<void> {
 
     await loadGroupInOrg(groupId, orgId);
 
+    const members = await query<{ user_id: string }>(`SELECT user_id FROM group_members WHERE group_id = $1`, [
+      groupId,
+    ]);
     await query(`DELETE FROM groups WHERE id = $1 AND org_id = $2`, [groupId, orgId]);
+    for (const m of members) kickUser(m.user_id, "group-deleted");
 
     await audit(orgId, user.id, "group.delete", "group", groupId, {}, req.ip);
 

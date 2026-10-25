@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
 import { SlideReader, slideToY, syncYText, ensureYText } from "../src/drive-cloud/collab-slides-crdt";
 import { EncryptedCollabChannel } from "../src/drive-cloud/collab";
+import { EncryptedYjsProvider } from "../src/drive-cloud/collab-provider";
 import { encryptContent } from "../src/drive-cloud/node-crypto";
 import { toHex, fromHex } from "../src/format/canonical";
 import type { Slide } from "../src/slides/model";
@@ -121,5 +122,123 @@ describe("rattrapage du journal Drive", () => {
     dst.transact(() => got.forEach((u) => Y.applyUpdate(dst, u, "remote")), "remote");
     expect(obs).toBe(1);
     expect(dst.getText("t").toString()).toBe(t.toString());
+  });
+});
+
+describe("canal chiffré : aucune modification perdue", () => {
+  /** WebSocket factice : on contrôle ouverture, fermeture et ce qui est réellement envoyé. */
+  class FakeWS {
+    static OPEN = 1;
+    static instances: FakeWS[] = [];
+    readyState = 0;
+    sent: string[] = [];
+    onopen: (() => void) | null = null;
+    onclose: ((e: { code: number }) => void) | null = null;
+    onmessage: ((e: { data: string }) => void) | null = null;
+    constructor() {
+      FakeWS.instances.push(this);
+    }
+    open() {
+      this.readyState = 1;
+      this.onopen?.();
+    }
+    send(d: string) {
+      this.sent.push(d);
+    }
+    close() {
+      this.readyState = 3;
+      this.onclose?.({ code: 1000 });
+    }
+  }
+  const mkChannel = () => {
+    const api = { getCollabUpdates: async () => ({ updates: [] }), collabSocketUrl: () => "ws://x" };
+    return new EncryptedCollabChannel(api as never, "n", new Uint8Array(32).fill(3), {});
+  };
+
+  it("une mise à jour faite pendant une coupure est renvoyée à la réouverture", async () => {
+    const g = globalThis as unknown as { WebSocket: unknown };
+    const prev = g.WebSocket;
+    g.WebSocket = FakeWS;
+    FakeWS.instances = [];
+    try {
+      const ch = mkChannel();
+      await ch.connect();
+      const ws = FakeWS.instances[0]!;
+      await ch.sendUpdate(new Uint8Array([1, 2, 3])); // socket pas encore ouvert
+      expect(ws.sent).toHaveLength(0);
+      ws.open(); // réouverture : l'outbox part
+      await new Promise((r) => setTimeout(r, 50));
+      expect(ws.sent).toHaveLength(1);
+      expect(JSON.parse(ws.sent[0]!).type).toBe("update");
+    } finally {
+      g.WebSocket = prev;
+    }
+  });
+
+  it("fermer juste après une modification n'en perd pas la fin", async () => {
+    const g = globalThis as unknown as { WebSocket: unknown };
+    const prev = g.WebSocket;
+    g.WebSocket = FakeWS;
+    FakeWS.instances = [];
+    try {
+      const ch = mkChannel();
+      await ch.connect();
+      const ws = FakeWS.instances[0]!;
+      ws.open();
+      void ch.sendUpdate(new Uint8Array([9, 9]));
+      ch.close(); // avant la fin du chiffrement
+      await new Promise((r) => setTimeout(r, 100));
+      expect(ws.sent).toHaveLength(1);
+      expect(ws.readyState).toBe(3); // puis le socket est bien fermé
+    } finally {
+      g.WebSocket = prev;
+    }
+  });
+});
+
+describe("fournisseur Yjs : réutilisable après destroy (StrictMode)", () => {
+  class WS {
+    static OPEN = 1;
+    static all: WS[] = [];
+    readyState = 0;
+    sent: string[] = [];
+    onopen: (() => void) | null = null;
+    onclose: ((e: { code: number }) => void) | null = null;
+    onmessage: unknown = null;
+    constructor() {
+      WS.all.push(this);
+    }
+    send(d: string) {
+      this.sent.push(d);
+    }
+    close() {
+      this.readyState = 3;
+    }
+  }
+  it("après destroy() puis connect(), les modifications locales partent toujours", async () => {
+    const g = globalThis as unknown as { WebSocket: unknown };
+    const prev = g.WebSocket;
+    g.WebSocket = WS;
+    WS.all = [];
+    try {
+      const api = { getCollabUpdates: async () => ({ updates: [] }), collabSocketUrl: () => "ws://x" };
+      const doc = new Y.Doc();
+      const provider = new EncryptedYjsProvider(api as never, "n", new Uint8Array(32).fill(5), doc, {
+        name: "t",
+        color: "#000",
+      });
+      await provider.connect();
+      provider.destroy(); // démontage StrictMode
+      await provider.connect(); // remontage sur la même instance
+      const ws = WS.all[WS.all.length - 1]!;
+      ws.readyState = 1;
+      ws.onopen?.();
+      doc.getText("t").insert(0, "bonjour");
+      await new Promise((r) => setTimeout(r, 100));
+      expect(ws.sent.some((m) => JSON.parse(m).type === "update")).toBe(true);
+      provider.destroy();
+    } finally {
+      g.WebSocket = prev;
+    }
   });
 });

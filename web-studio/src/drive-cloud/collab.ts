@@ -120,7 +120,10 @@ export class EncryptedCollabChannel {
     this.handlers.onStatus?.("connecting");
     const ws = new WebSocket(this.api.collabSocketUrl(this.nodeId));
     this.ws = ws;
-    ws.onopen = () => this.handlers.onStatus?.("open");
+    ws.onopen = () => {
+      this.handlers.onStatus?.("open");
+      this.flushOutbox();
+    };
     ws.onclose = (ev) => {
       this.handlers.onStatus?.("closed");
       if (this.closedByUser) return;
@@ -210,11 +213,42 @@ export class EncryptedCollabChannel {
     }
   }
 
+  /**
+   * Mises à jour locales non encore parties (socket fermé ou en reconnexion) : elles sont conservées et
+   * renvoyées à la réouverture — sans cela, une modification faite pendant une coupure serait perdue
+   * (le relais ne renvoie que le journal, jamais l'état local d'un client).
+   */
+  private outbox: Uint8Array[] = [];
+  /** Envois en cours de chiffrement : `close()` les attend avant de fermer le socket. */
+  private readonly inflight = new Set<Promise<void>>();
+
+  private flushOutbox(): void {
+    const pending = this.outbox;
+    this.outbox = [];
+    for (const u of pending) void this.sendUpdate(u);
+  }
+
   /** Encrypt and broadcast a local CRDT update. */
-  async sendUpdate(update: Uint8Array): Promise<void> {
-    if (this.ws?.readyState !== WebSocket.OPEN) return;
+  sendUpdate(update: Uint8Array): Promise<void> {
+    if (this.closedByUser) return Promise.resolve();
+    const task = this.sendNow(update).finally(() => this.inflight.delete(task));
+    this.inflight.add(task);
+    return task;
+  }
+
+  private async sendNow(update: Uint8Array): Promise<void> {
+    if (this.ws?.readyState !== WebSocket.OPEN) {
+      this.outbox.push(update);
+      return;
+    }
     const enc = await encryptContent(this.nodeKey, update);
-    this.ws.send(JSON.stringify({ type: "update", ciphertext: toHex(enc.ciphertext), nonce: enc.nonceHex }));
+    // Le socket a pu se fermer pendant le chiffrement : on garde la mise à jour pour la reconnexion.
+    const ws = this.ws;
+    if (ws?.readyState !== WebSocket.OPEN) {
+      this.outbox.push(update);
+      return;
+    }
+    ws.send(JSON.stringify({ type: "update", ciphertext: toHex(enc.ciphertext), nonce: enc.nonceHex }));
   }
 
   /** Encrypt and broadcast a presence/awareness payload. */
@@ -229,7 +263,12 @@ export class EncryptedCollabChannel {
 
   close(): void {
     this.closedByUser = true;
-    this.ws?.close();
-    this.ws = null;
+    const ws = this.ws;
+    // Laisser partir les modifications en cours de chiffrement avant de couper : fermer le document juste
+    // après une frappe ne doit pas perdre la dernière modification (le socket reste donc référencé).
+    void Promise.allSettled([...this.inflight]).then(() => {
+      ws?.close();
+      if (this.ws === ws) this.ws = null;
+    });
   }
 }

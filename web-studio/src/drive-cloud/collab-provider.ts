@@ -18,9 +18,11 @@ export type CollabStatus = "connecting" | "open" | "closed" | "revoked";
 
 export class EncryptedYjsProvider {
   readonly doc: Y.Doc;
-  readonly awareness: Awareness;
+  awareness: Awareness;
   private readonly channel: EncryptedCollabChannel;
   private readonly onDocUpdate: (update: Uint8Array, origin: unknown) => void;
+  private destroyed = false;
+  private readonly user: CollabUser;
   private readonly onAwUpdate: (
     changes: { added: number[]; updated: number[]; removed: number[] },
     origin: unknown,
@@ -40,6 +42,7 @@ export class EncryptedYjsProvider {
     } = {},
   ) {
     this.doc = doc;
+    this.user = user;
     this.awareness = new Awareness(doc);
     this.awareness.setLocalStateField("user", user);
 
@@ -100,12 +103,24 @@ export class EncryptedYjsProvider {
     void this.channel.sendAwareness({ u: toHex(upd) });
   }
 
-  /** Replay the encrypted history, then go live. */
+  /**
+   * Replay the encrypted history, then go live. Peut être rappelé après `destroy()` (React StrictMode en
+   * développement monte, démonte puis remonte l'effet sur la MÊME instance) : les écouteurs du document et
+   * de la présence sont alors remis en place, sinon plus aucune modification locale ne partirait.
+   */
   async connect(): Promise<void> {
+    if (this.destroyed) {
+      this.destroyed = false;
+      this.awareness = new Awareness(this.doc);
+      this.awareness.setLocalStateField("user", this.user);
+      this.doc.on("update", this.onDocUpdate);
+      this.awareness.on("update", this.onAwUpdate);
+    }
     await this.channel.connect();
   }
 
   destroy(): void {
+    this.destroyed = true;
     this.doc.off("update", this.onDocUpdate);
     this.awareness.off("update", this.onAwUpdate);
     try {

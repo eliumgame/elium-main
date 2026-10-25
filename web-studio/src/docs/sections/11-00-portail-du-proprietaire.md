@@ -110,4 +110,5 @@ Menu **Sécurité** :
 - Serveur : `server/tests/site.test.ts` (routes, validation, contrôle d'inscription) et `server/tests/activation-disk.test.ts` (code d'activation, disque), lancés par `npm test` dans `server/`.
 - Client : `web-studio/tests/owner-portal.test.ts`.
 - Multi-utilisateurs de bout en bout (vrai PostgreSQL embarqué, vraie API, vrai SDK chiffré) : `npm run test:e2e:portal` dans `web-studio/` (dont réinitialisation de mot de passe, codes de secours et procédure de secours).
+- Drive, portail et Parapheur dans un vrai navigateur, plusieurs comptes (propriétaire, membres, anonyme ; garde, fichiers, partage par membre/équipe/lien, rôle Lecteur, corbeille, appareils, co-édition en direct, demandes de signature, restauration après effacement, 390 px) : `npm run test:e2e:drive` dans `web-studio/` (base PostgreSQL embarquée neuve, ports 8805/3205).
 - Parcours de connexion dans un vrai navigateur (inscription, verrou de session, TOTP, code de secours, 2FA obligatoire, enrôlement forcé, réinitialisation, suspension) : `npm run test:e2e:login` dans `web-studio/`.

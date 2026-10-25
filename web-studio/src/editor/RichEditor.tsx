@@ -212,8 +212,11 @@ export default function RichEditor({
     if (!editor || collab) return;
     const offActive = setActiveDocSync(docSync);
     const flush = () => void docSync.flush();
+    // Un raccourci à modificateur (Ctrl+S…) lit le document : on remonte les frappes en attente, mais
+    // APRÈS le raccourci. Remonter pendant la phase de capture re-rendait l'application avant que
+    // l'éditeur ne traite la touche, et le premier Ctrl+B / Ctrl+I était perdu.
     const onKey = (e: KeyboardEvent) => {
-      if (e.ctrlKey || e.metaKey) flush();
+      if ((e.ctrlKey || e.metaKey) && docSync.pending()) setTimeout(flush, 0);
     };
     editor.on("blur", flush);
     window.addEventListener("pointerdown", flush, true);

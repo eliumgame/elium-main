@@ -26,6 +26,12 @@ export default function FindReplaceBar({ editor, canReplace, startWithReplace, o
   const [, forceRender] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Ctrl+H alors que la barre est déjà ouverte (Ctrl+F) : l'état initial ne suffit pas, il faut
+  // aussi révéler la ligne « Remplacer » quand la demande arrive après coup.
+  useEffect(() => {
+    if (startWithReplace && canReplace) setShowReplace(true);
+  }, [startWithReplace, canReplace]);
+
   // Push the current search parameters into the plugin.
   useEffect(() => {
     editor.commands.setSearch(term, { caseSensitive, useRegex });

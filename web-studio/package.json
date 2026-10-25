@@ -19,6 +19,7 @@
     "test:browser:pdf-detector": "playwright test -c playwright.pdf-detector.config.ts",
     "test:e2e:persistence": "playwright test -c playwright.persistence.config.ts",
     "test:e2e:winapp": "playwright test -c playwright.winapp.config.ts",
+    "test:e2e:documents": "playwright test -c playwright.documents.config.ts",
     "lint": "eslint \"src/**/*.{ts,tsx}\" \"tests/**/*.{ts,tsx}\"",
     "lint:fix": "eslint --fix \"src/**/*.{ts,tsx}\" \"tests/**/*.{ts,tsx}\"",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"tests/**/*.{ts,tsx}\"",

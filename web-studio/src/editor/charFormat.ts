@@ -257,14 +257,20 @@ export const CharFormat = Extension.create({
       };
 
     return {
+      // Indice et exposant s'excluent (comme dans Word) : choisir l'un REMPLACE l'autre. Un simple
+      // toggleMark ne faisait rien sur un texte déjà en indice, la marque rivale bloquant l'ajout.
       toggleSuperscript:
         () =>
-        ({ commands }) =>
-          commands.toggleMark("superscript"),
+        ({ editor, chain }) =>
+          editor.isActive("superscript")
+            ? chain().unsetMark("superscript").run()
+            : chain().unsetMark("subscript").setMark("superscript").run(),
       toggleSubscript:
         () =>
-        ({ commands }) =>
-          commands.toggleMark("subscript"),
+        ({ editor, chain }) =>
+          editor.isActive("subscript")
+            ? chain().unsetMark("subscript").run()
+            : chain().unsetMark("superscript").setMark("subscript").run(),
       toggleSmallCaps: toggleAttr("smallCaps"),
       toggleAllCaps: toggleAttr("allCaps"),
       toggleDoubleStrike: toggleAttr("doubleStrike"),

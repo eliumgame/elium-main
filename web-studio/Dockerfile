@@ -17,7 +17,11 @@ FROM caddy:2.8-alpine@sha256:af32e97399febea808609119bb21544d0265c58a02836576e32
 COPY --from=build /app/dist /usr/share/caddy
 # robots.txt est un vrai fichier statique (web-studio/public/robots.txt) servi avant le repli SPA.
 # sitemap.xml n'existe pas (portail privé, rien à indexer) : 404 explicite plutôt que le HTML de la SPA.
-RUN printf '{\n\tauto_https off\n\tadmin off\n}\n:8080 {\n\trespond /sitemap.xml 404\n\troot * /usr/share/caddy\n\ttry_files {path} /index.html\n\tfile_server\n}\n' > /etc/caddy/Caddyfile
+# `route { }` est nécessaire : Caddy exécute les directives d'un bloc selon un ORDRE INTERNE fixe
+# (file_server après respond, quel que soit l'ordre écrit ici), pas l'ordre textuel — sans route{},
+# try_files/file_server traitaient /sitemap.xml avant que respond n'ait sa chance (200 HTML au lieu
+# du 404 attendu, constaté en production).
+RUN printf '{\n\tauto_https off\n\tadmin off\n}\n:8080 {\n\troute {\n\t\trespond /sitemap.xml 404\n\t\troot * /usr/share/caddy\n\t\ttry_files {path} /index.html\n\t\tfile_server\n\t}\n}\n' > /etc/caddy/Caddyfile
 ENV XDG_DATA_HOME=/tmp/caddy-data XDG_CONFIG_HOME=/tmp/caddy-config
 USER 1000:1000
 EXPOSE 8080

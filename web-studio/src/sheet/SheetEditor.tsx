@@ -1401,6 +1401,10 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
             if (!editingRef.current) {
               editingRef.current = true;
               setEditing(true);
+              // Comme startEdit(initialChar) : le premier caractère tapé est déjà
+              // dans le brouillon, l'éditeur de cellule qui va se monter (autoFocus)
+              // ne doit pas le sélectionner, sinon la frappe suivante l'écraserait.
+              seededEditRef.current = true;
             }
             setDraft(e.target.value);
           }}

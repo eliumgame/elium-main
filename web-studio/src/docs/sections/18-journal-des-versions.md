@@ -1,6 +1,11 @@
 ## Journal des versions
 
-> Dernière version publiée : **4.29.2**, étiquetée le 26 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
+> Dernière version publiée : **4.29.3**, étiquetée le 26 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
+
+### Version 4.29.3 — correctif critique : isolation des données entre comptes
+
+- **Changement de compte sur le même navigateur** : se déconnecter puis se connecter ou s'inscrire avec un AUTRE compte ne montre plus les documents, dossiers, brouillons et autres données locales (Tableur, Présentations, Parapheur, Passeport, trousseau…) du compte précédemment utilisé sur cet appareil. Le navigateur détecte désormais le changement de compte et réinitialise l'espace local avant d'afficher quoi que ce soit au nouveau compte. Se reconnecter à son propre compte ne perd rien, comme avant.
+- Correctif supplémentaire : rotation du refresh token rendue atomique avec détection de réemploi, HTML des présentations assaini avant affichage, secrets S3 par défaut refusés en production (voir le détail en 4.29.2).
 
 ### Version 4.29.2 — durcissement suite à un audit de sécurité externe
 

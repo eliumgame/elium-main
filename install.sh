@@ -137,8 +137,19 @@ set_env_var() {
 # Attend que l'API réponde /api/health (jusqu'à ~60 s). Renvoie 0 si saine.
 wait_health() {
   for _ in $(seq 1 30); do
-    if curl -fsS "http://localhost:8787/api/health" >/dev/null 2>&1 \
-       || $DC exec -T api wget -qO- http://localhost:8787/api/health >/dev/null 2>&1; then
+    # Statut de santé rapporté par Docker lui-même (même sonde que le
+    # healthcheck du service : voir docker-compose.yml) : signal fiable, sans
+    # dépendre d'un accès réseau au conteneur. Le service `api` N'EXPOSE AUCUN
+    # port sur l'hôte (uniquement le réseau Docker interne) : un curl direct
+    # sur localhost:8787 depuis l'hôte échoue TOUJOURS, quel que soit l'état
+    # réel du conteneur — ancien bug qui a déjà causé un rollback sur un
+    # déploiement pourtant sain.
+    if [ "$($DC ps api --format '{{.Health}}' 2>/dev/null)" = "healthy" ]; then
+      return 0
+    fi
+    # Repli direct (sondes Docker/Compose trop anciennes pour rapporter .Health) :
+    # uniquement DEPUIS le conteneur, jamais depuis l'hôte (port non publié).
+    if $DC exec -T api wget -qO- http://127.0.0.1:8787/api/health >/dev/null 2>&1; then
       return 0
     fi
     sleep 2

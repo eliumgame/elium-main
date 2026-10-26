@@ -33,6 +33,8 @@ vi.mock("../src/lib/crypto-server.js", () => ({ verifyEd25519: vi.fn(() => true)
 
 vi.mock("../src/lib/audit.js", () => ({ audit: vi.fn(async () => {}) }));
 
+vi.mock("../src/collab/relay.js", () => ({ kickUser: vi.fn() }));
+
 vi.mock("../src/lib/account-deletion.js", async () => {
   const actual = await vi.importActual<typeof import("../src/lib/account-deletion.js")>(
     "../src/lib/account-deletion.js",
@@ -47,6 +49,7 @@ vi.mock("../src/lib/account-deletion.js", async () => {
 import { query, queryOne } from "../src/db/pool.js";
 import { verifyEd25519 } from "../src/lib/crypto-server.js";
 import { accountDeletionBlockers, eraseAccount, AccountDeletionBlocked } from "../src/lib/account-deletion.js";
+import { kickUser } from "../src/collab/relay.js";
 import { ApiError } from "../src/lib/errors.js";
 import userRoutes from "../src/routes/users.js";
 
@@ -55,6 +58,7 @@ const mQueryOne = vi.mocked(queryOne);
 const mVerifyEd25519 = vi.mocked(verifyEd25519);
 const mAccountDeletionBlockers = vi.mocked(accountDeletionBlockers);
 const mEraseAccount = vi.mocked(eraseAccount);
+const mKickUser = vi.mocked(kickUser);
 
 async function makeApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
@@ -205,6 +209,7 @@ describe("RGPD account erasure", () => {
     const res = await app.inject({ method: "DELETE", url: "/api/users/me", payload: { proof: HEX128 } });
     expect(res.statusCode).toBe(200);
     expect(mEraseAccount).toHaveBeenCalledWith(USER);
+    expect(mKickUser).toHaveBeenCalledWith(USER, "account-erased");
   });
 
   it("DELETE /me surfaces a 409 when erasure is blocked (ownership/recovery)", async () => {
@@ -215,6 +220,7 @@ describe("RGPD account erasure", () => {
     const app = await makeApp();
     const res = await app.inject({ method: "DELETE", url: "/api/users/me", payload: { proof: HEX128 } });
     expect(res.statusCode).toBe(409);
+    expect(mKickUser).not.toHaveBeenCalled();
   });
 });
 

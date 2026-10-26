@@ -18,6 +18,7 @@ import { verifyEd25519, sha256Hex } from "../lib/crypto-server.js";
 import { notFound, badRequest, ApiError } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
 import { accountDeletionBlockers, eraseAccount, AccountDeletionBlocked } from "../lib/account-deletion.js";
+import { kickUser } from "../collab/relay.js";
 
 /** Public identity material — safe to reveal to any authenticated user. */
 function publicUserDto(u: {
@@ -220,6 +221,9 @@ export default async function userRoutes(app: FastifyInstance): Promise<void> {
 
     try {
       const res = await eraseAccount(user.id);
+      // Toute autre session/onglet de ce même compte doit perdre l'accès
+      // immédiatement, pas seulement à sa prochaine tentative de rafraîchissement.
+      kickUser(user.id, "account-erased");
       // System-level audit (org null). The tombstone id keeps this attributable
       // and the chain valid.
       await audit(

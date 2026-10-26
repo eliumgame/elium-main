@@ -238,6 +238,7 @@ describe("POST /api/nodes/:id/shares", () => {
       { principalType: "user", principalId: PRINCIPAL, roleId: ROLE },
       expect.any(String),
     );
+    expect(mKickRoom).toHaveBeenCalledWith(NODE, "acl-changed");
     await app.close();
   });
 
@@ -301,6 +302,7 @@ describe("PATCH /api/nodes/:id/shares/:shareId", () => {
       { shareId: SHARE, roleId: ROLE },
       expect.any(String),
     );
+    expect(mKickRoom).toHaveBeenCalledWith(NODE, "acl-changed");
     await app.close();
   });
 

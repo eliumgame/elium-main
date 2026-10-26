@@ -199,6 +199,11 @@ export default async function shareRoutes(app: FastifyInstance): Promise<void> {
     );
     if (!row) throw badRequest("Partage impossible.");
 
+    // Un upsert peut aussi RÉDUIRE le rôle d'un partage déjà existant : un pair
+    // déjà admis sur ce nœud doit revalider ses droits plutôt que de garder ceux
+    // accordés à l'admission de sa socket.
+    kickRoom(id, "acl-changed");
+
     await audit(
       access.orgId,
       user.id,
@@ -226,6 +231,10 @@ export default async function shareRoutes(app: FastifyInstance): Promise<void> {
       [id, shareId, b.roleId],
     );
     if (!row) throw notFound("Partage introuvable.");
+
+    // Idem : un pair déjà connecté sur ce nœud doit revalider ses droits après
+    // tout changement de rôle du partage, pas seulement à son retrait complet.
+    kickRoom(id, "acl-changed");
 
     await audit(access.orgId, user.id, "node.share.update", access.kind, id, { shareId, roleId: b.roleId }, req.ip);
     return { ok: true };

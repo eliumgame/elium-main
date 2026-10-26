@@ -22,6 +22,26 @@ const MAX_CIPHERTEXT_HEX = config.maxCollabMessageBytes * 2;
 // pour éviter une amplification, avec une marge confortable pour un curseur/état.
 const MAX_AWARENESS_CHARS = 64 * 1024;
 
+/**
+ * Ferme la socket exactement quand expire le jeton d'accès qui l'a admise,
+ * plutôt que de la laisser vivre indéfiniment une fois ouverte. Sans ça,
+ * révoquer un rôle ou une session protège les RECONNEXIONS mais pas une
+ * socket déjà admise dont le jeton a depuis naturellement expiré — l'admission
+ * initiale reste la SEULE vérification faite pendant toute la durée de vie du
+ * canal. Code 4002 (distinct de 4001, la révocation explicite de kickRoom/
+ * kickUser). Le timer est annulé par le cleanup normal (close/error).
+ */
+function scheduleTokenExpiry(socket: WsConn, expSec: number): ReturnType<typeof setTimeout> {
+  const ms = Math.max(0, expSec * 1000 - Date.now());
+  return setTimeout(() => {
+    try {
+      socket.close(4002, "token-expired");
+    } catch {
+      /* already gone */
+    }
+  }, ms);
+}
+
 /** Minimal structural type for the ws socket (avoids a hard dep on `ws` types). */
 interface WsConn {
   send(data: string): void;
@@ -206,11 +226,13 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
     } catch {
       /* ignore */
     }
+    const expiryTimer = scheduleTokenExpiry(socket, claims.exp);
 
     let disposed = false;
     const cleanup = () => {
       if (disposed) return;
       disposed = true;
+      clearTimeout(expiryTimer);
       const r = orgRooms.get(orgId);
       if (r) {
         r.delete(peer);
@@ -268,6 +290,7 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
     } catch {
       /* ignore */
     }
+    const expiryTimer = scheduleTokenExpiry(socket, claims.exp);
     // Tell existing peers a newcomer joined so they re-broadcast their presence
     // (awareness is opaque to the relay, so it can't replay it itself). Publié
     // aussi aux autres instances : un pair y re-émettra son awareness → le
@@ -352,6 +375,7 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
     const cleanup = () => {
       if (disposed) return;
       disposed = true;
+      clearTimeout(expiryTimer);
       const r = rooms.get(nodeId);
       if (r) {
         r.delete(peer);

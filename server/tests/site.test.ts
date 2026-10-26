@@ -32,15 +32,18 @@ vi.mock("../src/lib/webauthn.js", () => ({ hasWebauthn: vi.fn(async () => false)
 vi.mock("../src/lib/second-factor.js", () => ({
   verifySecondFactor: vi.fn(async (_u: string, code: string) => code === "123456"),
 }));
+vi.mock("../src/collab/relay.js", () => ({ kickUser: vi.fn() }));
 
 import { query, queryOne } from "../src/db/pool.js";
 import { ApiError } from "../src/lib/errors.js";
 import { audit } from "../src/lib/audit.js";
+import { kickUser } from "../src/collab/relay.js";
 import { invalidateSiteSettings, assertSignupAllowed, defaultSiteSettings } from "../src/lib/site-settings.js";
 import siteRoutes from "../src/routes/site.js";
 
 const mQuery = vi.mocked(query);
 const mQueryOne = vi.mocked(queryOne);
+const mKickUser = vi.mocked(kickUser);
 
 /** Réponses SQL par motif ; `siteRow` simule la ligne site_settings. */
 function db(opts: { siteOrg?: string | null; settings?: Record<string, unknown>; mfa?: boolean; ownerId?: string }) {
@@ -321,6 +324,29 @@ describe("routes propriétaire", () => {
         (c) => (c[0] as string).includes("SET quota_bytes = $3") && (c[1] as unknown[])[2] === 1234,
       ),
     ).toBe(true);
+    // Les jetons révoqués n'empêchent qu'un FUTUR rafraîchissement : une connexion
+    // temps réel déjà admise doit aussi être coupée.
+    expect(mKickUser).toHaveBeenCalledWith(MEMBER, "account-suspended");
+  });
+
+  it("PATCH user : un changement de rôle révoque aussi les connexions temps réel en cours", async () => {
+    mQueryOne.mockImplementation((async (sql: string) => {
+      if (sql.includes("FROM site_settings")) return { org_id: ORG, settings: {} };
+      if (sql.includes("SELECT owner_user_id FROM organizations WHERE id")) return { owner_user_id: OWNER };
+      if (sql.includes("FROM memberships WHERE org_id")) return { id: "m1" };
+      if (sql.includes("owner_user_id = $2 AS ok")) return { ok: false };
+      if (sql.includes("SELECT key FROM roles WHERE id = $1 AND org_id = $2")) return { key: "editor" };
+      if (sql.includes("COALESCE(SUM(v.size_bytes)")) return { used: 0 };
+      return null;
+    }) as never);
+    const app = await makeApp();
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/site/admin/users/${MEMBER}`,
+      payload: { roleId: ROLE_EDITOR },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(mKickUser).toHaveBeenCalledWith(MEMBER, "role-changed");
   });
 });
 

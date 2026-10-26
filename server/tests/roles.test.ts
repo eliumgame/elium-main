@@ -40,13 +40,18 @@ vi.mock("../src/middleware/auth.js", () => ({
 
 vi.mock("../src/lib/audit.js", () => ({ audit: vi.fn(async () => {}) }));
 
+vi.mock("../src/collab/relay.js", () => ({ kickRoom: vi.fn(), kickUser: vi.fn() }));
+
 import { query, queryOne } from "../src/db/pool.js";
 import { ApiError } from "../src/lib/errors.js";
 import { PERMISSIONS } from "../src/rbac/permissions.js";
+import { kickRoom, kickUser } from "../src/collab/relay.js";
 import roleRoutes from "../src/routes/roles.js";
 
 const mQuery = vi.mocked(query);
 const mQueryOne = vi.mocked(queryOne);
+const mKickRoom = vi.mocked(kickRoom);
+const mKickUser = vi.mocked(kickUser);
 
 async function makeApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
@@ -143,6 +148,27 @@ describe("PATCH /api/orgs/:orgId/roles/:roleId", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().role.name).toBe("New name");
+    expect(mKickRoom).not.toHaveBeenCalled();
+    expect(mKickUser).not.toHaveBeenCalled();
+  });
+
+  it("kicks every affected node room and member when permissions actually change", async () => {
+    mQueryOne
+      .mockResolvedValueOnce(roleRow() as never) // loadOrgRole
+      .mockResolvedValueOnce(roleRow({ permissions: ["node.read", "node.edit"] }) as never); // UPDATE ... RETURNING
+    mQuery
+      .mockResolvedValueOnce([{ node_id: "node-1" }, { node_id: "node-2" }] as never) // node_keys referencing this role
+      .mockResolvedValueOnce([{ user_id: "user-1" }] as never); // memberships referencing this role
+    const app = await makeApp();
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/orgs/${ORG}/roles/${ROLE}`,
+      payload: { permissions: ["node.read", "node.edit"] },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(mKickRoom).toHaveBeenCalledWith("node-1", "acl-changed");
+    expect(mKickRoom).toHaveBeenCalledWith("node-2", "acl-changed");
+    expect(mKickUser).toHaveBeenCalledWith("user-1", "role-permissions-changed");
   });
 });
 

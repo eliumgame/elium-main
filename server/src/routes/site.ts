@@ -25,6 +25,7 @@ import { ApiError, badRequest, conflict, notFound } from "../lib/errors.js";
 import { verifySecondFactor } from "../lib/second-factor.js";
 import { randomToken, sha256Hex } from "../lib/crypto-server.js";
 import { audit } from "../lib/audit.js";
+import { kickUser } from "../collab/relay.js";
 import { isActivationRequired } from "../lib/activation.js";
 import { diskMarginBytes, getDiskStats } from "../lib/disk.js";
 import {
@@ -345,6 +346,7 @@ export default async function siteRoutes(app: FastifyInstance): Promise<void> {
           userId,
           b.roleId,
         ]);
+        kickUser(userId, "role-changed");
         await audit(orgId, actor.id, "member.role.assign", "membership", mem.id, { userId, roleId: b.roleId }, req.ip);
       }
       if (b.quotaBytes !== undefined) {
@@ -370,6 +372,11 @@ export default async function siteRoutes(app: FastifyInstance): Promise<void> {
             await c.query(`UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`, [userId]);
           }
         });
+        // Révoque les refresh tokens ci-dessus empêche un FUTUR rafraîchissement,
+        // mais ne ferme pas une connexion déjà admise (document ouvert, canal
+        // d'événements) : un compte suspendu garderait sinon son accès jusqu'à
+        // déconnexion naturelle.
+        if (b.suspended) kickUser(userId, "account-suspended");
         await audit(
           orgId,
           actor.id,

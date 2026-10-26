@@ -19,6 +19,7 @@ import { PERMISSIONS, sanitizePermissions } from "../rbac/permissions.js";
 import { randomHex } from "../lib/crypto-server.js";
 import { badRequest, forbidden, notFound, conflict } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
+import { kickRoom, kickUser } from "../collab/relay.js";
 
 interface RoleRow {
   id: string;
@@ -152,6 +153,23 @@ export default async function roleRoutes(app: FastifyInstance): Promise<void> {
       params,
     );
     if (!row) throw notFound("Rôle introuvable.");
+
+    // Un changement des PERMISSIONS de ce rôle affecte instantanément tout
+    // principal qui le porte — potentiellement bien au-delà du nœud ou de
+    // l'organisation visé par la requête courante. Un pair déjà connecté avec
+    // ce rôle doit revalider ses droits, pas garder ceux accordés à l'admission
+    // de sa socket. Le nom/la couleur/la description seuls n'ont pas cet effet.
+    if (b.permissions !== undefined) {
+      const [nodeRows, memberRows] = await Promise.all([
+        query<{ node_id: string }>(`SELECT DISTINCT node_id FROM node_keys WHERE role_id = $1`, [roleId]),
+        query<{ user_id: string }>(`SELECT user_id FROM memberships WHERE role_id = $1 AND org_id = $2`, [
+          roleId,
+          orgId,
+        ]),
+      ]);
+      for (const r of nodeRows) kickRoom(r.node_id, "acl-changed");
+      for (const m of memberRows) kickUser(m.user_id, "role-permissions-changed");
+    }
 
     await audit(orgId, user.id, "role.update", "role", row.id, { key: row.key }, req.ip);
     return { role: roleDto(row) };

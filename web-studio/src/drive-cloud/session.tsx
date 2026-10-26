@@ -33,6 +33,7 @@ import {
 } from "./prf-unlock";
 import { isMfaChallenge, type Tokens, type PublicUser, type RoleDef, type LoginResult } from "./types";
 import type { KdfParams, KeyBundle } from "./kdf";
+import { claimLocalWorkspace } from "../workspace/local-wipe";
 
 const STORAGE_KEY = "elium_drive_session_v1";
 
@@ -212,6 +213,15 @@ export function DriveProvider({ children }: { children: ReactNode }) {
 
   const finishAuth = useCallback(
     async (u: PublicUser, k: AccountKeys, preferOrgId?: string) => {
+      // Ce navigateur gardait l'espace de travail local d'un AUTRE compte : ne
+      // JAMAIS le montrer à celui-ci (documents, brouillons, Drive local…). Les
+      // jetons/l'instantané de CE compte sont déjà persistés par l'appelant
+      // (finishLogin/register) : le rechargement reprend la connexion telle
+      // quelle, juste avec un espace local maintenant vide pour ce compte.
+      if (claimLocalWorkspace(u.id)) {
+        location.reload();
+        return;
+      }
       setUser(u);
       setKeys(k);
       setStatus("authenticated");

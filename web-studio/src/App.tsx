@@ -37,6 +37,7 @@ import CommandPalette from "./components/CommandPalette";
 import type { CategoryId, SectionId } from "./components/settings/sections";
 import type { ShellView } from "./workspace/ui/Sidebar";
 import { useWorkspace } from "./workspace/useWorkspace";
+import { wipeLocalWorkspaceData } from "./workspace/local-wipe";
 import { useSearch } from "./workspace/useSearch";
 import { currentSession } from "./workspace/session";
 import { reencryptAll } from "./workspace/vault-sync";
@@ -262,50 +263,7 @@ export default function App() {
 
   const clearLocalStorage = useCallback(() => {
     void keyringRef.current?.forgetAll();
-    localStorage.removeItem("elium_trusted_key"); // legacy (migré vers le carnet)
-    localStorage.removeItem("elium_trust_book");
-    localStorage.removeItem("elium_trust_revocations");
-    localStorage.removeItem("elium_keyring_idle_min");
-    localStorage.removeItem("elium_theme");
-    localStorage.removeItem("elium_seal_pins");
-    for (const k of [
-      "elium_prefs",
-      "elium_shortcuts",
-      "elium_locale",
-      "elium_session",
-      "elium_view_mode",
-      "elium_recent_commands",
-    ])
-      localStorage.removeItem(k);
-    // État de synchronisation Drive effacé avec les données : au prochain démarrage l'espace vide n'est jamais
-    // poussé par-dessus la sauvegarde (le Drive est sondé et la restauration proposée).
-    for (const k of Object.keys(localStorage))
-      if (k.startsWith("elium_drive_sync_v1:") || k.startsWith("elium_drive_link:") || k === "elium_sync_dirty_v1")
-        localStorage.removeItem(k);
-    // Also purge the IndexedDB stores (Drive library, app autosaves, version
-    // history, parapheur, drafts, vault) — otherwise "données effacées" leaves them behind.
-    for (const db of [
-      "elium",
-      "elium-drive",
-      "elium-sheets",
-      "elium-slides",
-      "elium-parapheur",
-      "elium-passeport",
-      "elium-drafts",
-      "elium-vault",
-      "elium-keys",
-      "elium-fonts",
-      "elium-pdfs",
-      "elium-pdf-recovery",
-      "elium-workspace",
-      "elium-backups",
-    ]) {
-      try {
-        indexedDB.deleteDatabase(db);
-      } catch {
-        /* best effort */
-      }
-    }
+    wipeLocalWorkspaceData();
     keyfileRef.current = undefined;
     setTrustBook([]);
     setSettingsOpen(false);

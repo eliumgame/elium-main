@@ -46,8 +46,18 @@ export async function authenticate(req: FastifyRequest): Promise<void> {
     email: string;
     display_name: string;
     status: string;
-  }>(`SELECT id, fingerprint, email, display_name, status FROM users WHERE id = $1`, [claims.sub]);
+    token_epoch: string;
+  }>(`SELECT id, fingerprint, email, display_name, status, token_epoch FROM users WHERE id = $1`, [claims.sub]);
   if (!user || user.status !== "active") throw unauthorized("Compte introuvable ou désactivé.");
+  // Un access token est stateless (pas de recherche de session par requête) :
+  // sans ce contrôle, un jeton émis AVANT un reset/changement de mot de passe
+  // resterait utilisable jusqu'à sa propre expiration naturelle (ACCESS_TOKEN_
+  // TTL_SECONDS, 900 s par défaut) au lieu d'être refusé immédiatement. `<`
+  // (pas `<=`) : un jeton émis la même seconde que l'époque (ex. la session
+  // fraîche réémise par /change-password juste après le bump) reste valide.
+  if (claims.iat < Math.floor(new Date(user.token_epoch).getTime() / 1000)) {
+    throw unauthorized("Jeton invalide ou expiré.");
+  }
 
   // 2FA obligatoire (portail du propriétaire) : un compte sans second facteur ne
   // peut atteindre que de quoi EN ACTIVER UN (auth/*, sessions, compte).

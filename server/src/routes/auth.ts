@@ -237,7 +237,8 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
       if (!used.rowCount) throw notFound("Lien de réinitialisation invalide, expiré ou déjà utilisé.");
       await c.query(
         `UPDATE users SET ed25519_public_hex = $2, p256_public_hex = $3, fingerprint = $4,
-                auth_sign_public_hex = $5, kdf_salt = $6, kdf_params = $7, key_bundle = $8, updated_at = now()
+                auth_sign_public_hex = $5, kdf_salt = $6, kdf_params = $7, key_bundle = $8,
+                token_epoch = now(), updated_at = now()
           WHERE id = $1`,
         [
           r.user_id,
@@ -251,6 +252,9 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
         ],
       );
       // Toutes les sessions s'arrêtent : seul le nouveau mot de passe ouvre le compte.
+      // token_epoch (ci-dessus) couvre en plus un access token déjà émis sous
+      // l'ANCIENNE identité : il est refusé dès la prochaine requête, pas
+      // seulement à sa propre expiration naturelle (voir middleware/auth.ts).
       await c.query(`UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`, [r.user_id]);
       await c.query(`UPDATE password_resets SET used_at = now() WHERE user_id = $1 AND used_at IS NULL`, [r.user_id]);
       // Une passkey (éventuellement posée par un attaquant) ne doit pas survivre à une réinitialisation.
@@ -404,7 +408,9 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
     // course, l'autre tombe dans la branche "non trouvée" ci-dessous.
     const updated = await queryOne<{ id: string; user_id: string }>(
       `UPDATE sessions
-          SET refresh_token_hash = $1, previous_refresh_token_hash = $2, expires_at = $3, last_seen_at = now()
+          SET refresh_token_hash = $1,
+              superseded_refresh_token_hashes = array_append(superseded_refresh_token_hashes, $2),
+              expires_at = $3, last_seen_at = now()
         WHERE refresh_token_hash = $2 AND revoked_at IS NULL AND expires_at > now()
         RETURNING id, user_id`,
       [rotated.hash, h, rotated.expiresAt],
@@ -412,12 +418,15 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
     if (!updated) {
       // Le hash présenté ne correspond à aucune session active : soit un jeton
       // simplement inconnu/expiré/révoqué, soit le réemploi d'un jeton DÉJÀ tourné
-      // par un rafraîchissement précédent (signe de concurrence ou de vol). Dans ce
-      // second cas, la session entière est révoquée : rejouer un jeton déjà remplacé
-      // ne doit profiter à personne, légitime ou non — on force une reconnexion.
+      // par un rafraîchissement précédent — PAS FORCÉMENT le tout dernier : garder
+      // tout l'historique (pas seulement l'immédiat précédent) détecte aussi un
+      // rejeu différé de plusieurs sauts (T0 rejoué après T0→T1→T2). Dans ce
+      // second cas, la session entière est révoquée : rejouer un jeton déjà
+      // remplacé ne doit profiter à personne, légitime ou non — on force une
+      // reconnexion.
       const reused = await queryOne<{ id: string; user_id: string }>(
         `UPDATE sessions SET revoked_at = now()
-          WHERE previous_refresh_token_hash = $1 AND revoked_at IS NULL
+          WHERE $1 = ANY(superseded_refresh_token_hashes) AND revoked_at IS NULL
         RETURNING id, user_id`,
         [h],
       );
@@ -771,10 +780,15 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
 
     await query(
       `UPDATE users
-          SET auth_sign_public_hex = $2, kdf_salt = $3, kdf_params = $4, key_bundle = $5, updated_at = now()
+          SET auth_sign_public_hex = $2, kdf_salt = $3, kdf_params = $4, key_bundle = $5,
+              token_epoch = now(), updated_at = now()
         WHERE id = $1`,
       [user.id, b.newAuthSignPublicHex, b.newKdfSalt, JSON.stringify(b.newKdfParams), JSON.stringify(b.newKeyBundle)],
     );
+    // token_epoch couvre un access token déjà émis sous l'ancien mot de passe :
+    // refusé dès la prochaine requête (middleware/auth.ts), pas seulement à son
+    // expiration naturelle. La session fraîche émise ci-dessous (après le bump)
+    // reste valide : son iat est postérieur à la nouvelle époque.
     await query(`UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`, [user.id]);
     const session = await issueSession(app, user.id, user.fingerprint, req.headers["user-agent"] ?? "", req.ip);
     await audit(null, user.id, "auth.password.change", "user", user.id, {}, req.ip);

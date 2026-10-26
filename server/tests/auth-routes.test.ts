@@ -224,7 +224,7 @@ describe("POST /api/auth/refresh : rotation atomique + détection de réemploi",
 
   it("tourne le jeton et renvoie un nouvel accessToken quand la rotation réussit", async () => {
     mockedQueryOne.mockImplementation(async (sql: string) => {
-      if (sql.includes("SET refresh_token_hash = $1, previous_refresh_token_hash")) {
+      if (sql.includes("SET refresh_token_hash = $1,") && sql.includes("superseded_refresh_token_hashes = array_append")) {
         return { id: SESSION_ID, user_id: USER_ID } as never;
       }
       if (sql.includes("FROM users")) return { fingerprint: "f".repeat(64), status: "active" } as never;
@@ -258,9 +258,9 @@ describe("POST /api/auth/refresh : rotation atomique + détection de réemploi",
   it("401 et révoque toute la session quand un jeton DÉJÀ tourné est représenté (réemploi)", async () => {
     mockedQueryOne.mockImplementation(async (sql: string) => {
       // La rotation (CAS sur le hash courant) ne trouve rien : ce hash n'est plus le courant.
-      if (sql.includes("SET refresh_token_hash = $1, previous_refresh_token_hash")) return null as never;
+      if (sql.includes("SET refresh_token_hash = $1,") && sql.includes("superseded_refresh_token_hashes = array_append")) return null as never;
       // Mais il correspond au hash juste remplacé — réemploi détecté, la session est révoquée.
-      if (sql.includes("SET revoked_at = now()") && sql.includes("previous_refresh_token_hash = $1")) {
+      if (sql.includes("SET revoked_at = now()") && sql.includes("ANY(superseded_refresh_token_hashes)")) {
         return { id: SESSION_ID, user_id: USER_ID } as never;
       }
       return null;
@@ -277,7 +277,7 @@ describe("POST /api/auth/refresh : rotation atomique + détection de réemploi",
 
   it("401 et révoque la session fraîchement tournée quand le compte n'est plus actif", async () => {
     mockedQueryOne.mockImplementation(async (sql: string) => {
-      if (sql.includes("SET refresh_token_hash = $1, previous_refresh_token_hash")) {
+      if (sql.includes("SET refresh_token_hash = $1,") && sql.includes("superseded_refresh_token_hashes = array_append")) {
         return { id: SESSION_ID, user_id: USER_ID } as never;
       }
       if (sql.includes("FROM users")) return { fingerprint: "f".repeat(64), status: "suspended" } as never;
@@ -293,6 +293,76 @@ describe("POST /api/auth/refresh : rotation atomique + détection de réemploi",
     expect(mockedQuery).toHaveBeenCalledWith(expect.stringMatching(/UPDATE sessions SET revoked_at = now\(\) WHERE id = \$1/), [
       SESSION_ID,
     ]);
+    await app.close();
+  });
+
+  it("détecte un réemploi DIFFÉRÉ de plusieurs sauts (T0 rejoué après T0→T1→T2), pas seulement l'immédiat précédent", async () => {
+    // Représenter T0 ne correspond plus au hash courant (devenu T2) : la rotation
+    // (CAS) échoue. T0 doit néanmoins être trouvé dans l'historique accumulé par
+    // les DEUX rotations passées (superseded_refresh_token_hashes = [T0, T1]),
+    // pas seulement le tout dernier — c'est exactement l'écart du réaudit.
+    mockedQueryOne.mockImplementation(async (sql: string) => {
+      if (sql.includes("SET refresh_token_hash = $1,") && sql.includes("superseded_refresh_token_hashes = array_append")) {
+        return null as never; // T0 n'est plus le hash courant
+      }
+      if (sql.includes("SET revoked_at = now()") && sql.includes("ANY(superseded_refresh_token_hashes)")) {
+        return { id: SESSION_ID, user_id: USER_ID } as never; // trouvé dans l'historique, pas seulement le précédent immédiat
+      }
+      return null;
+    });
+    const app = await buildTestApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/auth/refresh",
+      payload: { refreshToken: "token-t0-rejoue-apres-deux-rotations" },
+    });
+    expect(res.statusCode).toBe(401);
+    await app.close();
+  });
+});
+
+describe("authenticate : époque de révocation des access tokens", () => {
+  it("refuse un jeton émis AVANT un bump d'époque (reset/changement de mot de passe), même non expiré", async () => {
+    const { issueAccessToken } = await import("../src/lib/tokens.js");
+    const access = issueAccessToken(USER_ROW(keypairHex().pubHex).id, "f".repeat(64));
+    mockedQueryOne.mockImplementation(async (sql: string) => {
+      if (sql.includes("SELECT id, fingerprint, email, display_name, status, token_epoch FROM users")) {
+        return {
+          ...USER_ROW(keypairHex().pubHex),
+          // Époque postérieure à l'émission du jeton : simule un reset/changement
+          // de mot de passe survenu APRÈS que ce jeton a été délivré.
+          token_epoch: new Date(Date.now() + 10_000).toISOString(),
+        } as never;
+      }
+      return null;
+    });
+    const app = await buildTestApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/auth/me",
+      headers: { authorization: `Bearer ${access.token}` },
+    });
+    expect(res.statusCode).toBe(401);
+    await app.close();
+  });
+
+  it("accepte un jeton émis APRÈS la dernière époque enregistrée", async () => {
+    const { issueAccessToken } = await import("../src/lib/tokens.js");
+    const access = issueAccessToken(USER_ROW(keypairHex().pubHex).id, "f".repeat(64));
+    mockedQueryOne.mockImplementation(async (sql: string) => {
+      if (sql.includes("SELECT id, fingerprint, email, display_name, status, token_epoch FROM users")) {
+        return { ...USER_ROW(keypairHex().pubHex), token_epoch: new Date(0).toISOString() } as never;
+      }
+      if (sql.includes("FROM memberships") || sql.includes("FROM organizations")) return null;
+      return null;
+    });
+    const app = await buildTestApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/auth/me",
+      headers: { authorization: `Bearer ${access.token}` },
+    });
+    expect(res.statusCode).toBe(200);
     await app.close();
   });
 });

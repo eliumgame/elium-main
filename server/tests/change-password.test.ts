@@ -54,8 +54,15 @@ const NONCE = "d".repeat(64);
 
 function setup(opts: { currentKey: ReturnType<typeof keypairHex>; challengeUser?: string; used?: boolean; expired?: boolean }) {
   mockedQueryOne.mockImplementation(async (sql: string) => {
-    if (sql.includes("SELECT id, fingerprint, email, display_name, status FROM users")) {
-      return { id: USER_ID, fingerprint: FPR, email: EMAIL, display_name: "Alice", status: "active" } as never;
+    if (sql.includes("SELECT id, fingerprint, email, display_name, status, token_epoch FROM users")) {
+      return {
+        id: USER_ID,
+        fingerprint: FPR,
+        email: EMAIL,
+        display_name: "Alice",
+        status: "active",
+        token_epoch: new Date(0).toISOString(),
+      } as never;
     }
     if (sql.includes("SELECT email, auth_sign_public_hex FROM users")) {
       return { email: EMAIL, auth_sign_public_hex: opts.currentKey.pubHex } as never;
@@ -108,6 +115,7 @@ describe("POST /auth/change-password", () => {
     const sqls = mockedQuery.mock.calls.map((c) => String(c[0]));
     const update = mockedQuery.mock.calls.find((c) => String(c[0]).includes("UPDATE users"))!;
     expect((update[1] as unknown[])[1]).toBe(next.pubHex); // authSignPublicHex pivoté
+    expect(String(update[0])).toContain("token_epoch = now()"); // un access token déjà émis ne doit pas survivre
     expect(sqls.some((s) => s.includes("UPDATE sessions SET revoked_at"))).toBe(true);
     expect(sqls.some((s) => s.includes("UPDATE login_challenges SET used_at"))).toBe(true);
   });

@@ -27,7 +27,14 @@ const hex = (len?: number) =>
   len ? z.string().regex(new RegExp(`^[0-9a-f]{${len}}$`)) : z.string().regex(/^[0-9a-f]+$/);
 const envelope = z.record(z.string(), z.unknown()); // recipients envelope (opaque JSON)
 
-const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+// 48h (pas 7 jours) : un lien transféré/intercepté avant que le compte invité
+// n'existe permettrait à quiconque le possède de s'inscrire avec cette adresse
+// et de consommer l'invitation (l'inscription classique ne prouve pas la
+// possession de la boîte — voir docs/design/invitation-mailbox-proof.md).
+// Réduire la fenêtre d'exposition est la mitigation possible SANS envoi
+// d'e-mail transactionnel (absent de ce dépôt) ; 48h reste largement
+// suffisant pour qu'un destinataire légitime s'inscrive.
+const INVITE_TTL_MS = 48 * 60 * 60 * 1000;
 
 const createSchema = z.object({
   name: z.string().min(1).max(200),
@@ -288,10 +295,21 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
         [invite.org_id, user.id, invite.role_id],
       );
       await c.query(`UPDATE invites SET accepted_at = now() WHERE id = $1`, [invite.id]);
-      return memRows[0];
+      return { ...memRows[0], inviteId: invite.id as string, invitedEmail: invite.email as string };
     });
 
-    await audit(accepted.org_id as string, user.id, "member.invite.accept", "membership", null, {}, req.ip);
+    // Trace explicitement QUELLE invitation et quel e-mail destinataire — pour
+    // qu'un lien détourné (voir docs/design/invitation-mailbox-proof.md) reste
+    // visible a posteriori dans le journal, même sans alerte proactive.
+    await audit(
+      accepted.org_id as string,
+      user.id,
+      "member.invite.accept",
+      "membership",
+      accepted.inviteId,
+      { invitedEmail: accepted.invitedEmail, acceptedByEmail: user.email },
+      req.ip,
+    );
     return { orgId: accepted.org_id, roleId: accepted.role_id };
   });
 

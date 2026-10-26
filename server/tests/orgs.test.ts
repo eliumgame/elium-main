@@ -339,6 +339,11 @@ describe("POST /api/orgs/:orgId/invites", () => {
     expect(typeof body.token).toBe("string");
     expect(body.token.length).toBeGreaterThan(20);
     expect(body.expiresAt).toBeDefined();
+    // 48h (pas 7 jours) : réduit la fenêtre d'exploitation d'un lien transféré
+    // avant que le compte invité n'existe (docs/design/invitation-mailbox-proof.md).
+    const ttlMs = new Date(body.expiresAt).getTime() - Date.now();
+    expect(ttlMs).toBeGreaterThan(47 * 60 * 60 * 1000);
+    expect(ttlMs).toBeLessThanOrEqual(48 * 60 * 60 * 1000);
     expect(mAudit).toHaveBeenCalledWith(
       ORG,
       USER,
@@ -418,7 +423,15 @@ describe("POST /api/orgs/invites/accept", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ orgId: ORG, roleId: ROLE });
-    expect(mAudit).toHaveBeenCalledWith(ORG, USER, "member.invite.accept", "membership", null, {}, expect.any(String));
+    expect(mAudit).toHaveBeenCalledWith(
+      ORG,
+      USER,
+      "member.invite.accept",
+      "membership",
+      "invite-1",
+      { invitedEmail: "u@example.org", acceptedByEmail: "u@example.org" },
+      expect.any(String),
+    );
     await app.close();
   });
 

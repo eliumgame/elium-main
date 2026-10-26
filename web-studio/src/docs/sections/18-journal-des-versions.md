@@ -1,6 +1,14 @@
 ## Journal des versions
 
-> Dernière version publiée : **4.10.0**, étiquetée le 4 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
+> Dernière version publiée : **4.29.2**, étiquetée le 26 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
+
+### Version 4.29.2 — durcissement suite à un audit de sécurité externe
+
+- **Cache du navigateur** : le service worker ne met plus en cache les réponses d'API (données de compte, organisation…) ; la déconnexion purge aussi ce cache, pour qu'un changement de compte sur le même navigateur ne réutilise jamais une réponse du compte précédent.
+- **Invitations** : un lien d'invitation transféré ou récupéré par quelqu'un d'autre n'attribue plus son rôle à ce compte — l'adresse e-mail est désormais vérifiée à l'acceptation.
+- **Retrait de droits en temps réel** : retirer un membre d'une organisation ou d'un groupe, supprimer un groupe, ou déprovisionner via SCIM ferme désormais immédiatement ses connexions de collaboration (document et notifications), au lieu d'attendre sa prochaine déconnexion.
+- **robots.txt et sitemap.xml** renvoient désormais une réponse correcte au lieu de la page d'accueil.
+- Mentions de garanties cryptographiques corrigées dans le code et la documentation technique (promesse de résistance à un serveur compromis reformulée plus honnêtement). Aucune action n'est nécessaire côté utilisateurs ; mise à jour recommandée pour les Drive déployés.
 
 ### Version 4.29.1 — Documents testé de bout en bout
 

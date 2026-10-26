@@ -1,6 +1,15 @@
 ## Journal des versions
 
-> Dernière version publiée : **4.29.3**, étiquetée le 26 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
+> Dernière version publiée : **4.29.4**, étiquetée le 26 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
+
+### Version 4.29.4 — suite du durcissement après réaudit externe
+
+- **Révocation en temps réel complétée** : changer le rôle d'un partage, modifier les permissions d'un rôle, suspendre un compte ou le supprimer ferme désormais aussi les connexions de collaboration déjà ouvertes (pas seulement les nouvelles tentatives). Une connexion se ferme aussi automatiquement si son jeton d'accès expire pendant qu'elle est ouverte.
+- **Purge locale entre comptes complétée** : inclut maintenant les identités PDF (certificats, signatures) et le registre de déverrouillage par clé d'accès, en plus des documents ; la suppression est réellement attendue avant d'afficher quoi que ce soit au nouveau compte.
+- **Sessions** : un jeton de rafraîchissement déjà remplacé, même après plusieurs reconnexions, est détecté comme réutilisé et révoque la session. Un jeton d'accès émis avant une réinitialisation ou un changement de mot de passe est refusé immédiatement, sans attendre son expiration naturelle.
+- **Invitations** : durée de vie réduite à 48h (au lieu de 7 jours) et traçabilité complète dans le journal d'audit.
+- **Tableur** : le défaut de la barre de formule (le signe « = » perdu en tapant une formule caractère par caractère) est corrigé.
+- `sitemap.xml` renvoie maintenant correctement une erreur 404 en production (le correctif précédent n'avait pas d'effet à cause de l'ordre d'exécution interne du serveur web).
 
 ### Version 4.29.3 — correctif critique : isolation des données entre comptes
 

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "elium"
-version = "4.29.3"
+version = "4.29.4"
 description = "Elium — format documentaire .elium, éditeur local et signature électronique"
 readme = "README.md"
 requires-python = ">=3.9"

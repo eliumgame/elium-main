@@ -261,9 +261,9 @@ export default function App() {
     if (kr && id) await kr.removeKey(id.id);
   }, []);
 
-  const clearLocalStorage = useCallback(() => {
+  const clearLocalStorage = useCallback(async () => {
     void keyringRef.current?.forgetAll();
-    wipeLocalWorkspaceData();
+    await wipeLocalWorkspaceData();
     keyfileRef.current = undefined;
     setTrustBook([]);
     setSettingsOpen(false);

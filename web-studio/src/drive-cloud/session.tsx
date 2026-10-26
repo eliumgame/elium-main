@@ -218,7 +218,7 @@ export function DriveProvider({ children }: { children: ReactNode }) {
       // jetons/l'instantané de CE compte sont déjà persistés par l'appelant
       // (finishLogin/register) : le rechargement reprend la connexion telle
       // quelle, juste avec un espace local maintenant vide pour ce compte.
-      if (claimLocalWorkspace(u.id)) {
+      if (await claimLocalWorkspace(u.id)) {
         location.reload();
         return;
       }

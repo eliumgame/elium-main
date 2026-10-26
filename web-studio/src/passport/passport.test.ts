@@ -6,9 +6,13 @@ import {
   completion,
   coveredTasks,
   dossierChecklist,
+  dossierE51Checklist,
   dossierProgress,
   duplicateSituation,
+  emptyDossierE51,
   emptyPassport,
+  estimateE51Pages,
+  isE51Activity,
   isStale,
   newSituation,
   nextSituationId,
@@ -27,12 +31,26 @@ import {
 } from "./model";
 import { CONTEXTE_ANNEXE_LABELS } from "./pdf/pdfContexte";
 import { buildFicheDocx, fillTemplateXml, ficheValues } from "./exportFiche";
-import { activityLabelOf, backupJson, buildSynopticDocx, parseBackup, synopticRows } from "./exportPasseport";
+import {
+  activityLabelOf,
+  backupJson,
+  buildDossierE51Docx,
+  buildSynopticDocx,
+  parseBackup,
+  synopticRows,
+} from "./exportPasseport";
 import { PDFDocument } from "pdf-lib";
 import { analyseSituation } from "./analyse";
 import { importFicheFile, parseFicheText } from "./ficheImport";
 import { readFileSync } from "node:fs";
-import { buildAttestationPdf, buildContextePdf, buildDossierPdf, buildFichePdf, buildSynopticPdf } from "./pdf";
+import {
+  buildAttestationPdf,
+  buildContextePdf,
+  buildDossierE51Pdf,
+  buildDossierPdf,
+  buildFichePdf,
+  buildSynopticPdf,
+} from "./pdf";
 import { woffToSfnt } from "./pdf/woff";
 import type { PassportData, Situation, Stage } from "./types";
 
@@ -376,6 +394,93 @@ describe("avancement du dossier", () => {
     expect(dossierProgress(dossierChecklist(d))).toBeGreaterThan(pct);
     d.expectedSituations = 1;
     expect(dossierChecklist({ ...d, situations: [one] }).find((i) => i.id === "situations")!.ok).toBe(true);
+  });
+});
+
+describe("dossier E51 (gestion des risques)", () => {
+  it("le domaine 2 relève de l'épreuve E51, pas le domaine 1", () => {
+    expect(isE51Activity("2.3")).toBe(true);
+    expect(isE51Activity("1.2")).toBe(false);
+    expect(REFERENTIEL[1].id).toBe("2");
+    expect(REFERENTIEL[1].activities.map((a) => a.id)).toEqual(["2.1", "2.2", "2.3", "2.4", "2.5", "2.6"]);
+  });
+
+  it("round-trip normalizePassport : garde les champs valides, rejette les activités hors domaine 2", () => {
+    const d = emptyPassport();
+    d.dossierE51 = {
+      ...emptyDossierE51(),
+      formeEvaluation: "ponctuel",
+      intituleProjet: "Prévention du risque d'impayés",
+      activitesMobilisees: ["2.3", "2.4", "1.1", "9.9"],
+      periode: "Janvier 2027",
+      lieu: "SARL Exemple",
+      contextePme: "Contexte rédigé.",
+      conduiteProjet: "Projet mené en autonomie.",
+    };
+    const again = normalizePassport(JSON.parse(JSON.stringify(d)))!;
+    expect(again.dossierE51.formeEvaluation).toBe("ponctuel");
+    expect(again.dossierE51.intituleProjet).toBe("Prévention du risque d'impayés");
+    expect(again.dossierE51.activitesMobilisees).toEqual(["2.3", "2.4"]); // 1.1 (hors domaine 2) et 9.9 (inconnue) écartées
+    expect(again.dossierE51.contextePme).toBe("Contexte rédigé.");
+    expect(normalizePassport({ situations: [] })!.dossierE51).toEqual(emptyDossierE51());
+  });
+
+  it("checklist : identification, rubriques et productions font monter la progression", () => {
+    const empty = dossierE51Checklist(emptyPassport());
+    expect(dossierProgress(empty)).toBeLessThan(20);
+    const d: PassportData = {
+      ...emptyPassport(),
+      dossierE51: {
+        ...emptyDossierE51(),
+        intituleProjet: "x",
+        periode: "x",
+        lieu: "x",
+        activitesMobilisees: ["2.3"],
+        contextePme: "x",
+        analyseManageriale: "x",
+        evaluationRisques: "x",
+        evaluationQualite: "x",
+        risqueChoisi: "x",
+        conduiteProjet: "x",
+        veille: "x",
+        productions: [{ id: "a1", name: "f.pdf", mime: "application/pdf", size: 10, addedAt: "", note: "" }],
+      },
+    };
+    const items = dossierE51Checklist(d);
+    expect(items.find((i) => i.id === "identification")!.ok).toBe(true);
+    expect(items.find((i) => i.id === "activites")!.ok).toBe(true);
+    expect(items.find((i) => i.id === "productions")!.ok).toBe(true);
+    expect(dossierProgress(items)).toBeGreaterThan(dossierProgress(empty));
+  });
+
+  it("estimateE51Pages : ~450 mots par page, au moins 1", () => {
+    expect(estimateE51Pages(emptyDossierE51())).toBe(1);
+    const d = { ...emptyDossierE51(), contextePme: "mot ".repeat(900) };
+    expect(estimateE51Pages(d)).toBe(2);
+  });
+
+  it("génère un PDF et un Word valides", async () => {
+    const f = (name: string) => readFileSync(`src/passport/pdf/fonts/${name}`);
+    const fonts = { regular: f("carlito-latin-400-normal.woff"), bold: f("carlito-latin-700-normal.woff") };
+    const d: PassportData = {
+      ...emptyPassport(),
+      holder: { ...emptyPassport().holder, nom: "Sihl", prenom: "Ludovic", session: "2027" },
+      dossierE51: {
+        ...emptyDossierE51(),
+        intituleProjet: "Prévention du risque d'impayés",
+        activitesMobilisees: ["2.3"],
+        periode: "2026-2027",
+        lieu: "SARL Exemple",
+        contextePme: "mot ".repeat(50),
+        conduiteProjet: "Démarche menée en autonomie.",
+      },
+    };
+    const pdf = await PDFDocument.load(await buildDossierE51Pdf(d, fonts));
+    expect(pdf.getPageCount()).toBeGreaterThanOrEqual(1);
+    const files = unzipSync(buildDossierE51Docx(d));
+    const xml = strFromU8(files["word/document.xml"]);
+    expect(xml).toContain("IDENTIFICATION DU PROJET");
+    expect(xml).toContain("impayés");
   });
 });
 

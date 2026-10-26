@@ -1,7 +1,8 @@
 /**
- * Passeport professionnel BTS Gestion de la PME — épreuve E4.
- * Vue autonome (comme le Détecteur) : tableau de bord, fiches de situation,
- * passeport synoptique, référentiel, contexte commercial et stages.
+ * Dossier numérique BTS Gestion de la PME — épreuves E4 et E51.
+ * Vue autonome (comme le Détecteur) : tableau de bord, fiches de situation E4,
+ * passeport synoptique, dossier E51 (gestion des risques), référentiel, contexte
+ * commercial et stages (communs aux deux sous-épreuves).
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, GraduationCap, Loader2, Lock } from "lucide-react";
@@ -14,12 +15,13 @@ import { buildFicheDocx, ficheFileName } from "../exportFiche";
 import {
   buildAttestationPdf,
   buildContextePdf,
+  buildDossierE51Pdf,
   buildDossierPdf,
   buildFichePdf,
   buildSynopticPdf,
   loadFonts,
 } from "../pdf";
-import { backupJson, buildSynopticDocx, parseBackup } from "../exportPasseport";
+import { backupJson, buildDossierE51Docx, buildSynopticDocx, parseBackup } from "../exportPasseport";
 import {
   dossierProgress,
   dossierChecklist,
@@ -37,8 +39,9 @@ import {
 import { safeStem } from "../print";
 import { importFicheFile, type ImportedFiche } from "../ficheImport";
 import { AnnexeLockedError, deleteAnnexe, getAnnexe, pruneAnnexes, putAnnexe, readAnnexeFile } from "../annexes";
-import type { Annexe, Holder, PassportData, Situation } from "../types";
+import type { Annexe, DossierE51, Holder, PassportData, Situation } from "../types";
 import Dashboard, { type TabId } from "./Dashboard";
+import DossierE51Tab from "./DossierE51Tab";
 import PassportTab from "./PassportTab";
 import ReferentielTab from "./ReferentielTab";
 import SituationEditor from "./SituationEditor";
@@ -122,6 +125,34 @@ export default function PassportView({ onHome, onOpenDrive, vaultSecret }: Props
   const setHolder = (patch: Partial<Holder>) => update((d) => ({ ...d, holder: { ...d.holder, ...patch } }));
   const editSituation = (id: number, fn: (s: Situation) => Situation) =>
     update((d) => ({ ...d, situations: d.situations.map((s) => (s.id === id ? fn(s) : s)) }));
+  const setDossierE51 = (patch: Partial<DossierE51>) =>
+    update((d) => ({ ...d, dossierE51: { ...d.dossierE51, ...patch } }));
+
+  const addDossierE51Annexes = (files: File[]) =>
+    guard("annexes-e51", async () => {
+      const added: Annexe[] = [];
+      for (const f of files) {
+        const { meta, bytes } = await readAnnexeFile(f);
+        await putAnnexe(meta.id, bytes, vaultSecret);
+        added.push(meta);
+      }
+      setDossierE51({ productions: [...data.dossierE51.productions, ...added] });
+      setNotice(`${added.length} production(s) ajoutée(s) au dossier E51.`);
+    });
+
+  const removeDossierE51Annexe = async (a: Annexe) => {
+    const ok = await confirm({
+      title: "Retirer cette production ?",
+      message: a.name,
+      confirmLabel: "Retirer",
+      danger: true,
+    });
+    if (!ok) return;
+    await guard("annexes-e51", async () => {
+      await deleteAnnexe(a.id);
+      setDossierE51({ productions: data.dossierE51.productions.filter((x) => x.id !== a.id) });
+    });
+  };
 
   const createSituation = () => {
     const id = nextSituationId(data.situations);
@@ -152,15 +183,24 @@ export default function PassportView({ onHome, onOpenDrive, vaultSecret }: Props
     setEditing(n);
   };
 
-  /** Remplace tout le passeport (import, Drive) en gardant les annexes de ce poste pour les fiches de même numéro. */
+  /**
+   * Remplace tout le passeport (import, Drive) en gardant les annexes de ce poste : pour les fiches de
+   * même numéro, et pour les productions du dossier E51 (un seul dossier, donc tout l'existant local).
+   */
   const adoptData = async (next: PassportData) => {
     const keepByNumber = new Map(data.situations.map((s) => [s.id, s.annexes]));
     const merged: PassportData = {
       ...next,
       situations: next.situations.map((s) => ({ ...s, annexes: keepByNumber.get(s.id) ?? [] })),
+      dossierE51: { ...next.dossierE51, productions: data.dossierE51.productions },
     };
     await replace(merged);
-    await pruneAnnexes(new Set(merged.situations.flatMap((s) => s.annexes.map((a) => a.id)))).catch(() => undefined);
+    await pruneAnnexes(
+      new Set([
+        ...merged.situations.flatMap((s) => s.annexes.map((a) => a.id)),
+        ...merged.dossierE51.productions.map((a) => a.id),
+      ]),
+    ).catch(() => undefined);
   };
 
   const addAnnexes = (sid: number, files: File[]) =>
@@ -210,15 +250,14 @@ export default function PassportView({ onHome, onOpenDrive, vaultSecret }: Props
       setTimeout(() => URL.revokeObjectURL(url), 60_000);
     });
 
-  /** Octets de toutes les annexes (pour le dossier PDF). Les introuvables sont simplement absentes. */
-  const loadAllAnnexes = async (sits: Situation[]): Promise<Map<string, Uint8Array>> => {
+  /** Octets d'une liste d'annexes (pour le dossier PDF). Les introuvables sont simplement absentes. */
+  const loadAllAnnexes = async (annexes: Annexe[]): Promise<Map<string, Uint8Array>> => {
     const m = new Map<string, Uint8Array>();
-    for (const s of sits)
-      for (const a of s.annexes) {
-        if (a.size > 12 * 1024 * 1024) continue; // trop lourd pour l'assemblage dans le navigateur : signalé par une page d'intercalaire
-        const b = await getAnnexe(a.id, vaultSecret).catch(() => undefined);
-        if (b) m.set(a.id, b);
-      }
+    for (const a of annexes) {
+      if (a.size > 12 * 1024 * 1024) continue; // trop lourd pour l'assemblage dans le navigateur : signalé par une page d'intercalaire
+      const b = await getAnnexe(a.id, vaultSecret).catch(() => undefined);
+      if (b) m.set(a.id, b);
+    }
     return m;
   };
 
@@ -324,6 +363,31 @@ export default function PassportView({ onHome, onOpenDrive, vaultSecret }: Props
 
   const stem = safeStem([data.holder.nom, data.holder.prenom].filter(Boolean).join("_") || "candidat");
 
+  const docxDossierE51 = () =>
+    guard("docx-e51", () => {
+      downloadBlob(`Dossier_E51_${stem}.docx`, DOCX_MIME, buildDossierE51Docx(data));
+      setNotice("Dossier E51 généré (Word).");
+    });
+
+  const pdfDossierE51 = () =>
+    guard("pdf-e51", async () => {
+      const fonts = await loadFonts();
+      let bytes: Uint8Array;
+      try {
+        bytes = await buildDossierE51Pdf(data, fonts, { annexes: await loadAllAnnexes(data.dossierE51.productions) });
+      } catch (e) {
+        // Une production illisible ne doit pas empêcher d'obtenir le dossier : on le refait sans les productions.
+        reportError("passeport.dossier-e51-annexes", e);
+        bytes = await buildDossierE51Pdf(data, fonts);
+        await alert({
+          title: "Dossier généré sans les productions",
+          message: "Une production n'a pas pu être intégrée au PDF. Le dossier est téléchargé sans ses annexes.",
+        });
+      }
+      downloadBlob(`Dossier_E51_${stem}.pdf`, "application/pdf", bytes);
+      setNotice("Dossier E51 généré (PDF).");
+    });
+
   const importFile = async (f: File) => {
     await guard("import", async () => {
       let parsed: PassportData | null = null;
@@ -368,6 +432,7 @@ export default function PassportView({ onHome, onOpenDrive, vaultSecret }: Props
   const tabs: { id: TabId; label: string }[] = [
     { id: "dashboard", label: "Tableau de bord" },
     { id: "situations", label: `Situations (${data.situations.length})` },
+    { id: "dossierE51", label: "Dossier E51" },
     { id: "passport", label: "Passeport" },
     { id: "referentiel", label: "Référentiel" },
     { id: "contexte", label: "Contexte commercial" },
@@ -456,6 +521,17 @@ export default function PassportView({ onHome, onOpenDrive, vaultSecret }: Props
               onDocx={(id) => void docx(id)}
             />
           ))}
+        {tab === "dossierE51" && (
+          <DossierE51Tab
+            data={data}
+            onChange={setDossierE51}
+            onAddAnnexes={(files) => void addDossierE51Annexes(files)}
+            onRemoveAnnexe={(a) => void removeDossierE51Annexe(a)}
+            onOpenAnnexe={(a, dl) => void openAnnexe(a, dl)}
+            onDocx={docxDossierE51}
+            onPdf={pdfDossierE51}
+          />
+        )}
         {tab === "passport" && (
           <PassportTab
             data={data}
@@ -486,7 +562,7 @@ export default function PassportView({ onHome, onOpenDrive, vaultSecret }: Props
                 try {
                   bytes = await buildDossierPdf(data, fonts, {
                     ...opts,
-                    annexes: await loadAllAnnexes(data.situations.filter((s) => s.transfer)),
+                    annexes: await loadAllAnnexes(data.situations.filter((s) => s.transfer).flatMap((s) => s.annexes)),
                   });
                 } catch (e) {
                   // Une annexe illisible ne doit pas empêcher d'obtenir le dossier : on le refait sans les annexes.
@@ -560,10 +636,10 @@ function Header({
       </Button>
       <div className="pp-header__titles">
         <h1 className="pp-header__title">
-          <GraduationCap size={22} aria-hidden="true" /> Passeport professionnel E4
+          <GraduationCap size={22} aria-hidden="true" /> Passeport E4 &amp; Dossier E51
         </h1>
         <p className="pp-header__subtitle">
-          BTS Gestion de la PME — Gérer les relations avec les clients et les fournisseurs
+          BTS Gestion de la PME — clients/fournisseurs (E4) et gestion des risques (E51)
         </p>
       </div>
       <div className="pp-header__status" aria-live="polite">

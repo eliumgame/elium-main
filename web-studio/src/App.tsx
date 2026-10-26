@@ -15,7 +15,7 @@ const DocumentationView = lazy(() => import("./docs/DocumentationView")); // doc
 const DetectorView = lazy(() => import("./detector/ui/DetectorView")); // analyse IA/plagiat, hors bundle principal
 import DriveSyncRunner from "./components/DriveSyncRunner";
 import { getSyncStatus, saveItemToDrive } from "./workspace/sync-controller";
-const PassportView = lazy(() => import("./passport/ui/PassportView")); // passeport E4 BTS GPME, hors bundle principal
+const PassportView = lazy(() => import("./passport/ui/PassportView")); // passeport E4 / dossier E51 BTS GPME, hors bundle principal
 const PresenterView = lazy(() => import("./slides/PresenterView")); // 2nd-screen speaker window
 import type { Workbook } from "./sheet/model";
 import type { Deck } from "./slides/model";
@@ -1142,7 +1142,7 @@ export default function App() {
         id: "nav.passport",
         label: t("cmd.go_passport"),
         group: "nav",
-        keywords: "bts gpme e4 situation professionnelle fiche analyse",
+        keywords: "bts gpme e4 e51 situation professionnelle fiche analyse gestion des risques",
         run: () => setMode("passport"),
       },
       {

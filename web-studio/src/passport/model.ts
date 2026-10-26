@@ -6,7 +6,10 @@
  */
 import { REFERENTIEL } from "./referentiel";
 import type {
+  Annexe,
   ContexteItem,
+  DossierE51,
+  FormeEvaluation,
   Holder,
   Modalite,
   PassportData,
@@ -136,6 +139,8 @@ export const domainOfActivity = (activityId: string): RefDomain | undefined =>
 
 /** Les 6 activités du domaine 1 sont celles de l'épreuve E4. */
 export const isE4Activity = (activityId: string): boolean => activityId.startsWith("1.");
+/** Les 6 activités du domaine 2 relèvent de la sous-épreuve E51. */
+export const isE51Activity = (activityId: string): boolean => activityId.startsWith("2.");
 
 export function modaliteLabel(m: Modalite): string {
   return MODALITES.find((x) => x.id === m)?.label ?? m;
@@ -169,6 +174,24 @@ export function emptyContexte(): ContexteItem[] {
   return CONTEXTE_ITEMS.map((c) => ({ id: c.id, done: false, notes: "" }));
 }
 
+export function emptyDossierE51(): DossierE51 {
+  return {
+    formeEvaluation: "ccf",
+    intituleProjet: "",
+    activitesMobilisees: [],
+    periode: "",
+    lieu: "",
+    contextePme: "",
+    analyseManageriale: "",
+    evaluationRisques: "",
+    evaluationQualite: "",
+    risqueChoisi: "",
+    conduiteProjet: "",
+    veille: "",
+    productions: [],
+  };
+}
+
 export function emptyPassport(now = new Date().toISOString()): PassportData {
   return {
     version: 1,
@@ -181,6 +204,7 @@ export function emptyPassport(now = new Date().toISOString()): PassportData {
     parcours: { voie: "scolaire", requiredWeeks: DEFAULT_REQUIRED_WEEKS },
     solutions: {},
     visa: { date: "", note: "" },
+    dossierE51: emptyDossierE51(),
   };
 }
 
@@ -629,7 +653,7 @@ export interface ChecklistItem {
   /** Part réalisée, de 0 à 1 (sert à l'avancement global : une fiche sur six ne vaut pas « fait »). */
   ratio: number;
   /** Onglet où corriger. */
-  tab?: "dashboard" | "situations" | "passport" | "referentiel" | "contexte" | "stages";
+  tab?: "dashboard" | "situations" | "passport" | "referentiel" | "contexte" | "stages" | "dossierE51";
 }
 
 /** Points à réunir pour présenter le dossier E4 (identification, passeport, contexte, stages). */
@@ -753,6 +777,121 @@ export function dossierProgress(items: ChecklistItem[]): number {
   return items.length ? Math.round((items.reduce((a, i) => a + i.ratio, 0) / items.length) * 100) : 0;
 }
 
+/**
+ * Environ 450 mots tiennent sur une page A4 de texte courant (corps de texte, marges normales) : sert à
+ * donner un ordre de grandeur, pas une mesure exacte de mise en page. La limite réglementaire (annexe
+ * VI-2) est 12 pages pour la présentation du contexte et l'évaluation globale, hors annexes.
+ */
+const WORDS_PER_PAGE = 450;
+
+export function estimateE51Pages(d: Pick<DossierE51, (typeof E51_BODY_FIELDS)[number]>): number {
+  const words = E51_BODY_FIELDS.reduce((n, k) => n + (d[k].trim() ? d[k].trim().split(/\s+/).length : 0), 0);
+  return Math.max(1, Math.ceil(words / WORDS_PER_PAGE));
+}
+
+/** Rubriques du corps du dossier (partie 2 de l'annexe VI-2), dans l'ordre de l'annexe. */
+export const E51_BODY_FIELDS = [
+  "contextePme",
+  "analyseManageriale",
+  "evaluationRisques",
+  "evaluationQualite",
+  "risqueChoisi",
+  "conduiteProjet",
+  "veille",
+] as const satisfies readonly (keyof DossierE51)[];
+
+/** Titres des rubriques, dans l'ordre de l'annexe VI-2 — alignés sur `E51_BODY_FIELDS`. */
+export const E51_SECTION_TITLES: Record<(typeof E51_BODY_FIELDS)[number], string> = {
+  contextePme: "Présentation du contexte et de l'activité de la PME",
+  analyseManageriale: "Analyse managériale",
+  evaluationRisques: "Évaluation globale des risques de la PME",
+  evaluationQualite: "Évaluation de la démarche qualité mise en œuvre",
+  risqueChoisi: "Risque repéré (ou démarche qualité) choisi et justification",
+  conduiteProjet: "Conduite de projet",
+  veille: "Veille associée au thème choisi",
+};
+
+export const FORMES_EVALUATION: { id: FormeEvaluation; label: string }[] = [
+  { id: "ccf", label: "Contrôle en cours de formation (CCF)" },
+  { id: "ponctuel", label: "Forme ponctuelle" },
+];
+
+/** Points à réunir pour présenter le dossier E51 (identification, contexte, risques, projet, annexe VI-2). */
+export function dossierE51Checklist(data: PassportData): ChecklistItem[] {
+  const e = data.dossierE51;
+  const filled = (v: string) => v.trim().length > 0;
+  const cov = activityCoverage(data).filter((c) => isE51Activity(c.activity.id));
+  const withAttestation = data.stages.filter((s) => s.attestationRecue).length;
+  return [
+    {
+      id: "identification",
+      label: "Identification du projet (intitulé, période, lieu)",
+      ok: filled(e.intituleProjet) && filled(e.periode) && filled(e.lieu),
+      ratio: [e.intituleProjet, e.periode, e.lieu].filter(filled).length / 3,
+      tab: "dossierE51",
+    },
+    {
+      id: "activites",
+      label: "Au moins une activité du domaine 2 mobilisée (2.1 à 2.6)",
+      ok: e.activitesMobilisees.length > 0,
+      ratio: e.activitesMobilisees.length > 0 ? 1 : 0,
+      detail: e.activitesMobilisees.length ? e.activitesMobilisees.join(", ") : undefined,
+      tab: "dossierE51",
+    },
+    {
+      id: "contexte",
+      label: "Contexte de la PME et analyse managériale rédigés",
+      ok: filled(e.contextePme) && filled(e.analyseManageriale),
+      ratio: [e.contextePme, e.analyseManageriale].filter(filled).length / 2,
+      tab: "dossierE51",
+    },
+    {
+      id: "evaluation",
+      label: "Évaluation globale des risques et de la démarche qualité rédigée",
+      ok: filled(e.evaluationRisques) && filled(e.evaluationQualite),
+      ratio: [e.evaluationRisques, e.evaluationQualite].filter(filled).length / 2,
+      tab: "dossierE51",
+    },
+    {
+      id: "risque-choisi",
+      label: "Risque repéré (ou démarche qualité) choisi et justifié",
+      ok: filled(e.risqueChoisi),
+      ratio: filled(e.risqueChoisi) ? 1 : 0,
+      tab: "dossierE51",
+    },
+    {
+      id: "projet",
+      label: "Conduite de projet et veille associée rédigées",
+      ok: filled(e.conduiteProjet) && filled(e.veille),
+      ratio: [e.conduiteProjet, e.veille].filter(filled).length / 2,
+      tab: "dossierE51",
+    },
+    {
+      id: "productions",
+      label: "Productions réalisées jointes (annexes, hors 12 pages)",
+      ok: e.productions.length > 0,
+      ratio: e.productions.length > 0 ? 1 : 0,
+      detail: `${e.productions.length} pièce(s)`,
+      tab: "dossierE51",
+    },
+    {
+      id: "e51-activities-coverage",
+      label: "Les 6 activités du domaine 2 passées en revue (référentiel)",
+      ok: cov.some((c) => c.situations.length > 0 || e.activitesMobilisees.includes(c.activity.id)),
+      ratio: e.activitesMobilisees.length ? Math.min(1, e.activitesMobilisees.length / cov.length) : 0,
+      tab: "referentiel",
+    },
+    {
+      id: "attestations",
+      label: "Justificatif reçu pour chaque période en entreprise (partagé avec E4)",
+      ok: data.stages.length > 0 && withAttestation === data.stages.length,
+      ratio: data.stages.length ? withAttestation / data.stages.length : 0,
+      detail: data.stages.length ? `${withAttestation} / ${data.stages.length} reçu(s)` : "Aucune période saisie",
+      tab: "stages",
+    },
+  ];
+}
+
 // --------------------------------------------------------------- statistiques
 
 export interface PassportStats {
@@ -798,6 +937,27 @@ const num = (v: unknown, d: number): number => (typeof v === "number" && Number.
 const strList = (v: unknown, valid?: (s: string) => boolean): string[] =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && (!valid || valid(x))) : [];
 
+/** Reconstruit une liste d'annexes (description seulement : les octets vivent ailleurs, cf. `annexes.ts`). */
+function normAnnexeList(v: unknown): Annexe[] {
+  return (Array.isArray(v) ? v : []).flatMap((x: unknown) => {
+    if (!x || typeof x !== "object") return [];
+    const o = x as Record<string, unknown>;
+    const id = str(o.id);
+    return id
+      ? [
+          {
+            id,
+            name: str(o.name, "annexe"),
+            mime: str(o.mime),
+            size: num(o.size, 0),
+            addedAt: str(o.addedAt),
+            note: str(o.note),
+          },
+        ]
+      : [];
+  });
+}
+
 function normSituation(raw: unknown): Situation | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
@@ -821,23 +981,7 @@ function normSituation(raw: unknown): Situation | null {
     taskIds: strList(r.taskIds, (t) => TASK_BY_ID.has(t)),
     relue: bool(r.relue),
     code: str(r.code),
-    annexes: (Array.isArray(r.annexes) ? r.annexes : []).flatMap((x: unknown) => {
-      if (!x || typeof x !== "object") return [];
-      const o = x as Record<string, unknown>;
-      const id = str(o.id);
-      return id
-        ? [
-            {
-              id,
-              name: str(o.name, "annexe"),
-              mime: str(o.mime),
-              size: num(o.size, 0),
-              addedAt: str(o.addedAt),
-              note: str(o.note),
-            },
-          ]
-        : [];
-    }),
+    annexes: normAnnexeList(r.annexes),
   };
   for (const k of [
     "intitule",
@@ -917,6 +1061,25 @@ export function normalizePassport(raw: unknown): PassportData | null {
     return [st];
   });
   const v = (r.visa && typeof r.visa === "object" ? r.visa : {}) as Record<string, unknown>;
+  const e51base = emptyDossierE51();
+  const e51 = (r.dossierE51 && typeof r.dossierE51 === "object" ? r.dossierE51 : {}) as Record<string, unknown>;
+  const dossierE51: DossierE51 = {
+    formeEvaluation: FORMES_EVALUATION.some((f) => f.id === e51.formeEvaluation)
+      ? (e51.formeEvaluation as FormeEvaluation)
+      : e51base.formeEvaluation,
+    intituleProjet: str(e51.intituleProjet),
+    activitesMobilisees: strList(e51.activitesMobilisees, (a) => ACTIVITY_BY_ID.has(a) && isE51Activity(a)),
+    periode: str(e51.periode),
+    lieu: str(e51.lieu),
+    contextePme: str(e51.contextePme),
+    analyseManageriale: str(e51.analyseManageriale),
+    evaluationRisques: str(e51.evaluationRisques),
+    evaluationQualite: str(e51.evaluationQualite),
+    risqueChoisi: str(e51.risqueChoisi),
+    conduiteProjet: str(e51.conduiteProjet),
+    veille: str(e51.veille),
+    productions: normAnnexeList(e51.productions),
+  };
   return {
     version: 1,
     updatedAt: str(r.updatedAt, base.updatedAt),
@@ -938,5 +1101,6 @@ export function normalizePassport(raw: unknown): PassportData | null {
       ).flatMap(([k, val]) => (ACTIVITY_BY_ID.has(k) && typeof val === "string" && val.trim() ? [[k, val]] : [])),
     ),
     visa: { date: str(v.date), note: str(v.note) },
+    dossierE51,
   };
 }

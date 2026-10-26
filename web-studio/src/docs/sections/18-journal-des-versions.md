@@ -1,6 +1,10 @@
 ## Journal des versions
 
-> Dernière version publiée : **4.29.4**, étiquetée le 26 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
+> Dernière version publiée : **4.30.0**, étiquetée le 26 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
+
+### Version 4.30.0 — Dossier E51 (BTS Gestion de la PME)
+
+- **Nouveau** : le module Passeport BTS GPME gagne un onglet **Dossier E51** (« Participer à la gestion des risques de la PME ») — identification du projet, contexte et analyse managériale de la PME, évaluation globale des risques et de la démarche qualité, risque choisi et conduite de projet, veille associée, productions en annexe. Structure reprise de l'annexe VI-2 du règlement d'examen. Exports PDF et Word, suivi d'avancement dédié, justificatifs de stage partagés avec E4.
 
 ### Version 4.29.4 — suite du durcissement après réaudit externe
 

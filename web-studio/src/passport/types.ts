@@ -149,6 +149,46 @@ export interface Stage {
   notes: string;
 }
 
+/** Forme d'évaluation de la sous-épreuve (page d'identification du dossier, annexe VI-2). */
+export type FormeEvaluation = "ccf" | "ponctuel";
+
+/**
+ * Dossier de la sous-épreuve E51 « Participer à la gestion des risques de la PME » (domaine 2 du
+ * référentiel). Contrairement au passeport E4, ce n'est pas une collection de fiches : l'annexe VI-2
+ * décrit un dossier unique sur UNE PME, avec UN risque choisi (ou une démarche qualité) et sa conduite
+ * de projet. Structure reprise terme à terme de l'annexe VI-2 (principes de composition du dossier).
+ */
+export interface DossierE51 {
+  // Partie 1 : identification (page de présentation)
+  formeEvaluation: FormeEvaluation;
+  /** Intitulé du projet validé par le(s) formateur(s). */
+  intituleProjet: string;
+  /** Activités du domaine 2 mobilisées (clés « 2.1 » à « 2.6 »). */
+  activitesMobilisees: string[];
+  periode: string;
+  lieu: string;
+
+  // Partie 2 : dossier de l'épreuve (12 pages maximum)
+  /** Analyse du contexte de la PME : activité, effectif, CA, marché, clientèle, communication, certification, SI. */
+  contextePme: string;
+  /** Analyse managériale : production, structure, coordination, management, concurrence, FCS, stratégie. */
+  analyseManageriale: string;
+  /** Évaluation globale des risques de la PME et des moyens de prévention déployés. */
+  evaluationRisques: string;
+  /** Évaluation de la démarche qualité mise en œuvre au sein de la PME. */
+  evaluationQualite: string;
+  /** Risque repéré (ou démarche qualité) choisi comme thème, et justification de ce choix. */
+  risqueChoisi: string;
+  /** Conduite de projet menée pour améliorer la gestion de ce risque ou développer la démarche qualité. */
+  conduiteProjet: string;
+  /** Veille associée au thème choisi (réglementaire, technologique…). */
+  veille: string;
+
+  // Partie 3 : annexes (hors les 12 pages)
+  /** Productions réalisées pour conduire ces travaux. */
+  productions: Annexe[];
+}
+
 export interface PassportData {
   version: 1;
   updatedAt: string;
@@ -164,4 +204,6 @@ export interface PassportData {
   solutions: Record<string, string>;
   /** Validation par l'équipe pédagogique (visa du passeport synoptique). */
   visa: { date: string; note: string };
+  /** Dossier de la sous-épreuve E51 (domaine 2 : participer à la gestion des risques de la PME). */
+  dossierE51: DossierE51;
 }

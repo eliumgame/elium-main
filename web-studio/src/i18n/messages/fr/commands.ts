@@ -101,7 +101,7 @@ export const frCommands = {
   "cmd.search_workspace": "Rechercher dans tout l'espace",
   "cmd.go_docs": "Ouvrir la documentation",
   "cmd.go_detector": "Ouvrir le Détecteur",
-  "cmd.go_passport": "Ouvrir le Passeport professionnel E4 (BTS GPME)",
+  "cmd.go_passport": "Ouvrir le Passeport E4 / Dossier E51 (BTS GPME)",
   "cmd.go_drive": "Ouvrir le Drive entreprise",
   "cmd.new_doc": "Nouveau document",
   "cmd.new_sheet": "Nouveau tableur",

@@ -1,12 +1,12 @@
 /**
- * Annexes d'une fiche dans le dossier PDF : une page de garde par annexe (« Annexe n — nom — SPx »), puis son contenu
- * quand il s'intègre — pages d'un PDF recopiées telles quelles, image mise à l'échelle sur une page A4, fichier texte
- * en pages de texte. Tout autre type (Word, Excel, vidéo…) reçoit une page de garde qui le signale : il reste
- * disponible tel quel dans l'application et dans le Drive.
+ * Annexes d'une fiche (ou d'un dossier) dans le dossier PDF : une page de garde par annexe
+ * (« Annexe n — nom — <label> »), puis son contenu quand il s'intègre — pages d'un PDF recopiées telles
+ * quelles, image mise à l'échelle sur une page A4, fichier texte en pages de texte. Tout autre type (Word,
+ * Excel, vidéo…) reçoit une page de garde qui le signale : il reste disponible tel quel dans l'application
+ * et dans le Drive.
  */
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
-import type { Annexe, Situation } from "../types";
-import { spLabel } from "../model";
+import type { Annexe } from "../types";
 import { A4_PORTRAIT, Canvas, wrap, type Fonts } from "./pdfKit";
 
 const MARGIN = 56;
@@ -15,11 +15,11 @@ function frSize(n: number): string {
   return n >= 1048576 ? `${(n / 1048576).toFixed(1)} Mo` : `${Math.max(1, Math.round(n / 1024))} Ko`;
 }
 
-function cover(doc: PDFDocument, fonts: Fonts, s: Situation, a: Annexe, n: number, note: string): void {
+function cover(doc: PDFDocument, fonts: Fonts, label: string, a: Annexe, n: number, note: string): void {
   const c = new Canvas(doc.addPage(A4_PORTRAIT), fonts);
   const mid = A4_PORTRAIT[0] / 2;
   c.text(`Annexe ${n}`, mid, 250, { font: "timesBold", size: 26, align: "center" });
-  c.text(`Fiche ${spLabel(s.id)}${s.intitule.trim() ? ` — ${s.intitule.trim()}` : ""}`, mid, 282, {
+  c.text(label, mid, 282, {
     font: "times",
     size: 12,
     align: "center",
@@ -45,15 +45,21 @@ function cover(doc: PDFDocument, fonts: Fonts, s: Situation, a: Annexe, n: numbe
   }
 }
 
-function caption(c: Canvas, s: Situation, a: Annexe, n: number): void {
-  c.text(`Annexe ${n} — ${a.name} (${spLabel(s.id)})`, MARGIN, 36, {
+function caption(c: Canvas, label: string, a: Annexe, n: number): void {
+  c.text(`Annexe ${n} — ${a.name} (${label})`, MARGIN, 36, {
     font: "arial",
     size: 8.5,
     color: [0.35, 0.35, 0.35],
   });
 }
 
-async function appendPdf(doc: PDFDocument, fonts: Fonts, s: Situation, n: number, bytes: Uint8Array): Promise<boolean> {
+async function appendPdf(
+  doc: PDFDocument,
+  fonts: Fonts,
+  label: string,
+  n: number,
+  bytes: Uint8Array,
+): Promise<boolean> {
   try {
     const src = await PDFDocument.load(bytes, { ignoreEncryption: true });
     const pages = await doc.copyPages(src, src.getPageIndices());
@@ -61,7 +67,7 @@ async function appendPdf(doc: PDFDocument, fonts: Fonts, s: Situation, n: number
       doc.addPage(p);
       const c = new Canvas(p, fonts);
       // légende discrète en haut de chaque page recopiée (hors cadre si la page est déjà pleine)
-      c.text(`Annexe ${n} — ${spLabel(s.id)}`, p.getWidth() - 14, 10, {
+      c.text(`Annexe ${n} — ${label}`, p.getWidth() - 14, 10, {
         font: "arial",
         size: 6.5,
         align: "right",
@@ -77,7 +83,7 @@ async function appendPdf(doc: PDFDocument, fonts: Fonts, s: Situation, n: number
 async function appendImage(
   doc: PDFDocument,
   fonts: Fonts,
-  s: Situation,
+  label: string,
   a: Annexe,
   n: number,
   bytes: Uint8Array,
@@ -87,7 +93,7 @@ async function appendImage(
     const img = isPng ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
     const page = doc.addPage(A4_PORTRAIT);
     const c = new Canvas(page, fonts);
-    caption(c, s, a, n);
+    caption(c, label, a, n);
     const maxW = A4_PORTRAIT[0] - 2 * MARGIN;
     const maxH = A4_PORTRAIT[1] - 2 * MARGIN - 20;
     const k = Math.min(maxW / img.width, maxH / img.height, 1.5);
@@ -103,7 +109,7 @@ async function appendImage(
 async function appendText(
   doc: PDFDocument,
   fonts: Fonts,
-  s: Situation,
+  label: string,
   a: Annexe,
   n: number,
   bytes: Uint8Array,
@@ -128,12 +134,12 @@ async function appendText(
     let page = doc.addPage(A4_PORTRAIT);
     let y = 56;
     let c = new Canvas(page, fonts);
-    caption(c, s, a, n);
+    caption(c, label, a, n);
     for (const l of lines) {
       if (y > A4_PORTRAIT[1] - 56) {
         page = doc.addPage(A4_PORTRAIT);
         c = new Canvas(page, fonts);
-        caption(c, s, a, n);
+        caption(c, label, a, n);
         y = 56;
       }
       page.drawText(l.replace(/[^\x20-\xff]/g, "?"), {
@@ -156,15 +162,17 @@ const MAX_INLINE_BYTES = 12 * 1024 * 1024;
 /** Total cumulé des annexes recopiées : au-delà, les suivantes sont seulement signalées. */
 const MAX_TOTAL_INLINE_BYTES = 48 * 1024 * 1024;
 
+/** `label` identifie l'origine dans les légendes (« Fiche SP2 — Vente », « Dossier E51 »…). */
 export async function appendAnnexes(
   doc: PDFDocument,
   fonts: Fonts,
-  s: Situation,
+  label: string,
+  annexes: Annexe[],
   bytesOf: (id: string) => Uint8Array | undefined,
 ): Promise<void> {
   let n = 0;
   let inlined = 0;
-  for (const a of s.annexes) {
+  for (const a of annexes) {
     n++;
     // Laisse respirer l'interface entre deux annexes (l'assemblage d'un gros PDF bloque le fil principal).
     await new Promise((r) => setTimeout(r, 0));
@@ -173,7 +181,7 @@ export async function appendAnnexes(
       cover(
         doc,
         fonts,
-        s,
+        label,
         a,
         n,
         "Fichier introuvable sur cet appareil, ou trop volumineux (plus de 12 Mo) : il n'a pas été intégré au PDF.",
@@ -184,7 +192,7 @@ export async function appendAnnexes(
       cover(
         doc,
         fonts,
-        s,
+        label,
         a,
         n,
         `Fichier trop volumineux (${frSize(bytes.length)}) pour être intégré au dossier PDF : joignez-le séparément.`,
@@ -195,7 +203,7 @@ export async function appendAnnexes(
       cover(
         doc,
         fonts,
-        s,
+        label,
         a,
         n,
         `Total des annexes trop volumineux pour le dossier PDF (plus de ${MAX_TOTAL_INLINE_BYTES / 1048576} Mo) : joignez ce fichier séparément.`,
@@ -209,7 +217,7 @@ export async function appendAnnexes(
     cover(
       doc,
       fonts,
-      s,
+      label,
       a,
       n,
       isPdf || isImg || isTxt
@@ -217,13 +225,20 @@ export async function appendAnnexes(
         : `Fichier joint (${frSize(a.size)}) non intégrable dans un PDF : il reste disponible tel quel dans l'application.`,
     );
     const ok = isPdf
-      ? await appendPdf(doc, fonts, s, n, bytes)
+      ? await appendPdf(doc, fonts, label, n, bytes)
       : isImg
-        ? await appendImage(doc, fonts, s, a, n, bytes)
+        ? await appendImage(doc, fonts, label, a, n, bytes)
         : isTxt
-          ? await appendText(doc, fonts, s, a, n, bytes)
+          ? await appendText(doc, fonts, label, a, n, bytes)
           : true;
     if (!ok)
-      cover(doc, fonts, s, a, n, "Ce fichier n'a pas pu être lu pour être intégré (format non reconnu ou protégé).");
+      cover(
+        doc,
+        fonts,
+        label,
+        a,
+        n,
+        "Ce fichier n'a pas pu être lu pour être intégré (format non reconnu ou protégé).",
+      );
   }
 }

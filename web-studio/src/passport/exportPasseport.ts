@@ -4,7 +4,16 @@
  * sauvegarde JSON complète (réimportable).
  */
 import { strToU8, zipSync } from "fflate";
-import { MODALITES, REFERENTIEL, coveredTasks, passportCells } from "./model";
+import {
+  activityById,
+  E51_BODY_FIELDS,
+  E51_SECTION_TITLES,
+  FORMES_EVALUATION,
+  MODALITES,
+  REFERENTIEL,
+  coveredTasks,
+  passportCells,
+} from "./model";
 import type { Modalite, PassportData, RefActivity } from "./types";
 
 // ------------------------------------------------------------ données communes
@@ -221,6 +230,48 @@ export function buildSynopticDocx(data: PassportData, opts: SynopticOptions = {}
     `${idTable}<w:tbl><w:tblPr><w:tblW w:w="${TOTAL}" w:type="dxa"/>${BORDERS}<w:tblLayout w:type="fixed"/></w:tblPr>${grid}${head}${body}</w:tbl>`,
     true,
   );
+}
+
+/**
+ * Dossier E51 au format Word (A4 portrait) : identification puis rubriques du dossier de l'épreuve,
+ * dans l'ordre de l'annexe VI-2. Comme pour le PDF, il n'existe pas de modèle officiel à reproduire.
+ */
+export function buildDossierE51Docx(data: PassportData): Uint8Array {
+  const h = data.holder;
+  const e = data.dossierE51;
+  const who = `${h.nom.toUpperCase()} ${h.prenom}`.trim();
+  const idRow = (label: string, value: string) => par(`${label} : ${value || "(à compléter)"}`, { size: 20 });
+  const body =
+    par(`BTS Gestion de la PME, session ${h.session}`, { bold: true, center: true, size: 22 }) +
+    par("E51 – Participer à la gestion des risques de la PME", { bold: true, center: true, size: 22 }) +
+    par(who ? `${who}${h.numeroCandidat ? ` — N° de candidat : ${h.numeroCandidat}` : ""}` : "", {
+      center: true,
+      size: 20,
+    }) +
+    par("", { size: 10 }) +
+    par("IDENTIFICATION DU PROJET", { bold: true, size: 22 }) +
+    idRow("Forme d'évaluation", FORMES_EVALUATION.find((f) => f.id === e.formeEvaluation)?.label ?? "") +
+    idRow("Intitulé du projet", e.intituleProjet) +
+    idRow(
+      "Activités du domaine 2 mobilisées",
+      e.activitesMobilisees.map((id) => `${id} — ${activityById(id)?.title ?? ""}`).join(" ; "),
+    ) +
+    idRow("Période", e.periode) +
+    idRow("Lieu", e.lieu) +
+    par("", { size: 10 }) +
+    par("DOSSIER DE L'ÉPREUVE", { bold: true, size: 22 }) +
+    par("Présentation du contexte et évaluation globale : 12 pages maximum (annexe VI-2), hors annexes.", {
+      size: 16,
+      color: "666666",
+    }) +
+    par("", { size: 10 }) +
+    E51_BODY_FIELDS.map(
+      (k) =>
+        par(E51_SECTION_TITLES[k], { bold: true, size: 21 }) +
+        par(e[k] || "(à rédiger)", { size: 20 }) +
+        par("", { size: 10 }),
+    ).join("");
+  return docxPackage(body, false);
 }
 
 // ------------------------------------------------------------- sauvegarde JSON

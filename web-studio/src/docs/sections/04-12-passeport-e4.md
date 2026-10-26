@@ -106,3 +106,6 @@ Dans le Drive entreprise, le Passeport est sauvegardé de deux façons. Le fichi
   pédagogique qu'ils correspondent à la session visée.
 - Les nombres de situations attendus à l'examen ne sont pas imposés par le module : la
   liste de contrôle signale seulement les activités E4 non encore couvertes.
+
+Le dossier de la sous-épreuve **E51** (gestion des risques) se construit dans le même module, onglet
+« Dossier E51 » : voir la section suivante.

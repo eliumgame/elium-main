@@ -2,10 +2,10 @@
 import { useRef, type ReactNode } from "react";
 import { CheckCircle2, Circle, Download, Plus, RotateCcw, Upload } from "lucide-react";
 import { Badge, Button } from "../../ui/components";
-import { MODALITES, dossierChecklist, dossierProgress, passportStats } from "../model";
+import { MODALITES, dossierChecklist, dossierE51Checklist, dossierProgress, passportStats } from "../model";
 import type { Holder, PassportData } from "../types";
 
-export type TabId = "dashboard" | "situations" | "passport" | "referentiel" | "contexte" | "stages";
+export type TabId = "dashboard" | "situations" | "passport" | "referentiel" | "contexte" | "stages" | "dossierE51";
 
 interface Props {
   data: PassportData;
@@ -36,6 +36,7 @@ export default function Dashboard(p: Props) {
   const { data } = p;
   const items = dossierChecklist(data);
   const pct = dossierProgress(items);
+  const pctE51 = dossierProgress(dossierE51Checklist(data));
   const st = passportStats(data);
   const file = useRef<HTMLInputElement>(null);
   const modMax = Math.max(1, ...Object.values(st.byModalite));
@@ -114,6 +115,10 @@ export default function Dashboard(p: Props) {
             </strong>
             <span>tâches du référentiel</span>
           </div>
+          <div>
+            <strong>{pctE51} %</strong>
+            <span>dossier E51</span>
+          </div>
         </div>
         <label className="pp-field" style={{ maxWidth: 320 }}>
           <span className="pp-field__label">Nombre de fiches de situation à produire</span>
@@ -149,6 +154,9 @@ export default function Dashboard(p: Props) {
         <div className="pp-actions">
           <Button onClick={p.onNewSituation}>
             <Plus size={16} /> Nouvelle situation
+          </Button>
+          <Button variant="outline" onClick={() => p.onGoto("dossierE51")}>
+            Dossier E51
           </Button>
         </div>
       </section>

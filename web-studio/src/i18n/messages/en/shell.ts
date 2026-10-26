@@ -101,9 +101,9 @@ export const enShell: Record<keyof typeof frShell, string> = {
   "home.drive.title": "Encrypted enterprise Drive",
   "home.drive.desc": "Store, share and collaborate with others — end-to-end encrypted, detailed roles & permissions.",
   "home.drive.meta": "Multi-user",
-  "home.passport.title": "E4 Professional Passport",
+  "home.passport.title": "E4 Passport & E51 Risk File",
   "home.passport.desc":
-    "BTS Gestion de la PME (French business degree): professional situation sheets, summary passport, competency framework, Word/PDF analysis sheets and full E4 file tracking.",
+    "BTS Gestion de la PME (French business degree): professional situation sheets and summary passport (E4), risk-management file (E51), competency framework, Word/PDF analysis sheets and full tracking of both files.",
   "home.detector.title": "Detector",
   "home.detector.desc":
     "Analyses a document (.elium, .docx, .pdf) for signs of AI writing, formatting/metadata/image anomalies — and, optionally, plagiarism on the web.",

@@ -102,9 +102,9 @@ export const frShell = {
   "home.drive.desc":
     "Stockez, partagez et collaborez à plusieurs — chiffré de bout en bout, rôles & permissions détaillés.",
   "home.drive.meta": "Multi-utilisateurs",
-  "home.passport.title": "Passeport professionnel E4",
+  "home.passport.title": "Passeport E4 & Dossier E51",
   "home.passport.desc":
-    "BTS Gestion de la PME : fiches de situation professionnelle, passeport synoptique, référentiel, fiches d'analyse Word/PDF et suivi complet du dossier E4.",
+    "BTS Gestion de la PME : fiches de situation professionnelle et passeport synoptique (E4), dossier de gestion des risques (E51), référentiel, fiches d'analyse Word/PDF et suivi complet des deux dossiers.",
   "home.detector.title": "Détecteur",
   "home.detector.desc":
     "Analyse un document (.elium, .docx, .pdf) à la recherche de signaux de rédaction par IA, d'anomalies de mise en forme/métadonnées/images — et, en option, de plagiat sur le web.",

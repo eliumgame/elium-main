@@ -217,3 +217,82 @@ describe("rate limiting des routes sensibles", () => {
     await app.close();
   });
 });
+
+describe("POST /api/auth/refresh : rotation atomique + détection de réemploi", () => {
+  const SESSION_ID = "00000000-0000-4000-8000-0000000000f1";
+  const USER_ID = "00000000-0000-4000-8000-0000000000f2";
+
+  it("tourne le jeton et renvoie un nouvel accessToken quand la rotation réussit", async () => {
+    mockedQueryOne.mockImplementation(async (sql: string) => {
+      if (sql.includes("SET refresh_token_hash = $1, previous_refresh_token_hash")) {
+        return { id: SESSION_ID, user_id: USER_ID } as never;
+      }
+      if (sql.includes("FROM users")) return { fingerprint: "f".repeat(64), status: "active" } as never;
+      return null;
+    });
+    const app = await buildTestApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/auth/refresh",
+      payload: { refreshToken: "a-refresh-token-value-1234" },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.accessToken).toBeTypeOf("string");
+    expect(body.refreshToken).toBeTypeOf("string");
+    await app.close();
+  });
+
+  it("401 quand le jeton présenté ne correspond à aucune session active (inconnu/expiré)", async () => {
+    mockedQueryOne.mockResolvedValue(null); // ni la rotation ni la détection de réemploi ne trouvent de ligne
+    const app = await buildTestApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/auth/refresh",
+      payload: { refreshToken: "unknown-refresh-token-123" },
+    });
+    expect(res.statusCode).toBe(401);
+    await app.close();
+  });
+
+  it("401 et révoque toute la session quand un jeton DÉJÀ tourné est représenté (réemploi)", async () => {
+    mockedQueryOne.mockImplementation(async (sql: string) => {
+      // La rotation (CAS sur le hash courant) ne trouve rien : ce hash n'est plus le courant.
+      if (sql.includes("SET refresh_token_hash = $1, previous_refresh_token_hash")) return null as never;
+      // Mais il correspond au hash juste remplacé — réemploi détecté, la session est révoquée.
+      if (sql.includes("SET revoked_at = now()") && sql.includes("previous_refresh_token_hash = $1")) {
+        return { id: SESSION_ID, user_id: USER_ID } as never;
+      }
+      return null;
+    });
+    const app = await buildTestApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/auth/refresh",
+      payload: { refreshToken: "already-rotated-token-99" },
+    });
+    expect(res.statusCode).toBe(401);
+    await app.close();
+  });
+
+  it("401 et révoque la session fraîchement tournée quand le compte n'est plus actif", async () => {
+    mockedQueryOne.mockImplementation(async (sql: string) => {
+      if (sql.includes("SET refresh_token_hash = $1, previous_refresh_token_hash")) {
+        return { id: SESSION_ID, user_id: USER_ID } as never;
+      }
+      if (sql.includes("FROM users")) return { fingerprint: "f".repeat(64), status: "suspended" } as never;
+      return null;
+    });
+    const app = await buildTestApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/auth/refresh",
+      payload: { refreshToken: "a-refresh-token-for-suspended" },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(mockedQuery).toHaveBeenCalledWith(expect.stringMatching(/UPDATE sessions SET revoked_at = now\(\) WHERE id = \$1/), [
+      SESSION_ID,
+    ]);
+    await app.close();
+  });
+});

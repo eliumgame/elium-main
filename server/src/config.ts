@@ -71,6 +71,29 @@ if (isProd && /:(elium|CHANGE_ME[^@]*|change-me[^@]*)@/i.test(databaseUrl)) {
   );
 }
 
+// Stockage S3 : les mêmes défauts de développement existent qu'au-dessus
+// (fsRoot/S3_* non définis) pour qu'un `npm run dev` sans .env démarre quand
+// même. Le chemin docker-compose force déjà S3_SECRET_KEY via `${VAR:?...}`,
+// mais un démarrage en production PAR UN AUTRE MOYEN (process manager, image
+// maison) ne passe pas par Compose et accepterait silencieusement ces valeurs
+// d'exemple — accès en écriture à TOUS les blobs chiffrés avec un identifiant
+// public. Seul le driver "s3" est concerné : "fs" ignore ces variables.
+const storageDriver = env("STORAGE_DRIVER", "fs") as "fs" | "s3";
+const s3AccessKey = env("S3_ACCESS_KEY", "elium");
+const s3SecretKey = env("S3_SECRET_KEY", "elium-secret");
+if (isProd && storageDriver === "s3") {
+  const S3_PLACEHOLDER_VALUES = ["elium", "elium-secret", "minioadmin", "minioadmin123"];
+  if (
+    S3_PLACEHOLDER_VALUES.includes(s3AccessKey) ||
+    S3_PLACEHOLDER_VALUES.includes(s3SecretKey) ||
+    KNOWN_PLACEHOLDER_SUBSTRINGS.some((p) => s3SecretKey.includes(p))
+  ) {
+    throw new Error(
+      "S3_ACCESS_KEY/S3_SECRET_KEY sont encore des valeurs d'exemple — définissez de vrais identifiants S3 en production.",
+    );
+  }
+}
+
 export const config = {
   isProd,
   // Deployed application version, stamped into .env by install.sh (from
@@ -98,14 +121,14 @@ export const config = {
   refreshTokenTtl: num("REFRESH_TOKEN_TTL_SECONDS", 2592000),
 
   storage: {
-    driver: env("STORAGE_DRIVER", "fs") as "fs" | "s3",
+    driver: storageDriver,
     fsRoot: env("STORAGE_FS_ROOT", "./data/blobs"),
     s3: {
       endpoint: env("S3_ENDPOINT", "http://localhost:9000"),
       region: env("S3_REGION", "us-east-1"),
       bucket: env("S3_BUCKET", "elium-blobs"),
-      accessKey: env("S3_ACCESS_KEY", "elium"),
-      secretKey: env("S3_SECRET_KEY", "elium-secret"),
+      accessKey: s3AccessKey,
+      secretKey: s3SecretKey,
       forcePathStyle: env("S3_FORCE_PATH_STYLE", "true") === "true",
     },
   },

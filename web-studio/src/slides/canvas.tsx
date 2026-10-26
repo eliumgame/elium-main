@@ -6,6 +6,7 @@
  * edited in place; smart guides snap to the slide centre, edges and a light grid.
  */
 import "./master.css";
+import DOMPurify from "dompurify";
 import { playbackSrc } from "./media";
 import { cellClass, isCovered, mergeAt } from "./table";
 import { layoutDiagram, nodeFontPx, type DEdge, type DNode } from "./diagram";
@@ -433,7 +434,7 @@ function ElementView({
     <div
       className={`ce-text${isPromptOnly(el) ? " ce-text--prompt" : ""}`}
       style={style}
-      dangerouslySetInnerHTML={{ __html: withSlideNumber(el.html, slideNumber) }}
+      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(withSlideNumber(el.html, slideNumber)) }}
     />
   );
 }

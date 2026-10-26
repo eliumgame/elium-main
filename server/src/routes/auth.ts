@@ -396,25 +396,49 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
   app.post("/refresh", rl(60), async (req) => {
     const { refreshToken } = z.object({ refreshToken: z.string().min(10) }).parse(req.body);
     const h = hashToken(refreshToken);
-    const s = await queryOne<{ id: string; user_id: string; expires_at: string; revoked_at: string | null }>(
-      `SELECT id, user_id, expires_at, revoked_at FROM sessions WHERE refresh_token_hash = $1`,
-      [h],
+    const rotated = newRefreshToken();
+
+    // Rotation en compare-and-swap : l'UPDATE ne touche QUE la ligne dont le hash
+    // courant est ENCORE celui présenté. Deux rafraîchissements concurrents avec
+    // le même jeton ne peuvent donc pas tous les deux réussir — un seul gagne la
+    // course, l'autre tombe dans la branche "non trouvée" ci-dessous.
+    const updated = await queryOne<{ id: string; user_id: string }>(
+      `UPDATE sessions
+          SET refresh_token_hash = $1, previous_refresh_token_hash = $2, expires_at = $3, last_seen_at = now()
+        WHERE refresh_token_hash = $2 AND revoked_at IS NULL AND expires_at > now()
+        RETURNING id, user_id`,
+      [rotated.hash, h, rotated.expiresAt],
     );
-    if (!s || s.revoked_at || new Date(s.expires_at).getTime() < Date.now()) throw unauthorized("Session expirée.");
+    if (!updated) {
+      // Le hash présenté ne correspond à aucune session active : soit un jeton
+      // simplement inconnu/expiré/révoqué, soit le réemploi d'un jeton DÉJÀ tourné
+      // par un rafraîchissement précédent (signe de concurrence ou de vol). Dans ce
+      // second cas, la session entière est révoquée : rejouer un jeton déjà remplacé
+      // ne doit profiter à personne, légitime ou non — on force une reconnexion.
+      const reused = await queryOne<{ id: string; user_id: string }>(
+        `UPDATE sessions SET revoked_at = now()
+          WHERE previous_refresh_token_hash = $1 AND revoked_at IS NULL
+        RETURNING id, user_id`,
+        [h],
+      );
+      if (reused) {
+        await audit(null, reused.user_id, "auth.refresh.reuse_detected", "session", reused.id, {}, req.ip);
+      }
+      throw unauthorized("Session expirée.");
+    }
+
     const u = await queryOne<{ fingerprint: string; status: string }>(
       `SELECT fingerprint, status FROM users WHERE id = $1`,
-      [s.user_id],
+      [updated.user_id],
     );
-    if (!u || u.status !== "active") throw unauthorized();
+    if (!u || u.status !== "active") {
+      // Le compte n'est plus actif : la rotation qu'on vient d'accorder ne doit
+      // jamais être utilisable (sinon un compte suspendu resterait rafraîchissable).
+      await query(`UPDATE sessions SET revoked_at = now() WHERE id = $1`, [updated.id]);
+      throw unauthorized();
+    }
 
-    // Rotate the refresh token.
-    const rotated = newRefreshToken();
-    await query(`UPDATE sessions SET refresh_token_hash = $1, expires_at = $2, last_seen_at = now() WHERE id = $3`, [
-      rotated.hash,
-      rotated.expiresAt,
-      s.id,
-    ]);
-    const access = issueAccessToken(s.user_id, u.fingerprint);
+    const access = issueAccessToken(updated.user_id, u.fingerprint);
     return { accessToken: access.token, accessTokenExpiresAt: access.expiresAt, refreshToken: rotated.raw };
   });
 

@@ -53,7 +53,14 @@ describe("cap JSON (maxJsonBytes) sur la vraie app", () => {
 });
 
 describe("validation des secrets au démarrage (production)", () => {
-  const ENV_KEYS = ["NODE_ENV", "TOKEN_SECRET", "DATABASE_URL"] as const;
+  const ENV_KEYS = [
+    "NODE_ENV",
+    "TOKEN_SECRET",
+    "DATABASE_URL",
+    "STORAGE_DRIVER",
+    "S3_ACCESS_KEY",
+    "S3_SECRET_KEY",
+  ] as const;
   const saved: Record<string, string | undefined> = {};
   for (const k of ENV_KEYS) saved[k] = process.env[k];
 
@@ -89,6 +96,39 @@ describe("validation des secrets au démarrage (production)", () => {
     const { config } = await import("../src/config.js");
     expect(config.isProd).toBe(true);
     expect(config.tokenSecret).toBe("b".repeat(48));
+  });
+
+  it("refuse des identifiants S3 d'exemple quand le driver est s3", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.TOKEN_SECRET = "b".repeat(48);
+    process.env.DATABASE_URL = "postgres://elium:S3cure-R3al-P4ss@db:5432/elium";
+    process.env.STORAGE_DRIVER = "s3";
+    // S3_ACCESS_KEY/S3_SECRET_KEY non définis → retombent sur les valeurs d'exemple.
+    vi.resetModules();
+    await expect(import("../src/config.js")).rejects.toThrow(/identifiants S3/);
+  });
+
+  it("n'exige rien côté S3 quand le driver reste fs (défaut)", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.TOKEN_SECRET = "b".repeat(48);
+    process.env.DATABASE_URL = "postgres://elium:S3cure-R3al-P4ss@db:5432/elium";
+    // STORAGE_DRIVER non défini (fs) alors que S3_SECRET_KEY resterait l'exemple :
+    // sans effet, ces variables ne sont pas utilisées par le driver fs.
+    vi.resetModules();
+    const { config } = await import("../src/config.js");
+    expect(config.storage.driver).toBe("fs");
+  });
+
+  it("accepte le driver s3 avec de vrais identifiants", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.TOKEN_SECRET = "b".repeat(48);
+    process.env.DATABASE_URL = "postgres://elium:S3cure-R3al-P4ss@db:5432/elium";
+    process.env.STORAGE_DRIVER = "s3";
+    process.env.S3_ACCESS_KEY = "AKIA-real-access-key";
+    process.env.S3_SECRET_KEY = "a-real-random-secret-key-value";
+    vi.resetModules();
+    const { config } = await import("../src/config.js");
+    expect(config.storage.s3.accessKey).toBe("AKIA-real-access-key");
   });
 });
 

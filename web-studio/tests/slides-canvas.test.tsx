@@ -26,6 +26,23 @@ describe("SlideCanvas (component) — per-type rendering", () => {
     expect(screen.getByText("Bonjour")).toBeTruthy();
   });
 
+  it("sanitizes a text element's html — strips scripts and event handlers, keeps safe formatting", () => {
+    const els = [
+      el({
+        id: "t2",
+        type: "text",
+        html: '<p>Bonjour <b>le monde</b><img src=x onerror="window.__pwned=true"><script>window.__pwned=true</script></p>',
+      }),
+    ];
+    const { container } = render(<SlideCanvas slide={baseSlide} elements={els} theme="light" scale={1} />);
+    // Mise en forme légitime conservée.
+    expect(screen.getByText("le monde").tagName).toBe("B");
+    // Vecteurs dangereux neutralisés : ni script ni gestionnaire d'événement.
+    expect(container.querySelector("script")).toBeNull();
+    expect(container.querySelector("img")?.getAttribute("onerror")).toBeNull();
+    expect((window as { __pwned?: boolean }).__pwned).toBeUndefined();
+  });
+
   it("renders a shape element as an svg with its label", () => {
     const els = [el({ id: "sh", type: "shape", shape: "star", text: "Étiquette" })];
     const { container } = render(<SlideCanvas slide={baseSlide} elements={els} theme="light" scale={1} />);

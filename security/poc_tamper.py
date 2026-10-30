@@ -156,7 +156,7 @@ line("ATTACK 5 — Metadata & PII leak from an ENCRYPTED file (no password)")
 enc_blob = write_elium(doc, profile="secure_max", title="Salaires confidentiels 2026",
                        signatures=[real_sig],
                        journal=append_event(empty_journal(), "signature.added", actor={"name": "Jean Dupont", "role": "DRH"}),
-                       password="correct horse battery staple")
+                       password="correct horse battery staple", encrypt_metadata=False)
 z = zipfile.ZipFile(io.BytesIO(enc_blob))
 man = json.loads(z.read(ENTRY_MANIFEST))
 sigs = json.loads(z.read(ENTRY_SIGNATURES))
@@ -168,12 +168,14 @@ print(INF, "Leaked WITHOUT password -> journal actors:", [e.get("actor") for e i
 if man["title"] and any(s["signer"].get("name") for s in sigs):
     print(PWN, "Default encrypted file: title + signers + actors readable without the password.")
 
-# F-7 mitigation: encrypt_metadata=True moves the sensitive fields inside the
-# encrypted body and redacts the clear entries.
+# CORE-05: encrypted profiles now encrypt metadata BY DEFAULT; the leak above is
+# only reproduced with the explicit legacy opt-out (encrypt_metadata=False).
+# F-7 mitigation: encrypt_metadata moves the sensitive fields inside the
+# encrypted body and redacts the clear entries (this is the default).
 sec_blob = write_elium(doc, profile="secure_max", title="Salaires confidentiels 2026",
                        signatures=[real_sig],
                        journal=append_event(empty_journal(), "signature.added", actor={"name": "Jean Dupont", "role": "DRH"}),
-                       password="correct horse battery staple", encrypt_metadata=True)
+                       password="correct horse battery staple")
 zs = zipfile.ZipFile(io.BytesIO(sec_blob))
 clear = zs.read(ENTRY_MANIFEST).decode() + zs.read(ENTRY_SIGNATURES).decode() + zs.read(ENTRY_JOURNAL).decode()
 leaks = [s for s in ("Salaires confidentiels 2026", "Jean Dupont", "DRH") if s in clear]

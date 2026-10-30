@@ -1004,12 +1004,10 @@ export class DriveApi {
   /**
    * WebSocket URL for the encrypted collaboration room.
    *
-   * Limite connue (audit CLIENT-10) : le jeton d'accès voyage en query string, car
-   * l'API WebSocket du navigateur ne permet pas d'en-tête Authorization. Il peut
-   * donc apparaître dans les journaux d'un proxy. Atténuations en place : jeton à
-   * courte durée de vie, rafraîchi, et contenu chiffré de bout en bout. Remplacer
-   * par un ticket à usage unique ou une authentification par 1er message exige un
-   * changement côté serveur (server/src/collab) : volontairement non fait ici.
+   * VERSION HÉRITÉE (audit CLIENT-10) : le jeton d'accès voyage en query string, car
+   * l'API WebSocket du navigateur ne permet pas d'en-tête Authorization. Préférer
+   * `collabSocketUrlTicket` (ticket à usage unique de 30 s, POST /api/ws-ticket) ; celle-ci
+   * reste pour les appelants synchrones et les serveurs antérieurs au ticket.
    */
   collabSocketUrl(nodeId: string): string {
     const base = this.baseUrl.startsWith("http")
@@ -1025,6 +1023,32 @@ export class DriveApi {
       : `${location.origin.replace(/^http/, "ws")}${this.baseUrl}`;
     const token = encodeURIComponent(this.tokens?.accessToken ?? "");
     return `${base}/events/${orgId}?token=${token}`;
+  }
+  /**
+   * URL de WebSocket authentifiée par un TICKET à usage unique (30 s) plutôt que par le JWT d'accès
+   * (qui finirait dans les journaux d'un proxy). Repli sur `?token=` UNIQUEMENT si le serveur ne connaît
+   * pas encore /ws-ticket (404/405, serveur plus ancien) ; toute autre erreur est propagée (l'appelant
+   * retente), pour ne jamais retomber silencieusement sur le jeton en URL.
+   */
+  private async wsTicketUrl(kind: "collab" | "events", id: string): Promise<string> {
+    const base = this.baseUrl.startsWith("http")
+      ? this.baseUrl.replace(/^http/, "ws")
+      : `${location.origin.replace(/^http/, "ws")}${this.baseUrl}`;
+    try {
+      const t = await this.json<{ ticket: string }>("POST", "/ws-ticket", { body: { target: `${kind}:${id}` } });
+      return `${base}/${kind}/${id}?ticket=${encodeURIComponent(t.ticket)}`;
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 404 || e.status === 405)) {
+        return kind === "collab" ? this.collabSocketUrl(id) : this.orgEventsSocketUrl(id);
+      }
+      throw e;
+    }
+  }
+  collabSocketUrlTicket(nodeId: string): Promise<string> {
+    return this.wsTicketUrl("collab", nodeId);
+  }
+  orgEventsSocketUrlTicket(orgId: string): Promise<string> {
+    return this.wsTicketUrl("events", orgId);
   }
   /** Le jeton d'accès courant (pour ré-authentifier une reconnexion WS). */
   get currentAccessToken(): string | null {

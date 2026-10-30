@@ -252,10 +252,10 @@ export default function SignLinkView({
         // choisi un emplacement sur l'aperçu de la page 1, elle devient VISIBLE à
         // cet endroit avec son nom tapé comme apparence (même mécanisme que
         // l'espace de travail local, `PdfWorkspace.signSelfSigned`).
-        const { generateSelfSignedP12 } = await import("../../pdf/ops/self-cert");
+        const { generateSelfSignedP12Async } = await import("../../pdf/ops/self-cert");
         const { signPdfBytes } = await import("../../pdf/ops/pades");
         const pw = toHex(crypto.getRandomValues(new Uint8Array(16)));
-        const p12 = generateSelfSignedP12(name.trim(), pw);
+        const p12 = await generateSelfSignedP12Async(name.trim(), pw);
         let visible: PadesSignOptions["visible"];
         if (wantsPlacement && placement) {
           const finalMark = typedSignatureToPng(name.trim() || "Signature", SIGNATURE_FONTS[0].css, SIGNATURE_COLOUR);

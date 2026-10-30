@@ -199,3 +199,62 @@ def test_rate_limited_response_is_actually_sent_despite_non_latin1_text(server, 
     assert _post(server, "/__ports__/set", body=b'{"port": null}')[0] == 200
     status, _ = _post(server, "/__ports__/set", body=b'{"port": null}')
     assert status == 429
+
+
+# --- CLIENT-04 : le jeton n'est servi qu'a la fenetre legitime (ticket + cookie) ---
+
+def _get_full(port: int, path: str, cookie: str | None = None):
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    headers = {"Cookie": cookie} if cookie else {}
+    conn.request("GET", path, headers=headers)
+    resp = conn.getresponse()
+    body = resp.read()
+    set_cookie = resp.getheader("Set-Cookie")
+    conn.close()
+    return resp.status, body, set_cookie
+
+
+def test_index_without_ticket_or_cookie_has_no_token(server):
+    status, body, set_cookie = _get_full(server, "/")
+    assert status == 200 and b"ok" in body
+    assert elium_launcher._SESSION_TOKEN.encode() not in body
+    assert b'name="elium-token"' not in body
+    assert set_cookie is None
+    # Un faux ticket ne change rien.
+    status, body, _ = _get_full(server, "/?boot=forged")
+    assert elium_launcher._SESSION_TOKEN.encode() not in body
+
+
+def test_boot_ticket_is_single_use_and_cookie_survives_reloads(server):
+    ticket = elium_launcher.new_boot_ticket()
+    status, body, set_cookie = _get_full(server, f"/?boot={ticket}&open=1")
+    assert status == 200 and elium_launcher._SESSION_TOKEN.encode() in body
+    assert set_cookie and "HttpOnly" in set_cookie and "SameSite=Strict" in set_cookie
+    cookie = set_cookie.split(";", 1)[0]
+    # Rechargement (F5) avec le meme ticket, deja consomme : le cookie suffit.
+    status, body, again = _get_full(server, f"/?boot={ticket}&open=1", cookie=cookie)
+    assert elium_launcher._SESSION_TOKEN.encode() in body and again is None
+    # Navigation SPA sous le cookie.
+    status, body, _ = _get_full(server, "/documents", cookie=cookie)
+    assert elium_launcher._SESSION_TOKEN.encode() in body
+    # Sans cookie, le ticket brule ne donne plus rien (rejeu).
+    status, body, _ = _get_full(server, f"/?boot={ticket}")
+    assert elium_launcher._SESSION_TOKEN.encode() not in body
+
+
+def test_boot_ticket_expires(server, monkeypatch):
+    ticket = elium_launcher.new_boot_ticket()
+    monkeypatch.setattr(elium_launcher, "_BOOT_TICKET_TTL_S", -1.0)
+    elium_launcher._boot_tickets[ticket] = 0.0
+    _, body, _ = _get_full(server, f"/?boot={ticket}")
+    assert elium_launcher._SESSION_TOKEN.encode() not in body
+
+
+def test_cookie_of_another_port_or_value_is_refused(server):
+    ticket = elium_launcher.new_boot_ticket()
+    _, _, set_cookie = _get_full(server, f"/?boot={ticket}")
+    value = set_cookie.split(";", 1)[0].split("=", 1)[1]
+    _, body, _ = _get_full(server, "/", cookie=f"elium_sid_{server + 1}={value}")
+    assert elium_launcher._SESSION_TOKEN.encode() not in body
+    _, body, _ = _get_full(server, "/", cookie=f"elium_sid_{server}=bogus")
+    assert elium_launcher._SESSION_TOKEN.encode() not in body

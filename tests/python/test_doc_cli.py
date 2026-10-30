@@ -234,3 +234,17 @@ def test_doc_create_encrypted_roundtrip(tmp_path):
     run("doc-create", "--input", str(src), "--output", str(doc), "--profile", "encrypted", "--password", "pw123")
     result = read_elium(doc.read_bytes(), password="pw123")
     assert result["manifest"]["protection"]["encrypted"] is True
+
+
+def test_doc_sign_binds_doc_id_in_proof(tmp_path):
+    """CORE-09 : doc-sign lie la preuve au docId ; doc-verify le contrôle."""
+    model = create_document_model(text_to_doc("Contrat"))
+    doc = tmp_path / "c.elium"
+    doc.write_bytes(write_elium(model, profile="signed", title="C"))
+    ident = generate_identity()
+    key = tmp_path / "key.hex"
+    key.write_text(ident["privateKeyHex"], encoding="utf-8")
+    run("doc-sign", str(doc), "--key", str(key), "--name", "Alice")
+    result = read_elium(doc.read_bytes())
+    proof = result["signatures"][0]["proof"]
+    assert proof["signedDocId"] == result["manifest"]["docId"]

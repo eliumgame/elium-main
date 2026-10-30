@@ -224,7 +224,10 @@ describe("POST /api/auth/refresh : rotation atomique + détection de réemploi",
 
   it("tourne le jeton et renvoie un nouvel accessToken quand la rotation réussit", async () => {
     mockedQueryOne.mockImplementation(async (sql: string) => {
-      if (sql.includes("SET refresh_token_hash = $1,") && sql.includes("superseded_refresh_token_hashes = array_append")) {
+      if (
+        sql.includes("SET refresh_token_hash = $1,") &&
+        sql.includes("superseded_refresh_token_hashes = array_append")
+      ) {
         return { id: SESSION_ID, user_id: USER_ID } as never;
       }
       if (sql.includes("FROM users")) return { fingerprint: "f".repeat(64), status: "active" } as never;
@@ -258,7 +261,11 @@ describe("POST /api/auth/refresh : rotation atomique + détection de réemploi",
   it("401 et révoque toute la session quand un jeton DÉJÀ tourné est représenté (réemploi)", async () => {
     mockedQueryOne.mockImplementation(async (sql: string) => {
       // La rotation (CAS sur le hash courant) ne trouve rien : ce hash n'est plus le courant.
-      if (sql.includes("SET refresh_token_hash = $1,") && sql.includes("superseded_refresh_token_hashes = array_append")) return null as never;
+      if (
+        sql.includes("SET refresh_token_hash = $1,") &&
+        sql.includes("superseded_refresh_token_hashes = array_append")
+      )
+        return null as never;
       // Mais il correspond au hash juste remplacé — réemploi détecté, la session est révoquée.
       if (sql.includes("SET revoked_at = now()") && sql.includes("ANY(superseded_refresh_token_hashes)")) {
         return { id: SESSION_ID, user_id: USER_ID } as never;
@@ -277,7 +284,10 @@ describe("POST /api/auth/refresh : rotation atomique + détection de réemploi",
 
   it("401 et révoque la session fraîchement tournée quand le compte n'est plus actif", async () => {
     mockedQueryOne.mockImplementation(async (sql: string) => {
-      if (sql.includes("SET refresh_token_hash = $1,") && sql.includes("superseded_refresh_token_hashes = array_append")) {
+      if (
+        sql.includes("SET refresh_token_hash = $1,") &&
+        sql.includes("superseded_refresh_token_hashes = array_append")
+      ) {
         return { id: SESSION_ID, user_id: USER_ID } as never;
       }
       if (sql.includes("FROM users")) return { fingerprint: "f".repeat(64), status: "suspended" } as never;
@@ -290,9 +300,10 @@ describe("POST /api/auth/refresh : rotation atomique + détection de réemploi",
       payload: { refreshToken: "a-refresh-token-for-suspended" },
     });
     expect(res.statusCode).toBe(401);
-    expect(mockedQuery).toHaveBeenCalledWith(expect.stringMatching(/UPDATE sessions SET revoked_at = now\(\) WHERE id = \$1/), [
-      SESSION_ID,
-    ]);
+    expect(mockedQuery).toHaveBeenCalledWith(
+      expect.stringMatching(/UPDATE sessions SET revoked_at = now\(\) WHERE id = \$1/),
+      [SESSION_ID],
+    );
     await app.close();
   });
 
@@ -302,7 +313,10 @@ describe("POST /api/auth/refresh : rotation atomique + détection de réemploi",
     // les DEUX rotations passées (superseded_refresh_token_hashes = [T0, T1]),
     // pas seulement le tout dernier — c'est exactement l'écart du réaudit.
     mockedQueryOne.mockImplementation(async (sql: string) => {
-      if (sql.includes("SET refresh_token_hash = $1,") && sql.includes("superseded_refresh_token_hashes = array_append")) {
+      if (
+        sql.includes("SET refresh_token_hash = $1,") &&
+        sql.includes("superseded_refresh_token_hashes = array_append")
+      ) {
         return null as never; // T0 n'est plus le hash courant
       }
       if (sql.includes("SET revoked_at = now()") && sql.includes("ANY(superseded_refresh_token_hashes)")) {
@@ -363,6 +377,88 @@ describe("authenticate : époque de révocation des access tokens", () => {
       headers: { authorization: `Bearer ${access.token}` },
     });
     expect(res.statusCode).toBe(200);
+    await app.close();
+  });
+});
+
+describe("SRV-10 / SRV-09 : mfaToken d'une connexion SSO et token_epoch", () => {
+  const badEnc = Buffer.alloc(48, 7);
+  const badNonce = Buffer.alloc(12, 9);
+  const SUB = "oidc-subject-123";
+
+  function mock(opts: { ssoSubject?: string | null; tokenEpoch?: string; backupOk?: boolean; pubHex: string }) {
+    const bound: unknown[][] = [];
+    mockedQueryOne.mockImplementation((async (sql: string, params?: unknown[]) => {
+      if (sql.includes("mfa_secret_enc")) return { mfa_secret_enc: badEnc, mfa_secret_nonce: badNonce };
+      if (sql.includes("UPDATE mfa_backup_codes")) return opts.backupOk === false ? null : { id: "bc1" };
+      if (sql.includes("UPDATE users SET sso_subject")) {
+        bound.push(params ?? []);
+        return { id: "x" };
+      }
+      if (sql.includes("FROM users")) {
+        return {
+          ...USER_ROW(opts.pubHex),
+          sso_subject: opts.ssoSubject ?? null,
+          token_epoch: opts.tokenEpoch ?? new Date(Date.now() - 3600_000).toISOString(),
+        };
+      }
+      return null;
+    }) as never);
+    return bound;
+  }
+
+  it("lie sso_subject à la réussite du 2e facteur (TOTP/code de secours)", async () => {
+    const app = await buildTestApp();
+    const kp = keypairHex();
+    const bound = mock({ pubHex: kp.pubHex });
+    const mfaToken = issueScopedToken(USER_ROW(kp.pubHex).id, "mfa-login", 300, { sso: SUB });
+    const res = await app.inject({ method: "POST", url: "/api/auth/login/mfa", payload: { mfaToken, code: "123456" } });
+    expect(res.statusCode).toBe(200);
+    expect(bound).toHaveLength(1);
+    expect(bound[0]).toEqual([USER_ROW(kp.pubHex).id, SUB]);
+    await app.close();
+  });
+
+  it("ne lie RIEN si le 2e facteur échoue", async () => {
+    const app = await buildTestApp();
+    const kp = keypairHex();
+    const bound = mock({ pubHex: kp.pubHex, backupOk: false });
+    const mfaToken = issueScopedToken(USER_ROW(kp.pubHex).id, "mfa-login", 300, { sso: SUB });
+    const res = await app.inject({ method: "POST", url: "/api/auth/login/mfa", payload: { mfaToken, code: "123456" } });
+    expect(res.statusCode).toBe(401);
+    expect(bound).toHaveLength(0);
+    await app.close();
+  });
+
+  it("refuse si le compte est déjà lié à un AUTRE sub", async () => {
+    const app = await buildTestApp();
+    const kp = keypairHex();
+    const bound = mock({ pubHex: kp.pubHex, ssoSubject: "other" });
+    const mfaToken = issueScopedToken(USER_ROW(kp.pubHex).id, "mfa-login", 300, { sso: SUB });
+    const res = await app.inject({ method: "POST", url: "/api/auth/login/mfa", payload: { mfaToken, code: "123456" } });
+    expect(res.statusCode).toBe(401);
+    expect(bound).toHaveLength(0);
+    await app.close();
+  });
+
+  it("un mfaToken sans champ sso (connexion par mot de passe, ou ancien jeton) ne lie rien", async () => {
+    const app = await buildTestApp();
+    const kp = keypairHex();
+    const bound = mock({ pubHex: kp.pubHex });
+    const mfaToken = issueScopedToken(USER_ROW(kp.pubHex).id, "mfa-login");
+    const res = await app.inject({ method: "POST", url: "/api/auth/login/mfa", payload: { mfaToken, code: "123456" } });
+    expect(res.statusCode).toBe(200);
+    expect(bound).toHaveLength(0);
+    await app.close();
+  });
+
+  it("refuse un mfaToken émis avant token_epoch (reset/changement de mot de passe)", async () => {
+    const app = await buildTestApp();
+    const kp = keypairHex();
+    mock({ pubHex: kp.pubHex, tokenEpoch: new Date(Date.now() + 60_000).toISOString() });
+    const mfaToken = issueScopedToken(USER_ROW(kp.pubHex).id, "mfa-login");
+    const res = await app.inject({ method: "POST", url: "/api/auth/login/mfa", payload: { mfaToken, code: "123456" } });
+    expect(res.statusCode).toBe(401);
     await app.close();
   });
 });

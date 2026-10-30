@@ -24,7 +24,15 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { query, queryOne, withTx } from "../db/pool.js";
 import { verifyEd25519, sha256Hex, randomHex, encryptServerSecret, decryptServerSecret } from "../lib/crypto-server.js";
-import { issueAccessToken, newRefreshToken, hashToken, issueScopedToken, verifyScopedToken } from "../lib/tokens.js";
+import {
+  issueAccessToken,
+  newRefreshToken,
+  hashToken,
+  issueScopedToken,
+  verifyScopedToken,
+  verifyScopedTokenClaims,
+  issuedBeforeEpoch,
+} from "../lib/tokens.js";
 import { generateTotpSecret, verifyTotp, otpauthUri, generateBackupCodes } from "../lib/totp.js";
 import { authenticate, requireUser } from "../middleware/auth.js";
 import { badRequest, unauthorized, conflict, notFound, ApiError } from "../lib/errors.js";
@@ -376,25 +384,52 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // --- Login step 2: second factor -----------------------------------------
+  type MfaLoginRow = {
+    id: string;
+    email: string;
+    display_name: string;
+    ed25519_public_hex: string;
+    p256_public_hex: string;
+    fingerprint: string;
+    key_bundle: unknown;
+    status: string;
+    sso_subject?: string | null;
+  };
+  /** Compte actif ET jeton MFA non antérieur à `token_epoch` (SRV-09), sinon 401. */
+  async function loadMfaLoginUser(userId: string, iat: number): Promise<MfaLoginRow> {
+    const row = await queryOne<MfaLoginRow & { token_epoch?: string }>(`SELECT * FROM users WHERE id = $1`, [userId]);
+    if (!row || row.status !== "active") throw unauthorized();
+    if (issuedBeforeEpoch(iat, row.token_epoch)) throw unauthorized("Session de connexion expirée, recommencez.");
+    return row;
+  }
+  /**
+   * Connexion SSO + 2FA (SRV-10) : le `sub` OIDC porté par le mfaToken n'est lié qu'APRÈS le 2e facteur.
+   * Compare-and-set (`sso_subject IS NULL`) : jamais d'écrasement d'un lien existant.
+   */
+  async function bindSsoSubject(row: MfaLoginRow, sso: string | undefined, ip: string): Promise<void> {
+    if (!sso) return;
+    if (row.sso_subject && row.sso_subject !== sso)
+      throw unauthorized("L'identité SSO ne correspond pas au compte lié.");
+    if (row.sso_subject) return;
+    const bound = await queryOne<{ id: string }>(
+      `UPDATE users SET sso_subject = $2 WHERE id = $1 AND sso_subject IS NULL RETURNING id`,
+      [row.id, sso],
+    );
+    if (bound) await audit(null, row.id, "auth.sso.bound", "user", row.id, { via: "mfa" }, ip);
+  }
+
   app.post("/login/mfa", rl(20), async (req) => {
     const b = z.object({ mfaToken: z.string().min(10), code: z.string().min(4).max(16) }).parse(req.body);
-    const userId = verifyScopedToken(b.mfaToken, MFA_LOGIN_PURPOSE);
-    if (!userId) throw unauthorized("Session de connexion expirée, recommencez.");
+    const mfa = verifyScopedTokenClaims(b.mfaToken, MFA_LOGIN_PURPOSE);
+    if (!mfa) throw unauthorized("Session de connexion expirée, recommencez.");
+    const userId = mfa.sub;
+    // Vérifié AVANT le facteur pour ne pas consommer un pas TOTP / code de secours pour rien (SRV-09).
+    const row = await loadMfaLoginUser(userId, mfa.iat);
     if (!(await verifySecondFactor(userId, b.code))) {
       await audit(null, userId, "auth.login.mfa_failed", "user", userId, {}, req.ip);
       throw unauthorized("Code de vérification invalide.");
     }
-    const row = await queryOne<{
-      id: string;
-      email: string;
-      display_name: string;
-      ed25519_public_hex: string;
-      p256_public_hex: string;
-      fingerprint: string;
-      key_bundle: unknown;
-      status: string;
-    }>(`SELECT * FROM users WHERE id = $1`, [userId]);
-    if (!row || row.status !== "active") throw unauthorized();
+    await bindSsoSubject(row, mfa.sso, req.ip);
     const session = await issueSession(app, row.id, row.fingerprint, req.headers["user-agent"] ?? "", req.ip);
     await audit(null, row.id, "auth.login", "user", row.id, { mfa: true }, req.ip);
     return { user: userDto(row), keyBundle: row.key_bundle, ...session };
@@ -590,7 +625,7 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
   app.post("/webauthn/register/verify", { preHandler: authenticate }, async (req) => {
     const b = responseSchema.parse(req.body);
     const user = requireUser(req);
-    requireReauth(req, user.id); // une passkey ajoutée par un voleur de jeton serait une porte dérobée durable
+    await requireReauth(req, user.id); // une passkey ajoutée par un voleur de jeton serait une porte dérobée durable
     const okReg = await verifyRegistration(user.id, b.response as never, b.name ?? "Passkey");
     if (!okReg) throw badRequest("Enrôlement WebAuthn invalide ou expiré.");
     await audit(null, user.id, "auth.webauthn.register", "user", user.id, {}, req.ip);
@@ -610,7 +645,7 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
   app.delete("/webauthn/credentials/:id", { preHandler: authenticate }, async (req) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const user = requireUser(req);
-    requireReauth(req, user.id);
+    await requireReauth(req, user.id);
     const r = await query(`DELETE FROM webauthn_credentials WHERE id = $1 AND user_id = $2 RETURNING id`, [
       id,
       user.id,
@@ -631,23 +666,15 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
   // Connexion — vérification du 2e facteur → libère le keyBundle + la session
   app.post("/webauthn/login/verify", rl(20), async (req) => {
     const b = z.object({ mfaToken: z.string().min(10), response: z.record(z.string(), z.unknown()) }).parse(req.body);
-    const userId = verifyScopedToken(b.mfaToken, MFA_LOGIN_PURPOSE);
-    if (!userId) throw unauthorized("Session de connexion expirée, recommencez.");
+    const mfa = verifyScopedTokenClaims(b.mfaToken, MFA_LOGIN_PURPOSE);
+    if (!mfa) throw unauthorized("Session de connexion expirée, recommencez.");
+    const userId = mfa.sub;
+    const row = await loadMfaLoginUser(userId, mfa.iat);
     if (!(await verifyAuthentication(userId, b.response as never))) {
       await audit(null, userId, "auth.login.mfa_failed", "user", userId, { method: "webauthn" }, req.ip);
       throw unauthorized("Vérification WebAuthn échouée.");
     }
-    const row = await queryOne<{
-      id: string;
-      email: string;
-      display_name: string;
-      ed25519_public_hex: string;
-      p256_public_hex: string;
-      fingerprint: string;
-      key_bundle: unknown;
-      status: string;
-    }>(`SELECT * FROM users WHERE id = $1`, [userId]);
-    if (!row || row.status !== "active") throw unauthorized();
+    await bindSsoSubject(row, mfa.sso, req.ip);
     const session = await issueSession(app, row.id, row.fingerprint, req.headers["user-agent"] ?? "", req.ip);
     await audit(null, row.id, "auth.login", "user", row.id, { mfa: true, method: "webauthn" }, req.ip);
     return { user: userDto(row), keyBundle: row.key_bundle, ...session };

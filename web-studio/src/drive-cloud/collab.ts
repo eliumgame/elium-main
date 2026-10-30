@@ -79,7 +79,7 @@ export class EncryptedCollabChannel {
     const gen = ++this.generation;
     await this.catchUp();
     if (gen !== this.generation || this.closedByUser) return;
-    this.open();
+    await this.open();
   }
 
   private async catchUp(): Promise<void> {
@@ -121,9 +121,25 @@ export class EncryptedCollabChannel {
     return sliceStart;
   }
 
-  private open(): void {
+  private async open(): Promise<void> {
     this.handlers.onStatus?.("connecting");
-    const ws = new WebSocket(this.api.collabSocketUrl(this.nodeId));
+    const gen = this.generation;
+    let url: string;
+    try {
+      // Ticket à usage unique (CLIENT-10) quand l'API le propose ; sinon (doublures de test) URL héritée.
+      url =
+        typeof this.api.collabSocketUrlTicket === "function"
+          ? await this.api.collabSocketUrlTicket(this.nodeId)
+          : this.api.collabSocketUrl(this.nodeId);
+    } catch {
+      // Ticket indisponible (réseau, session expirée…) : même traitement qu'une coupure — on retente.
+      this.handlers.onStatus?.("closed");
+      if (!this.closedByUser && gen === this.generation) setTimeout(() => void this.reconnect(), 1500);
+      return;
+    }
+    // close()/nouveau connect() pendant l'obtention du ticket : ne pas ouvrir de socket orphelin.
+    if (this.closedByUser || gen !== this.generation) return;
+    const ws = new WebSocket(url);
     this.ws = ws;
     ws.onopen = () => {
       this.handlers.onStatus?.("open");
@@ -174,7 +190,7 @@ export class EncryptedCollabChannel {
     } catch {
       /* will retry on next cycle */
     }
-    this.open();
+    await this.open();
   }
 
   private async onMessage(data: string): Promise<void> {

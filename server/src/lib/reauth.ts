@@ -7,7 +7,8 @@
  * lié à l'utilisateur) ; les routes sensibles le lisent dans l'en-tête `x-reauth-token`.
  */
 import type { FastifyRequest } from "fastify";
-import { issueScopedToken, verifyScopedToken } from "./tokens.js";
+import { issueScopedToken, verifyScopedTokenClaims, issuedBeforeEpoch } from "./tokens.js";
+import { queryOne } from "../db/pool.js";
 import { ApiError } from "./errors.js";
 
 export const REAUTH_PURPOSE = "reauth";
@@ -18,10 +19,17 @@ export function issueReauthToken(userId: string): string {
 }
 
 /** Lève 403 `reauth_required` sans jeton de ré-authentification valide pour CET utilisateur. */
-export function requireReauth(req: FastifyRequest, userId: string): void {
+export async function requireReauth(req: FastifyRequest, userId: string): Promise<void> {
   const raw = req.headers["x-reauth-token"];
   const token = Array.isArray(raw) ? raw[0] : raw;
-  if (!token || verifyScopedToken(token, REAUTH_PURPOSE) !== userId) {
+  const claims = token ? verifyScopedTokenClaims(token, REAUTH_PURPOSE) : null;
+  let ok = !!claims && claims.sub === userId;
+  if (ok && claims) {
+    // Audit SRV-09 : un jeton de ré-auth émis AVANT un reset/changement de mot de passe (token_epoch) est mort.
+    const u = await queryOne<{ token_epoch: string }>(`SELECT token_epoch FROM users WHERE id = $1`, [userId]);
+    if (!u || issuedBeforeEpoch(claims.iat, u.token_epoch)) ok = false;
+  }
+  if (!ok) {
     throw new ApiError(
       403,
       "reauth_required",

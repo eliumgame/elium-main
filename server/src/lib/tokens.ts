@@ -61,19 +61,35 @@ interface ScopedClaims {
   purpose: string;
   iat: number;
   exp: number;
+  /** Optionnel : `sub` OIDC à lier à `users.sso_subject` une fois le 2e facteur réussi (étape MFA d'une connexion SSO). */
+  sso?: string;
 }
 
-/** A short-lived token bound to one `purpose` (default 5 min). */
-export function issueScopedToken(sub: string, purpose: string, ttlSeconds = 300): string {
+/** Contenu vérifié d'un jeton à usage limité. */
+export interface VerifiedScopedToken {
+  sub: string;
+  iat: number;
+  sso?: string;
+}
+
+/** A short-lived token bound to one `purpose` (default 5 min). `extra.sso` : sub OIDC à lier après le 2e facteur. */
+export function issueScopedToken(sub: string, purpose: string, ttlSeconds = 300, extra?: { sso?: string }): string {
   const now = Math.floor(Date.now() / 1000);
   const header = b64urlJson({ alg: "HS256", typ: "JWT" });
-  const payload = b64urlJson({ sub, purpose, iat: now, exp: now + ttlSeconds } satisfies ScopedClaims);
+  const claims: ScopedClaims = { sub, purpose, iat: now, exp: now + ttlSeconds };
+  if (extra?.sso) claims.sso = extra.sso;
+  const payload = b64urlJson(claims);
   const body = `${header}.${payload}`;
   return `${body}.${sign(body)}`;
 }
 
 /** Verify a scoped token and return its subject, or null on any mismatch. */
 export function verifyScopedToken(token: string, purpose: string): string | null {
+  return verifyScopedTokenClaims(token, purpose)?.sub ?? null;
+}
+
+/** Comme `verifyScopedToken`, mais renvoie aussi `iat` (contrôle `token_epoch`) et le `sso` optionnel. */
+export function verifyScopedTokenClaims(token: string, purpose: string): VerifiedScopedToken | null {
   const parts = token.split(".");
   if (parts.length !== 3) return null;
   const [header, payload, mac] = parts as [string, string, string];
@@ -86,10 +102,24 @@ export function verifyScopedToken(token: string, purpose: string): string | null
     if (claims.purpose !== purpose) return null;
     if (typeof claims.exp !== "number" || claims.exp < Math.floor(Date.now() / 1000)) return null;
     if (typeof claims.sub !== "string") return null;
-    return claims.sub;
+    const out: VerifiedScopedToken = { sub: claims.sub, iat: typeof claims.iat === "number" ? claims.iat : 0 };
+    if (typeof claims.sso === "string" && claims.sso) out.sso = claims.sso;
+    return out;
   } catch {
     return null;
   }
+}
+
+/**
+ * Vrai si un jeton émis à `iat` (secondes) est antérieur à l'époque `token_epoch` de l'utilisateur
+ * (reset/changement de mot de passe, révocation globale) : il doit alors être refusé. Même règle
+ * que `authenticate` (`<`, pas `<=`). Époque absente/illisible → pas de révocation.
+ */
+export function issuedBeforeEpoch(iat: number, tokenEpoch: unknown): boolean {
+  if (tokenEpoch === null || tokenEpoch === undefined) return false;
+  const t = new Date(tokenEpoch as string).getTime();
+  if (!Number.isFinite(t)) return false;
+  return iat < Math.floor(t / 1000);
 }
 
 /** A fresh refresh token: the raw value goes to the client, its hash to the DB. */

@@ -113,6 +113,26 @@ verify_manifest_sig() {
 
 # Extrait un champ chaîne du manifeste (json.dumps indent=2 -> un champ/ligne).
 manifest_field() {
+  local out=""
+  # Parseur JSON réel si disponible (python3, puis jq) ; repli sed sinon.
+  if command -v python3 >/dev/null 2>&1; then
+    if out="$(python3 -c 'import json, sys
+try:
+    v = json.load(open(sys.argv[1], encoding="utf-8")).get(sys.argv[2])
+except Exception:
+    sys.exit(3)
+if isinstance(v, str):
+    print(v)' "$1" "$2" 2>/dev/null)"; then
+      printf '%s\n' "$out" | head -n1
+      return 0
+    fi
+  fi
+  if command -v jq >/dev/null 2>&1; then
+    if out="$(jq -er --arg k "$2" 'if (.[$k] | type) == "string" then .[$k] else empty end' "$1" 2>/dev/null)"; then
+      printf '%s\n' "$out" | head -n1
+      return 0
+    fi
+  fi
   sed -n "s/.*\"$2\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$1" 2>/dev/null | head -n1
 }
 

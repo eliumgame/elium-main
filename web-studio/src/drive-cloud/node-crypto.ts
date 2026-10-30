@@ -16,6 +16,11 @@ const buf = (u: Uint8Array): BufferSource => u as unknown as BufferSource;
 // d'un MÊME nœud partagent clé+AAD (un serveur pourrait les permuter). Lier un contexte
 // (nœud, rôle) à l'AAD rendrait ILLISIBLES toutes les données déjà chiffrées : non
 // modifié (migration versionnée nécessaire).
+// Analyse 2026-10 : aucun marqueur de version n'est portable (le serveur impose un nonce
+// hex de 12 octets et stocke le chiffré brut) et les appelants rotate.ts / collab.ts
+// (hors de ce module) déchiffrent sans contexte nœud/champ : un AAD lié rendrait leurs
+// lectures impossibles. Un repli « nouveau puis ancien AAD » n'apporterait aucune
+// garantie (un serveur rejouerait un blob legacy). Donc volontairement NON modifié.
 const NODE_AAD = enc.encode("elium-drive/node/1");
 
 /** An opaque recipients envelope (parsed JSON). Stored as JSONB server-side. */

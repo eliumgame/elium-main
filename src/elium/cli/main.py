@@ -111,7 +111,7 @@ def cmd_doc_create(args: argparse.Namespace) -> None:
     document = create_document_model(text_to_doc(text))
 
     profile = args.profile
-    if getattr(args, "encrypt_metadata", False) and not PROFILES[profile]["encrypted"]:
+    if getattr(args, "encrypt_metadata", None) is True and not PROFILES[profile]["encrypted"]:
         raise SystemExit(
             "--encrypt-metadata n'a de sens que pour un profil chiffré "
             f"(protected, encrypted, secure_max) ; « {profile} » ne l'est pas."
@@ -132,7 +132,8 @@ def cmd_doc_create(args: argparse.Namespace) -> None:
     blob = write_elium(
         document, profile=profile, title=title, journal=journal,
         password=password, recipients=recipients, seal_private_key_hex=seal_key,
-        encrypt_metadata=bool(getattr(args, "encrypt_metadata", False)),
+        # None = défaut (CORE-05) : métadonnées chiffrées sur les profils chiffrés.
+        encrypt_metadata=getattr(args, "encrypt_metadata", None),
     )
     with open(args.output, "wb") as f:
         f.write(blob)
@@ -206,10 +207,11 @@ def cmd_doc_verify(args: argparse.Namespace) -> None:
     fp = seal.get("fingerprint")
     print("Sceau du document    :", seal_txt, (f"(empreinte {fp[:16]}…)" if fp else ""))
 
+    _doc_id = (result.get("manifest") or {}).get("docId")
     if not result["signatures"]:
         print("Signatures           : aucune")
     for s in result["signatures"]:
-        verdict = verify_proof(s, model, trusted_key_hex=args.trusted)
+        verdict = verify_proof(s, model, trusted_key_hex=args.trusted, doc_id=_doc_id)
         who = s.get("signer", {}).get("name") or s.get("kind")
         print(f"Signature [{who}]   : {verdict}")
 
@@ -218,7 +220,7 @@ def cmd_doc_verify(args: argparse.Namespace) -> None:
         "journal": jv,
         "seal": seal,
         "signatures": [
-            {"id": s["id"], "verdict": verify_proof(s, model, trusted_key_hex=args.trusted)}
+            {"id": s["id"], "verdict": verify_proof(s, model, trusted_key_hex=args.trusted, doc_id=_doc_id)}
             for s in result["signatures"]
         ],
     }
@@ -254,7 +256,9 @@ def cmd_doc_sign(args: argparse.Namespace) -> None:
 
     model = result["document"]
     sig_id = "sig-" + uuid.uuid4().hex[:12]
-    proof = create_proof(sig_id, model, signer, private_key_hex)
+    # CORE-09 : lie la preuve au docId du document (conservé à la ré-écriture).
+    proof = create_proof(sig_id, model, signer, private_key_hex,
+                         doc_id=(result.get("manifest") or {}).get("docId"))
     signature = {
         "id": sig_id,
         "kind": "typed",
@@ -370,9 +374,13 @@ def build_parser() -> argparse.ArgumentParser:
                         "Chiffre POUR ces destinataires au lieu d'un mot de passe.")
     p.add_argument("--seal-key", dest="seal_key",
                    help="Fichier avec la clé privée Ed25519 (hex) pour sceller le document")
-    p.add_argument("--encrypt-metadata", dest="encrypt_metadata", action="store_true",
-                   help="Chiffrer aussi titre, signatures et journal (profils chiffrés uniquement) : "
-                        "sans cette option ils restent lisibles en clair dans l'archive.")
+    p.add_argument("--encrypt-metadata", dest="encrypt_metadata", action="store_const", const=True,
+                   default=None,
+                   help="Chiffrer aussi titre, signatures et journal (profils chiffrés uniquement). "
+                        "Actif par défaut sur les profils chiffrés.")
+    p.add_argument("--no-encrypt-metadata", dest="encrypt_metadata", action="store_const", const=False,
+                   help="Laisser titre, signatures et journal lisibles en clair dans l'archive "
+                        "(désactive le chiffrement des métadonnées, par défaut sur les profils chiffrés).")
     p.set_defaults(func=cmd_doc_create)
 
     p = sub.add_parser("doc-open", help="Ouvrir et résumer un document .elium (v4)")

@@ -122,3 +122,22 @@ describe("un jeton à usage limité n'est jamais un jeton d'accès (contournemen
     expect(verifyScopedToken(token, "mfa-login")).toBeNull();
   });
 });
+
+describe("jetons à usage limité : champ sso optionnel et token_epoch", () => {
+  it("transporte le sub SSO, et reste compatible avec un jeton sans ce champ", async () => {
+    const { verifyScopedTokenClaims } = await import("../src/lib/tokens.js");
+    const withSso = verifyScopedTokenClaims(issueScopedToken("u", "mfa-login", 300, { sso: "sub-1" }), "mfa-login");
+    expect(withSso).toMatchObject({ sub: "u", sso: "sub-1" });
+    const plain = verifyScopedTokenClaims(issueScopedToken("u", "mfa-login"), "mfa-login");
+    expect(plain?.sso).toBeUndefined();
+    expect(verifyScopedToken(issueScopedToken("u", "mfa-login", 300, { sso: "s" }), "mfa-login")).toBe("u");
+  });
+  it("issuedBeforeEpoch : < strict, tolérant si époque absente", async () => {
+    const { issuedBeforeEpoch } = await import("../src/lib/tokens.js");
+    const t = 1_700_000_000;
+    const epoch = new Date(t * 1000).toISOString();
+    expect(issuedBeforeEpoch(t - 1, epoch)).toBe(true);
+    expect(issuedBeforeEpoch(t, epoch)).toBe(false);
+    expect(issuedBeforeEpoch(t, undefined)).toBe(false);
+  });
+});

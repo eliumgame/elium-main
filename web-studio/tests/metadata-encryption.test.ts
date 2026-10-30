@@ -85,9 +85,9 @@ describe("F-7 metadata encryption (TypeScript)", () => {
     expect(r.seal.verdict).toBe("valid");
   });
 
-  it("a non-secure encrypted file keeps the legacy behaviour (title in clear)", async () => {
+  it("a non-secure encrypted file keeps the legacy behaviour (title in clear) with encryptMetadata:false", async () => {
     const f = await createEliumFile({ title: "Visible", profile: "encrypted" });
-    const bytes = await writeEliumPackage(f, { password: PWD });
+    const bytes = await writeEliumPackage(f, { password: PWD, encryptMetadata: false });
     const manifest = JSON.parse(strFromU8(unzipSync(bytes)["manifest.json"]));
     expect(manifest.title).toBe("Visible");
     expect(manifest.protection.metadataEncrypted).toBeUndefined();
@@ -111,3 +111,40 @@ describe("F-7 metadata encryption (TypeScript)", () => {
 // the Python→Python path and the canonical envelope schema is identical, so the
 // TS round-trip above plus the Python test_metadata_encryption.py together prove
 // the byte-compatible envelope contract.
+
+describe("CORE-05 : métadonnées chiffrées par défaut sur les profils chiffrés", () => {
+  it("nouveau document chiffré sans option : titre/signataires absents du clair", async () => {
+    const { file } = await secureFile();
+    const bytes = await writeEliumPackage(file, { password: PWD });
+    const z = unzipSync(bytes);
+    const manifest = strFromU8(z["manifest.json"]);
+    const clear = manifest + strFromU8(z["signatures/signatures.json"]) + strFromU8(z["tracking/journal.json"]);
+    expect(JSON.parse(manifest).protection.metadataEncrypted).toBe(true);
+    expect(clear).not.toContain("Plan social 2026");
+    expect(clear).not.toContain("Jean Dupont");
+    const r = await readEliumPackage(bytes, { password: PWD });
+    expect(r.file.manifest.title).toBe("Plan social 2026");
+    expect(r.file.signatures).toHaveLength(1);
+  });
+
+  it("encryptMetadata:false explicite garde l'ancien format (lisible en clair, relisible)", async () => {
+    const { file } = await secureFile();
+    const bytes = await writeEliumPackage(file, { password: PWD, encryptMetadata: false });
+    const manifest = JSON.parse(strFromU8(unzipSync(bytes)["manifest.json"]));
+    expect(manifest.title).toBe("Plan social 2026");
+    expect(manifest.protection.metadataEncrypted).toBeUndefined();
+    const r = await readEliumPackage(bytes, { password: PWD });
+    expect(r.file.manifest.title).toBe("Plan social 2026");
+    // Une ré-écriture sans option préserve l'état d'origine (pas de conversion silencieuse).
+    const again = await writeEliumPackage(r.file, { password: PWD });
+    expect(JSON.parse(strFromU8(unzipSync(again)["manifest.json"])).title).toBe("Plan social 2026");
+  });
+
+  it("profil non chiffré : inchangé", async () => {
+    const f = await createEliumFile({ title: "Clair", profile: "standard" });
+    const bytes = await writeEliumPackage(f, {});
+    const manifest = JSON.parse(strFromU8(unzipSync(bytes)["manifest.json"]));
+    expect(manifest.title).toBe("Clair");
+    expect(manifest.protection.metadataEncrypted).toBeUndefined();
+  });
+});

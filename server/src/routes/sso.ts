@@ -87,7 +87,7 @@ async function issueSession(userId: string, fingerprint: string, ua: string, ip:
 async function requireOwnerWithReauth(req: FastifyRequest, orgId: string, userId: string): Promise<void> {
   const ctx = await requireOrgPerm(req, orgId, "org.settings.manage");
   if (!ctx.isOwner) throw forbidden("La configuration SSO/SCIM est réservée au propriétaire de l'organisation.");
-  requireReauth(req, userId);
+  await requireReauth(req, userId);
 }
 
 export default async function ssoRoutes(app: FastifyInstance): Promise<void> {
@@ -270,7 +270,8 @@ export default async function ssoRoutes(app: FastifyInstance): Promise<void> {
       await audit(b.orgId, row.id, "auth.sso.mfa_required", "user", row.id, {}, req.ip);
       return {
         mfaRequired: true as const,
-        mfaToken: issueScopedToken(row.id, MFA_LOGIN_PURPOSE),
+        // `sso` : le sub OIDC voyage dans le jeton et n'est lié (users.sso_subject) qu'à la réussite du 2e facteur.
+        mfaToken: issueScopedToken(row.id, MFA_LOGIN_PURPOSE, 300, row.sso_subject ? undefined : { sso: claims.sub }),
         methods: { totp: row.mfa_enabled, webauthn },
       };
     }

@@ -28,16 +28,17 @@ export async function computeContentHash(model: EliumDocumentModel): Promise<str
 
 /**
  * The exact bytes that get signed — a stable, self-describing structure.
- * `signedPlacement`/`signedVisual` are included only when provided, so legacy
- * proofs (created before placement/visual were bound) reconstruct byte-identical.
+ * `signedPlacement`/`signedVisual`/`signedDocId` are included only when provided, so
+ * legacy proofs (created before they were bound) reconstruct byte-identical.
  */
-function toBeSigned(
+export function toBeSigned(
   signatureId: string,
   signedContentHash: string,
   signer: SignerInfo,
   signedAt: string,
   placement?: SignaturePlacement,
   visual?: SignatureVisual,
+  docId?: string,
 ): string {
   return canonicalJSON({
     v: 1,
@@ -47,6 +48,9 @@ function toBeSigned(
     signedAt,
     ...(placement ? { signedPlacement: placement } : {}),
     ...(visual ? { signedVisual: visual } : {}),
+    // CORE-09 : lie la preuve au docId du document (une signature recopiée dans un
+    // autre document ne vérifie plus). Absent ⇒ ancienne preuve, octets inchangés.
+    ...(docId !== undefined ? { signedDocId: docId } : {}),
   });
 }
 
@@ -58,11 +62,21 @@ export async function createProof(opts: {
   /** Bind the signature's placement & appearance into the proof (recommended). */
   placement?: SignaturePlacement;
   visual?: SignatureVisual;
+  /** docId du document signé (manifest.docId) : lié à la preuve (CORE-09, recommandé). */
+  docId?: string;
 }): Promise<SignatureProof> {
   const publicKeyHex = await publicKeyHexFromPrivate(opts.privateKeyHex);
   const signedContentHash = await computeContentHash(opts.model);
   const signedAt = nowIso();
-  const message = toBeSigned(opts.signatureId, signedContentHash, opts.signer, signedAt, opts.placement, opts.visual);
+  const message = toBeSigned(
+    opts.signatureId,
+    signedContentHash,
+    opts.signer,
+    signedAt,
+    opts.placement,
+    opts.visual,
+    opts.docId,
+  );
   const signatureHex = await signMessage(message, opts.privateKeyHex);
 
   return {
@@ -75,6 +89,7 @@ export async function createProof(opts: {
     signedAt,
     ...(opts.placement ? { signedPlacement: opts.placement } : {}),
     ...(opts.visual ? { signedVisual: opts.visual } : {}),
+    ...(opts.docId !== undefined ? { signedDocId: opts.docId } : {}),
     timestamp: {
       type: "local",
       at: signedAt,
@@ -87,11 +102,15 @@ export async function createProof(opts: {
  * @param signature the full signature (its `id` is part of the signed message)
  * @param model     the current document (to detect post-signature changes)
  * @param trustedKeyHex optional expected signer key for attribution
+ * @param docId     docId du document COURANT : si la preuve porte `signedDocId` et que
+ *                  `docId` est fourni, ils doivent correspondre (sinon « modified »).
+ *                  Les preuves sans `signedDocId` (anciennes) se vérifient comme avant.
  */
 export async function verifyProof(
   signature: EliumSignature,
   model: EliumDocumentModel,
   trustedKeyHex?: string,
+  docId?: string,
 ): Promise<SignatureVerdict> {
   const proof = signature.proof;
   if (!proof) return "visual_only";
@@ -107,6 +126,7 @@ export async function verifyProof(
     proof.signedAt,
     proof.signedPlacement,
     proof.signedVisual,
+    proof.signedDocId,
   );
   const authentic = await verifyMessage(proof.signatureHex, message, proof.publicKeyHex);
   if (!authentic) return "invalid";
@@ -123,6 +143,7 @@ export async function verifyProof(
   if (proof.signedPlacement && canonicalJSON(signature.placement) !== canonicalJSON(proof.signedPlacement))
     return "modified";
   if (proof.signedVisual && canonicalJSON(signature.visual) !== canonicalJSON(proof.signedVisual)) return "modified";
+  if (docId !== undefined && proof.signedDocId !== undefined && proof.signedDocId !== docId) return "modified";
   return "valid";
 }
 

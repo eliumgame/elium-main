@@ -16,14 +16,10 @@ function binToU8(s: string): Uint8Array {
   return u;
 }
 
-/**
- * Génère un certificat auto-signé RSA-2048 (CN = `commonName`) valable ~10 ans
- * et renvoie un PKCS#12 (DER) protégé par `password`, directement consommable
- * par signPdfBytes. La génération de clé RSA est synchrone (~1–3 s) — afficher
- * un indicateur d'occupation côté appelant.
- */
-export function generateSelfSignedP12(commonName: string, password: string): Uint8Array {
-  const keys = forge.pki.rsa.generateKeyPair(2048);
+type RsaKeyPair = ReturnType<typeof forge.pki.rsa.generateKeyPair>;
+
+/** Certificat auto-signé + PKCS#12 à partir d'une paire de clés RSA déjà générée. */
+function buildP12(keys: RsaKeyPair, commonName: string, password: string): Uint8Array {
   const cert = forge.pki.createCertificate();
   cert.publicKey = keys.publicKey;
   // Numéro de série aléatoire positif (préfixe 00 pour éviter un bit de signe).
@@ -43,6 +39,40 @@ export function generateSelfSignedP12(commonName: string, password: string): Uin
     { name: "extKeyUsage", clientAuth: true, emailProtection: true },
   ]);
   cert.sign(keys.privateKey, forge.md.sha256.create());
+  // 3DES VOLONTAIREMENT conservé : c'est l'algorithme PKCS#12 que Windows (certmgr),
+  // Adobe Acrobat et les anciens OpenSSL relisent partout. AES-256 (PBES2) est mal
+  // ou pas lu par plusieurs d'entre eux ; ne pas le changer sans test sur ces cibles.
   const p12Asn1 = forge.pkcs12.toPkcs12Asn1(keys.privateKey, [cert], password, { algorithm: "3des" });
   return binToU8(forge.asn1.toDer(p12Asn1).getBytes());
+}
+
+/**
+ * Génère un certificat auto-signé RSA-2048 (CN = `commonName`) valable ~10 ans
+ * et renvoie un PKCS#12 (DER) protégé par `password`, directement consommable
+ * par signPdfBytes. La génération de clé RSA est synchrone (~1–3 s) et BLOQUE le
+ * thread UI : préférer generateSelfSignedP12Async dans l'interface.
+ */
+export function generateSelfSignedP12(commonName: string, password: string): Uint8Array {
+  return buildP12(forge.pki.rsa.generateKeyPair(2048), commonName, password);
+}
+
+/**
+ * Même résultat, mais la génération de clé est découpée en tranches (workers: 0 =
+ * pas de Web Worker, donc compatible CSP) qui rendent la main au thread UI entre
+ * deux tranches : l'indicateur d'occupation de l'appelant reste animé.
+ */
+export function generateSelfSignedP12Async(commonName: string, password: string): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    forge.pki.rsa.generateKeyPair({ bits: 2048, workers: 0 }, (err, keys) => {
+      if (err || !keys) {
+        reject(err ?? new Error("Échec de génération de la clé RSA"));
+        return;
+      }
+      try {
+        resolve(buildP12(keys, commonName, password));
+      } catch (e) {
+        reject(e);
+      }
+    });
+  });
 }

@@ -57,7 +57,16 @@ function baseManifest(title: string, profile: EliumProfile): EliumManifest {
     modifiedAt: now,
     title,
     language: "fr",
-    protection: { encrypted: false, locked: false, keyfileRequired: false, contentEntry: "content/document.json" },
+    protection: {
+      encrypted: false,
+      locked: false,
+      keyfileRequired: false,
+      contentEntry: "content/document.json",
+      // CORE-05 : un NOUVEAU document de profil chiffré chiffre aussi ses métadonnées
+      // (titre, signataires, journal) par défaut. Le drapeau est seulement l'intention
+      // en mémoire : writeEliumPackage le combine avec `profile.encrypted`.
+      ...(profileOf(profile).encrypted ? { metadataEncrypted: true } : {}),
+    },
     integrity: { algorithm: "sha-256" as const, contentHash: null },
     features: { signatures: false, tracking: false, resources: 0 },
     rgpd: { localOnly: true, storedPersonalData: [], notice: "" },
@@ -98,9 +107,17 @@ export async function setProfile(file: EliumFile, profile: EliumProfile): Promis
       journal = await appendEvent(journal, "document.locked", {});
     }
   }
+  // CORE-05 : passer d'un profil NON chiffré à un profil chiffré active le chiffrement
+  // des métadonnées par défaut (désactivable ensuite). Un fichier déjà chiffré garde son
+  // état tel quel (les anciens fichiers à métadonnées en clair le restent).
+  const becomesEncrypted = def.encrypted && !profileOf(file.manifest.profile).encrypted;
+  const protection =
+    becomesEncrypted && file.manifest.protection.metadataEncrypted === undefined
+      ? { ...file.manifest.protection, metadataEncrypted: true }
+      : file.manifest.protection;
   return {
     ...file,
-    manifest: { ...file.manifest, profile },
+    manifest: { ...file.manifest, profile, protection },
     journal,
   };
 }

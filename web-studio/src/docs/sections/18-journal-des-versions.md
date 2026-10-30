@@ -1,6 +1,13 @@
 ## Journal des versions
 
-> Dernière version publiée : **4.31.0**, étiquetée le 30 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
+> Dernière version publiée : **4.32.0**, étiquetée le 31 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
+
+### Version 4.32.0 — Sécurité (suite) et nouveaux modèles de documents
+
+- **Modèles de documents** : les 13 modèles de la page d'accueil sont refaits (contenu d'exemple réaliste, tableaux stylés, vignettes fidèles, thèmes clair et sombre).
+- **Chiffrement des métadonnées par défaut** : les documents des profils chiffrés protègent maintenant aussi leur titre, leurs signataires et leur journal. Les anciens fichiers restent lisibles ; les nouvelles preuves de signature lient l'identifiant du document.
+- **Drive** : les connexions temps réel utilisent un ticket à usage unique au lieu du jeton dans l'URL ; un compte SSO avec 2FA se lie à son identité après le second facteur ; les jetons de 2FA et de ré-authentification expirent avec une révocation de sessions ; une clé d'accès déjà enregistrée est refusée proprement ; une demande de signature expirée ne peut plus être déclinée ; la chaîne d'audit signale tout maillon sans empreinte.
+- **Application Windows** : la page locale ne livre son jeton qu'au premier chargement légitime (ticket à usage unique et cookie de session) ; l'impression PDF passe par un cadre isolé ; le certificat auto-signé se génère sans bloquer l'interface.
 
 ### Version 4.31.0 — Durcissement de sécurité (audit)
 

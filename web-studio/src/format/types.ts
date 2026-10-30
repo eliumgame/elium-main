@@ -199,6 +199,8 @@ export interface SignatureProof {
    */
   signedPlacement?: SignaturePlacement;
   signedVisual?: SignatureVisual;
+  /** docId du document au moment de la signature (CORE-09). Absent sur les anciennes preuves. */
+  signedDocId?: string;
   timestamp?: { type: "local"; at: string; note: string } | null;
 }
 

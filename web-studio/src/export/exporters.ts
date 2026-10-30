@@ -1098,17 +1098,44 @@ export function exportPdf(file: EliumFile, verdicts?: Record<string, SignatureVe
     `style-src 'unsafe-inline'; font-src data:; object-src 'none'; base-uri 'none'; form-action 'none'">`;
   const html = buildStandaloneHtml(file, verdicts).replace('<meta charset="utf-8">', `<meta charset="utf-8">${csp}`);
   const url = URL.createObjectURL(new Blob([html], { type: "text/html" }));
-  const win = window.open(url, "_blank");
-  if (!win) {
+  // Iframe masqué et SANDBOXÉ plutôt qu'une fenêtre same-origin : sans
+  // `allow-scripts`, aucun script/gestionnaire du document n'est exécutable (même
+  // avec `allow-same-origin`, qui ne sert qu'à laisser le parent appeler print()) ;
+  // `allow-modals` est requis pour que print() fonctionne dans un cadre sandboxé.
+  // Plus de fenêtre contextuelle, donc plus de blocage par le navigateur.
+  const frame = document.createElement("iframe");
+  frame.setAttribute("sandbox", "allow-modals allow-same-origin");
+  frame.setAttribute("aria-hidden", "true");
+  frame.tabIndex = -1;
+  // Pas de display:none (certains moteurs n'impriment alors rien) : 0×0 hors flux.
+  frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0;pointer-events:none";
+  let cleaned = false;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    frame.remove();
     URL.revokeObjectURL(url);
-    window.alert("Veuillez autoriser les fenêtres contextuelles pour exporter en PDF.");
-    return;
-  }
-  win.addEventListener("load", () => {
-    win.focus();
-    win.print();
-    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  };
+  frame.addEventListener("load", () => {
+    const win = frame.contentWindow;
+    if (!win) {
+      cleanup();
+      return;
+    }
+    try {
+      win.addEventListener("afterprint", () => setTimeout(cleanup, 1_000));
+      win.focus();
+      win.print();
+    } catch {
+      cleanup();
+      window.alert("Impossible de lancer l'impression. Exportez plutôt en HTML puis imprimez depuis votre navigateur.");
+      return;
+    }
+    // Filet de sécurité : certains moteurs n'émettent pas afterprint.
+    setTimeout(cleanup, 10 * 60_000);
   });
+  frame.src = url;
+  document.body.appendChild(frame);
 }
 
 export async function buildProofReport(

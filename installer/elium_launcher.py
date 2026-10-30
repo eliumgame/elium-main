@@ -74,6 +74,81 @@ def _token_meta_tag() -> bytes:
     )
 
 
+# --- Ticket de démarrage (CLIENT-04) -----------------------------------------
+# Le jeton ci-dessus n'est plus servi à TOUTE requête GET / sur 127.0.0.1 : il
+# n'est injecté que dans une page demandée par la fenêtre légitime.
+#   - Le lanceur ouvre `/?boot=<ticket>` (ticket aléatoire, à usage unique, TTL).
+#   - Le 1er GET d'index portant un ticket valide CONSOMME le ticket, reçoit le
+#     jeton et un cookie de session `elium_sid_<port>` (HttpOnly, SameSite=Strict).
+#   - Les GET d'index suivants (F5, carte « Recharger », navigation SPA, ?open=1)
+#     n'ont plus de ticket valide mais portent le cookie : ils reçoivent le jeton.
+#   - Tout autre GET d'index (curl, autre processus, onglet tiers) : page servie
+#     SANS jeton -> les routes d'état renvoient 403.
+# Limite assumée : le ticket figure dans la ligne de commande du navigateur le
+# temps de son premier chargement ; un processus local qui le lit ET gagne la
+# course contre la fenêtre obtiendrait une session (fenêtre de quelques secondes,
+# ticket brûlé ensuite). Un processus local reste de toute façon de confiance
+# équivalente à l'utilisateur ; le but est de fermer le « GET / puis lire le jeton ».
+_BOOT_TICKET_TTL_S = 300.0
+_boot_tickets: "dict[str, float]" = {}
+_session_cookies: "set[str]" = set()
+_boot_lock = threading.Lock()
+
+
+def new_boot_ticket() -> str:
+    """Émet un ticket à usage unique (à placer dans l'URL de lancement)."""
+    ticket = secrets.token_urlsafe(24)
+    with _boot_lock:
+        now = time.monotonic()
+        for t in [t for t, exp in _boot_tickets.items() if exp < now]:
+            del _boot_tickets[t]
+        _boot_tickets[ticket] = now + _BOOT_TICKET_TTL_S
+    return ticket
+
+
+def _consume_boot_ticket(ticket: Optional[str]) -> bool:
+    if not ticket:
+        return False
+    with _boot_lock:
+        exp = _boot_tickets.pop(ticket, None)
+    return exp is not None and exp >= time.monotonic()
+
+
+def _session_cookie_name(port: int) -> str:
+    # Les cookies ne sont pas isolés par port : un nom par port évite que deux
+    # instances (ports différents) s'écrasent mutuellement.
+    return f"elium_sid_{port}"
+
+
+def _new_session_cookie_value() -> str:
+    sid = secrets.token_urlsafe(32)
+    with _boot_lock:
+        _session_cookies.add(sid)
+    return sid
+
+
+def _cookie_is_valid(cookie_header: Optional[str], port: int) -> bool:
+    if not cookie_header:
+        return False
+    name = _session_cookie_name(port)
+    for part in cookie_header.split(";"):
+        key, _, value = part.strip().partition("=")
+        if key == name and value:
+            with _boot_lock:
+                return any(hmac.compare_digest(value, s) for s in _session_cookies)
+    return False
+
+
+def _boot_grant(path: str, cookie_header: Optional[str], port: int) -> "tuple[bool, Optional[str]]":
+    """(injecter_le_jeton, en-tête Set-Cookie à poser ou None) pour un GET d'index."""
+    qs = urllib.parse.parse_qs(path.split("?", 1)[1]) if "?" in path else {}
+    ticket = (qs.get("boot", [""])[0] or "").strip()
+    if _consume_boot_ticket(ticket):
+        value = _new_session_cookie_value()
+        return True, f"{_session_cookie_name(port)}={value}; Path=/; HttpOnly; SameSite=Strict"
+    return _cookie_is_valid(cookie_header, port), None
+
+
 def _is_authorized_open_request(token: Optional[str], sec_fetch_site: Optional[str]) -> bool:
     """GET /__open__ : jeton de session valide, ou requête same-origin du navigateur.
 
@@ -1474,7 +1549,10 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
 
         # index.html : on injecte la carte de mise à jour (CSS + script externes, CSP-safe).
         if os.path.basename(path) == "index.html" and os.path.isfile(path):
-            self._serve_index_with_banner(path)
+            inject, set_cookie = _boot_grant(
+                self.path, self.headers.get("Cookie"), self.server.server_address[1]
+            )
+            self._serve_index_with_banner(path, inject_token=inject, set_cookie=set_cookie)
             return
         super().do_GET()
 
@@ -1575,7 +1653,9 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             return
         self.send_error(404, "Endpoint inconnu")
 
-    def _serve_index_with_banner(self, path: str) -> None:
+    def _serve_index_with_banner(
+        self, path: str, inject_token: bool = True, set_cookie: Optional[str] = None
+    ) -> None:
         try:
             html = Path(path).read_bytes()
         except OSError:
@@ -1583,7 +1663,7 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             return
         _note_page_served()
         tag = (
-            _token_meta_tag()
+            (_token_meta_tag() if inject_token else b"")
             + b'<link rel="stylesheet" href="/__elium_update.css">'
             b'<script src="/__elium_update.js" defer></script>'
         )
@@ -1591,11 +1671,16 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             html = html.replace(b"</body>", tag + b"</body>", 1)
         else:
             html = html + tag
-        self._serve_bytes(html, "text/html; charset=utf-8")
+        if set_cookie:
+            self._serve_bytes(html, "text/html; charset=utf-8", extra_headers=[("Set-Cookie", set_cookie)])
+        else:
+            self._serve_bytes(html, "text/html; charset=utf-8")
 
-    def _serve_bytes(self, data: bytes, content_type: str) -> None:
+    def _serve_bytes(self, data: bytes, content_type: str, extra_headers=None) -> None:
         self.send_response(200)
         self.send_header("Content-Type", content_type)
+        for k, v in extra_headers or ():
+            self.send_header(k, v)
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         if self.command != "HEAD":
@@ -1962,19 +2047,21 @@ def main():
     web_dir = current_web_dir()
     global _port_fallback_used
     port, _port_fallback_used = resolve_port()
-    url = f"http://127.0.0.1:{port}/"
+    base_url = f"http://127.0.0.1:{port}/"
+    # URL de lancement : ticket à usage unique (CLIENT-04), cf. _boot_grant.
+    url = f"{base_url}?boot={new_boot_ticket()}"
 
     # Fichier .elium passé en argument (double-clic dans l'Explorateur).
     if len(sys.argv) > 1 and os.path.isfile(sys.argv[1]):
         opened = Path(sys.argv[1])
         QuietHandler.opened_file = (opened.name, opened.read_bytes())
-        url += "?open=1"
+        url += "&open=1"
 
     handler = partial(QuietHandler, directory=str(web_dir))
     server = http.server.ThreadingHTTPServer(("127.0.0.1", port), handler)
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
-    print(f"Elium Web Studio démarré sur {url}")
+    print(f"Elium Web Studio démarré sur {base_url}")
 
     # Vérifie et applique une mise à jour en arrière-plan (jamais bloquant).
     if updater is not None:

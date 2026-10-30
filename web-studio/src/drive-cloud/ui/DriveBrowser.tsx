@@ -318,10 +318,16 @@ export default function DriveBrowser() {
         if (document.visibilityState !== "hidden") void silentRefreshRef.current();
       }, 250);
     };
-    const connect = () => {
+    const connect = async () => {
       if (closed) return;
       try {
-        ws = new WebSocket(d.api.orgEventsSocketUrl(orgId));
+        // Ticket à usage unique plutôt que le JWT dans l'URL (repli sur l'ancienne URL pour les doublures / vieux serveurs).
+        const url =
+          typeof d.api.orgEventsSocketUrlTicket === "function"
+            ? await d.api.orgEventsSocketUrlTicket(orgId)
+            : d.api.orgEventsSocketUrl(orgId);
+        if (closed) return;
+        ws = new WebSocket(url);
       } catch {
         reconnect = window.setTimeout(connect, 4000);
         return;
@@ -347,7 +353,7 @@ export default function DriveBrowser() {
         }
       };
     };
-    connect();
+    void connect();
     // Filet de sécurité : poll rare (25 s) seulement quand l'onglet est visible,
     // + rafraîchissement au retour de focus (couvre une reconnexion manquée).
     const poll = window.setInterval(() => {

@@ -9,6 +9,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { query, queryOne, withTx } from "../db/pool.js";
 import { verifyAccessToken } from "../lib/tokens.js";
+import { issueWsTicket, consumeWsTicket } from "../lib/ws-tickets.js";
 import { authenticate, requireUser, requireNodePerm } from "../middleware/auth.js";
 import { resolveNodeAccess } from "../rbac/engine.js";
 import { badRequest } from "../lib/errors.js";
@@ -195,7 +196,44 @@ function notifyOrgLocal(orgId: string): void {
 /** Taille d'une page de rattrapage (le client boucle tant que `hasMore`). */
 export const COLLAB_PAGE_SIZE = 5000;
 
+/**
+ * Identité d'une socket à l'ouverture : ticket à usage unique `?ticket=` (préféré, CLIENT-10), sinon — pendant
+ * la transition, sauf `WS_ALLOW_QUERY_TOKEN=false` — l'ancien JWT d'accès en `?token=`.
+ */
+async function socketClaims(
+  req: FastifyRequest,
+  target: string,
+): Promise<{ sub: string; iat: number; exp: number } | null> {
+  const q = req.query as { token?: string; ticket?: string };
+  if (q.ticket) return consumeWsTicket(q.ticket, target);
+  if (!config.wsAllowQueryToken) return null;
+  return verifyAccessToken(q.token ?? "");
+}
+
 export async function registerCollab(app: FastifyInstance): Promise<void> {
+  // Ticket WebSocket (usage unique, 30 s) : évite de mettre le JWT d'accès dans l'URL de la socket.
+  app.post(
+    "/api/ws-ticket",
+    { preHandler: authenticate, config: { rateLimit: { max: 120, timeWindow: "1 minute" } } },
+    async (req) => {
+      const user = requireUser(req);
+      const raw = req.headers.authorization ?? "";
+      const claims = verifyAccessToken(raw.slice("Bearer ".length).trim());
+      if (!claims) throw badRequest("Jeton invalide.");
+      const b = (req.body ?? {}) as { target?: unknown };
+      const target =
+        typeof b.target === "string" && /^(collab|events):[0-9a-fA-F-]{36}$/.test(b.target) ? b.target : undefined;
+      const t = await issueWsTicket({
+        sub: user.id,
+        fpr: claims.fpr,
+        iat: claims.iat,
+        exp: claims.exp,
+        ...(target ? { target } : {}),
+      });
+      return t;
+    },
+  );
+
   // Backplane multi-instance (no-op sans REDIS_URL). Les messages venus d'AUTRES
   // instances sont re-délivrés aux peers LOCAUX (from=null pour un broadcast).
   initBackplane((m: RelayMsg) => {
@@ -208,8 +246,7 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
   // --- WebSocket : canal d'événements de l'organisation --------------------
   const orgWsHandler = async (socket: WsConn, req: FastifyRequest) => {
     const orgId = (req.params as { orgId?: string }).orgId ?? "";
-    const token = (req.query as { token?: string }).token ?? "";
-    const claims = verifyAccessToken(token);
+    const claims = await socketClaims(req, `events:${orgId}`);
     if (!claims || !/^[0-9a-fA-F-]{36}$/.test(orgId) || !(await socketUserAllowed(claims))) {
       socket.close(1008, "unauthorized");
       return;
@@ -267,9 +304,7 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
   // --- WebSocket room ------------------------------------------------------
   const wsHandler = async (socket: WsConn, req: FastifyRequest) => {
     const nodeId = (req.params as { nodeId?: string }).nodeId ?? "";
-    const token = (req.query as { token?: string }).token ?? "";
-
-    const claims = verifyAccessToken(token);
+    const claims = await socketClaims(req, `collab:${nodeId}`);
     if (!claims || !/^[0-9a-fA-F-]{36}$/.test(nodeId) || !(await socketUserAllowed(claims))) {
       socket.close(1008, "unauthorized");
       return;

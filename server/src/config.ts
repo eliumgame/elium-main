@@ -151,6 +151,9 @@ export const config = {
   // Connexions WS collab simultanées par utilisateur (anti-épuisement). Large
   // pour un usage réel (onglets/appareils/documents multiples).
   maxCollabConnectionsPerUser: num("MAX_COLLAB_CONNECTIONS_PER_USER", 40),
+  // Transition CLIENT-10 : accepter encore le JWT d'accès en `?token=` sur les WebSockets (anciens clients).
+  // Mettre WS_ALLOW_QUERY_TOKEN=false une fois tous les clients passés au ticket `?ticket=` (POST /api/ws-ticket).
+  wsAllowQueryToken: env("WS_ALLOW_QUERY_TOKEN", "true") !== "false",
 
   // WebAuthn (2e facteur / passkeys). `rpId` = domaine effectif (SANS schéma ni
   // port ; "localhost" en dev). L'origine ATTENDUE lors des cérémonies est la

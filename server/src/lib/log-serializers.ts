@@ -1,6 +1,6 @@
 /**
  * Sérialiseur de requête pour le journal : jamais de query string. Le jeton d'accès du WebSocket
- * collab voyage dans l'URL (`?token=…`) ; sans ce filtre il serait écrit en clair à chaque connexion.
+ * collab voyage dans l'URL (`?token=… ou ?ticket=…`) ; sans ce filtre il serait écrit en clair à chaque connexion.
  */
 export function serializeRequestForLog(req: {
   method?: string;

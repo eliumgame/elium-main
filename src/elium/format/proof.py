@@ -30,11 +30,12 @@ def _to_be_signed(
     signed_at: str,
     placement: dict | None = None,
     visual: dict | None = None,
+    doc_id: str | None = None,
 ) -> str:
     """Canonical to-be-signed structure (mirror of proof.ts).
 
-    `signedPlacement`/`signedVisual` are included only when provided, so legacy
-    proofs (without them) reconstruct byte-identical.
+    `signedPlacement`/`signedVisual`/`signedDocId` are included only when
+    provided, so legacy proofs (without them) reconstruct byte-identical.
     """
     payload: dict[str, Any] = {
         "v": 1,
@@ -47,6 +48,10 @@ def _to_be_signed(
         payload["signedPlacement"] = placement
     if visual is not None:
         payload["signedVisual"] = visual
+    # CORE-09 : lie la preuve au docId du document (une signature recopiée dans un
+    # autre document ne vérifie plus). Absent ⇒ ancienne preuve, octets inchangés.
+    if doc_id is not None:
+        payload["signedDocId"] = doc_id
     return canonical_json(payload)
 
 
@@ -74,6 +79,7 @@ def create_proof(
     private_key_hex: str,
     placement: dict | None = None,
     visual: dict | None = None,
+    doc_id: str | None = None,
 ) -> dict[str, Any]:
     priv = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(private_key_hex))
     pub_raw = priv.public_key().public_bytes(
@@ -82,7 +88,7 @@ def create_proof(
     public_key_hex = pub_raw.hex()
     signed_hash = compute_content_hash(model)
     signed_at = now_iso()
-    message = _to_be_signed(signature_id, signed_hash, signer, signed_at, placement, visual)
+    message = _to_be_signed(signature_id, signed_hash, signer, signed_at, placement, visual, doc_id)
     signature = priv.sign(message.encode("utf-8"))
     proof: dict[str, Any] = {
         "alg": "ed25519",
@@ -97,12 +103,24 @@ def create_proof(
         proof["signedPlacement"] = placement
     if visual is not None:
         proof["signedVisual"] = visual
+    if doc_id is not None:
+        proof["signedDocId"] = doc_id
     proof["timestamp"] = {"type": "local", "at": signed_at, "note": _TS_NOTE}
     return proof
 
 
-def verify_proof(signature: dict, model: dict, trusted_key_hex: str | None = None) -> str:
-    """Returns: valid | modified | invalid | unknown_key | visual_only."""
+def verify_proof(
+    signature: dict,
+    model: dict,
+    trusted_key_hex: str | None = None,
+    doc_id: str | None = None,
+) -> str:
+    """Returns: valid | modified | invalid | unknown_key | visual_only.
+
+    `doc_id` : docId du document COURANT. Si la preuve porte `signedDocId` et que
+    `doc_id` est fourni, ils doivent correspondre (sinon « modified »). Les preuves
+    sans `signedDocId` (anciennes) se vérifient exactement comme avant.
+    """
     proof = signature.get("proof")
     if not proof:
         return "visual_only"
@@ -116,6 +134,7 @@ def verify_proof(signature: dict, model: dict, trusted_key_hex: str | None = Non
         proof["signedAt"],
         proof.get("signedPlacement"),
         proof.get("signedVisual"),
+        proof.get("signedDocId"),
     ).encode("utf-8")
     try:
         pub = Ed25519PublicKey.from_public_bytes(bytes.fromhex(proof["publicKeyHex"]))
@@ -139,5 +158,7 @@ def verify_proof(signature: dict, model: dict, trusted_key_hex: str | None = Non
     ):
         return "modified"
     if "signedVisual" in proof and canonical_json(signature.get("visual")) != canonical_json(proof["signedVisual"]):
+        return "modified"
+    if doc_id is not None and "signedDocId" in proof and proof["signedDocId"] != doc_id:
         return "modified"
     return "valid"

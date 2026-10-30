@@ -194,7 +194,7 @@ def write_elium(
     keyfile: bytes | None = None,
     recipients: list[str] | None = None,
     seal_private_key_hex: str | None = None,
-    encrypt_metadata: bool = False,
+    encrypt_metadata: bool | None = None,
 ) -> bytes:
     if profile not in VALID_PROFILES:
         raise EliumPackageError(f"Profil inconnu : {profile}")
@@ -217,7 +217,13 @@ def write_elium(
 
     document_json = json.dumps(document, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
-    # Metadata encryption only applies to encrypted profiles.
+    # Metadata encryption only applies to encrypted profiles. CORE-05 : par défaut
+    # (encrypt_metadata=None) elle est ACTIVE sur les profils chiffrés — titre,
+    # signataires et journal ne restent plus lisibles en clair ; passer
+    # encrypt_metadata=False la désactive explicitement. La lecture des anciens
+    # fichiers (métadonnées en clair) est inchangée.
+    if encrypt_metadata is None:
+        encrypt_metadata = True
     secure_meta = bool(encrypt_metadata) and PROFILES[profile]["encrypted"]
     # Multi-recipient (P-256 ECDH-ES) replaces the password container as the body
     # cipher on encrypted profiles. Mirror of elium-package.ts.

@@ -93,7 +93,8 @@ def test_parapheur_personal_data_surfaces_in_clear_rgpd_notice():
     encrypt_metadata) carries personal data of its own (party names/roles,
     requester) — the RGPD notice must report it even with zero `signatures`."""
     doc = create_document_model(text_to_doc("Circuit en clair"))
-    blob = write_elium(doc, profile="protected", title="Circuit", password=PWD, parapheur=PARAPHEUR)
+    blob = write_elium(doc, profile="protected", title="Circuit", password=PWD, parapheur=PARAPHEUR,
+                       encrypt_metadata=False)
     man = json.loads(zipfile.ZipFile(io.BytesIO(blob)).read(ENTRY_MANIFEST))
     reported = man["rgpd"]["storedPersonalData"]
     assert "nom de partie du circuit de signature" in reported
@@ -121,10 +122,29 @@ def test_parapheur_personal_data_hidden_when_metadata_encrypted():
 
 
 def test_non_secure_encrypted_file_unchanged():
-    """Without encrypt_metadata, behaviour is the legacy one (title in clear)."""
+    """With encrypt_metadata=False (legacy layout, still readable), title in clear."""
     doc = create_document_model(text_to_doc("x"))
-    blob = write_elium(doc, profile="encrypted", title="Visible", password=PWD)
+    blob = write_elium(doc, profile="encrypted", title="Visible", password=PWD, encrypt_metadata=False)
     man = json.loads(zipfile.ZipFile(io.BytesIO(blob)).read(ENTRY_MANIFEST))
     assert man["title"] == "Visible"
     assert "metadataEncrypted" not in man["protection"]
     assert read_elium(blob, password=PWD)["manifest"]["title"] == "Visible"
+
+
+@pytest.mark.parametrize("profile", ["protected", "encrypted", "secure_max"])
+def test_core05_encrypted_profiles_encrypt_metadata_by_default(profile):
+    """CORE-05 : défaut = métadonnées chiffrées sur les profils chiffrés."""
+    doc = create_document_model(text_to_doc("x"))
+    blob = write_elium(doc, profile=profile, title="Salaires 2026", password=PWD)
+    man = json.loads(zipfile.ZipFile(io.BytesIO(blob)).read(ENTRY_MANIFEST))
+    assert man["protection"]["metadataEncrypted"] is True
+    assert "Salaires" not in json.dumps(man)
+    assert read_elium(blob, password=PWD)["manifest"]["title"] == "Salaires 2026"
+
+
+def test_core05_default_does_not_affect_plain_profiles():
+    doc = create_document_model(text_to_doc("x"))
+    blob = write_elium(doc, profile="standard", title="Clair")
+    man = json.loads(zipfile.ZipFile(io.BytesIO(blob)).read(ENTRY_MANIFEST))
+    assert man["title"] == "Clair"
+    assert "metadataEncrypted" not in man["protection"]

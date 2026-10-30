@@ -251,7 +251,13 @@ function collectPersonalData(file: EliumFile): string[] {
 
 export async function writeEliumPackage(file: EliumFile, opts: WriteOptions = {}): Promise<Uint8Array> {
   const def = profileOf(file.manifest.profile);
-  const secure = !!opts.encryptMetadata && def.encrypted;
+  // CORE-05 : sans option explicite, on suit le drapeau du fichier en mémoire
+  // (`protection.metadataEncrypted`, posé à true pour un nouveau document de profil
+  // chiffré par createEliumFile/setProfile). Un fichier relu garde ainsi son état
+  // d'origine : un ancien fichier à métadonnées en clair n'est PAS converti en
+  // silence (ce qui invaliderait un sceau reporté), et `encryptMetadata:false`
+  // reste possible explicitement.
+  const secure = (opts.encryptMetadata ?? !!file.manifest.protection.metadataEncrypted) && def.encrypted;
 
   // Guard against a silent-plaintext foot-gun: passing `recipients` on a
   // profile that isn't encrypted used to be accepted silently, writing the

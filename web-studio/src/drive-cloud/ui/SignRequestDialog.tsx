@@ -155,10 +155,16 @@ export default function SignRequestDialog({
     let closed = false;
     let ws: WebSocket | null = null;
     let reconnect: number | undefined;
-    const connect = () => {
+    const connect = async () => {
       if (closed) return;
       try {
-        ws = new WebSocket(ctx.api.orgEventsSocketUrl(orgId));
+        // Ticket à usage unique plutôt que le JWT dans l'URL (repli sur l'ancienne URL pour les doublures / vieux serveurs).
+        const url =
+          typeof ctx.api.orgEventsSocketUrlTicket === "function"
+            ? await ctx.api.orgEventsSocketUrlTicket(orgId)
+            : ctx.api.orgEventsSocketUrl(orgId);
+        if (closed) return;
+        ws = new WebSocket(url);
       } catch {
         reconnect = window.setTimeout(connect, 4000);
         return;
@@ -186,7 +192,7 @@ export default function SignRequestDialog({
         }
       };
     };
-    connect();
+    void connect();
     // Filet de sécurité : poll rare (60 s), au cas où la connexion WS resterait
     // coupée (bien plus espacé que l'ancien poll à 8 s, la WS couvrant déjà le
     // cas nominal).

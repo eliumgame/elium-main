@@ -236,3 +236,38 @@ def test_proof_lifecycle():
 def test_visual_only_signature_has_no_proof_verdict():
     sig = {"id": "s", "signer": {"name": "Bob"}, "proof": None}
     assert verify_proof(sig, make_model()) == "visual_only"
+
+
+def test_core09_proof_binds_doc_id():
+    """CORE-09 : la preuve lie le docId ; les anciennes preuves restent valides."""
+    from elium.format.proof import _to_be_signed
+
+    model = make_model()
+    ident = generate_identity()
+    signer = {"name": "Alice"}
+    proof = create_proof("sig_1", model, signer, ident["privateKeyHex"], doc_id="doc-A")
+    assert proof["signedDocId"] == "doc-A"
+    sig = {"id": "sig_1", "signer": signer, "proof": proof}
+    assert verify_proof(sig, model, doc_id="doc-A") == "valid"
+    assert verify_proof(sig, model, doc_id="doc-B") == "modified"
+    assert verify_proof(sig, model) == "valid"  # docId courant non fourni : pas de contrôle
+
+    # Falsification : retirer ou changer signedDocId invalide la signature.
+    stripped = {k: v for k, v in proof.items() if k != "signedDocId"}
+    assert verify_proof({**sig, "proof": stripped}, model, doc_id="doc-B") == "invalid"
+    assert verify_proof({**sig, "proof": {**proof, "signedDocId": "doc-B"}}, model, doc_id="doc-B") == "invalid"
+
+    # Ancienne preuve (sans docId) : inchangée, vérifiable même avec un docId fourni.
+    legacy = create_proof("sig_1", model, signer, ident["privateKeyHex"])
+    assert "signedDocId" not in legacy
+    assert verify_proof({**sig, "proof": legacy}, model, doc_id="doc-B") == "valid"
+
+    # Octets signés : identiques au format historique sans docId (parité avec proof.test.ts).
+    assert _to_be_signed("s1", "hh", {"name": "Bob"}, "2026-01-01T00:00:00Z") == (
+        '{"signatureId":"s1","signedAt":"2026-01-01T00:00:00Z","signedContentHash":"hh",'
+        '"signer":{"name":"Bob"},"v":1}'
+    )
+    assert _to_be_signed("s1", "hh", {"name": "Bob"}, "2026-01-01T00:00:00Z", doc_id="doc-1") == (
+        '{"signatureId":"s1","signedAt":"2026-01-01T00:00:00Z","signedContentHash":"hh",'
+        '"signedDocId":"doc-1","signer":{"name":"Bob"},"v":1}'
+    )

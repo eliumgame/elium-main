@@ -889,6 +889,8 @@ async function main(): Promise<void> {
     const { totpNow: totpSso } = await import("../../server/src/lib/totp");
     const bobSetup = await bob.api.mfaSetup();
     const bobEnabled = await bob.api.mfaEnable(totpSso(bobSetup.secret));
+    // SRV-10 : on repart d'un compte NON lié, pour vérifier que le lien se fait à la réussite du 2e facteur.
+    await query(`UPDATE users SET sso_subject = NULL WHERE id = $1`, [bob.user.id]);
     const ssoMfa = (await ssoApi.ssoVerify(org.id, signIdToken(claimsFor(bob.user.email)))) as unknown as {
       mfaRequired?: boolean;
       mfaToken?: string;
@@ -900,7 +902,51 @@ async function main(): Promise<void> {
       totpSso(bobSetup.secret, Date.now() + 30_000), // pas suivant : le pas courant est consommé (anti-rejeu)
     );
     ok("SSO + code 2FA : session émise", !!ssoDone.accessToken);
+    const bound = await query<{ sso_subject: string | null }>(`SELECT sso_subject FROM users WHERE id = $1`, [
+      bob.user.id,
+    ]);
+    ok("SRV-10 : sso_subject lié après le 2e facteur", bound[0]?.sso_subject === "idp-bob-123");
+    await expectStatus(
+      "SRV-10 : un autre sub IdP ne passe plus sur le compte lié → 401",
+      ssoApi.ssoVerify(org.id, signIdToken(claimsFor(bob.user.email, { sub: "idp-usurpateur" }))),
+      401,
+    );
     await bob.api.mfaDisable(bobEnabled.backupCodes[0]!);
+
+    // CLIENT-10 : ticket WebSocket à usage unique (le JWT n'a plus à voyager dans l'URL).
+    {
+      const wsBase = base.replace(/^http/, "ws");
+      const tk = await alice.api.collabSocketUrlTicket(rapportA.id);
+      ok("CLIENT-10 : l'URL de socket porte un ticket, pas le JWT", /\?ticket=/.test(tk) && !/token=/.test(tk));
+      const tryOpen = (url: string) =>
+        new Promise<boolean>((resolve) => {
+          const w = new WebSocket(url);
+          const t = setTimeout(() => {
+            w.close();
+            resolve(false);
+          }, 8000);
+          w.onmessage = (ev) => {
+            if (String(ev.data).includes("ready")) {
+              clearTimeout(t);
+              w.close();
+              resolve(true);
+            }
+          };
+          w.onclose = () => {
+            clearTimeout(t);
+            resolve(false);
+          };
+        });
+      ok("CLIENT-10 : la socket s'ouvre avec le ticket", await tryOpen(tk));
+      ok("CLIENT-10 : le même ticket ne sert qu'une fois", !(await tryOpen(tk)));
+      const legacy = `${wsBase}/collab/${rapportA.id}?token=${encodeURIComponent(alice.api.currentAccessToken ?? "")}`;
+      ok("CLIENT-10 : l'ancien ?token= reste accepté (transition)", await tryOpen(legacy));
+      const tkOther = await alice.api.collabSocketUrlTicket(rapportA.id);
+      ok(
+        "CLIENT-10 : un ticket lié à un nœud est refusé sur un autre nœud",
+        !(await tryOpen(tkOther.replace(rapportA.id, folder.id))),
+      );
+    }
 
     await expectStatus(
       "SSO : mauvaise audience → 401",

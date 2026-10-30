@@ -694,7 +694,7 @@ async function main(): Promise<void> {
 
     // Passkeys : ajout/retrait exigent une confirmation fraîche (mot de passe + code 2FA).
     const aSetup = await nl.api.mfaSetup();
-    await nl.api.mfaEnable(totpNow(aSetup.secret));
+    const aEnabled = await nl.api.mfaEnable(totpNow(aSetup.secret));
     await query(
       `INSERT INTO webauthn_credentials (user_id, credential_id, public_key, counter) VALUES ($1, 'e2e-reauth-cred', $2, 0)`,
       [alice.user.id, Buffer.from("k")],
@@ -749,7 +749,8 @@ async function main(): Promise<void> {
       jwks: [{ kty: "OKP", crv: "Ed25519", x: "x".repeat(43) }],
     };
     await boss.api.patchSiteUser(alice.user.id, { roleId: roleIdByKey["admin"]! });
-    const adminTok = await reauthenticate(nl.api, "alice@acme.fr", newPw, totpNow(aSetup.secret));
+    // pas suivant : le pas courant est consommé (anti-rejeu TOTP)
+    const adminTok = await reauthenticate(nl.api, "alice@acme.fr", newPw, totpNow(aSetup.secret, Date.now() + 30_000));
     await expectStatus(
       "administrateur (non propriétaire) : configurer le SSO refusé, même ré-authentifié",
       nl.api.setOrgSso(org.id, ssoCfg, adminTok),
@@ -777,7 +778,7 @@ async function main(): Promise<void> {
     await boss.api.disableOrgSso(org.id, bossTok);
     await boss.api.patchSiteUser(alice.user.id, { roleId: roleIdByKey["editor"]! });
     // Alice garde son TOTP : on le retire pour ne pas perturber la suite.
-    await nl.api.mfaDisable(totpNow(aSetup.secret));
+    await nl.api.mfaDisable(aEnabled.backupCodes[0]!);
 
     // =========================================================================
     section("Durcissement HTTP et base : corps text/plain, SCIM, boucle d'arborescence, statement_timeout");

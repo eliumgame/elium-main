@@ -17,7 +17,7 @@ import * as ed from "@noble/ed25519";
 import { hashes } from "@noble/ed25519";
 import { sha512 } from "@noble/hashes/sha2.js";
 import { chacha20poly1305 } from "@noble/ciphers/chacha.js";
-import { KDF_PROFILES } from "./kdf-profiles";
+import { KDF_PROFILES, kdfWithinBounds } from "./kdf-profiles";
 
 hashes.sha512 = sha512;
 // @ts-ignore
@@ -116,9 +116,12 @@ function toHex(bytes: Uint8Array): string {
 }
 
 function fromHex(hex: string): Uint8Array {
-  const matches = hex.match(/.{1,2}/g);
-  if (!matches) throw new Error("Invalid hex string");
-  return new Uint8Array(matches.map((b) => parseInt(b, 16)));
+  // Strict (CLIENT-09): parseInt() silently turned any non-hex pair into 0 / NaN.
+  if (typeof hex !== "string" || hex.length === 0 || hex.length % 2 !== 0 || !/^[0-9a-fA-F]+$/.test(hex))
+    throw new Error("Invalid hex string");
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.substr(i * 2, 2), 16);
+  return out;
 }
 
 // --- Crypto Helpers ---
@@ -199,7 +202,7 @@ async function decompressData(data: Uint8Array): Promise<Uint8Array> {
   const reader = ds.readable.getReader();
   const chunks: Uint8Array[] = [];
   let totalSize = 0;
-  const MAX_SIZE = 512 * 1024 * 1024; // 512 MiB limit
+  const MAX_SIZE = 129 * 1024 * 1024; // 128 MiB + 1 MiB (manifest) — aligné sur container.py MAX_INNER_BYTES
 
   while (true) {
     const { done, value } = await reader.read();
@@ -207,7 +210,7 @@ async function decompressData(data: Uint8Array): Promise<Uint8Array> {
     if (value) {
       totalSize += value.length;
       if (totalSize > MAX_SIZE) {
-        throw new Error("Decompression bomb detected. Payload exceeds 512 MiB limit.");
+        throw new Error("Decompression bomb detected. Payload exceeds 128 MiB limit.");
       }
       chunks.push(value);
     }
@@ -334,6 +337,12 @@ export class EliumCryptoEngine {
     p: number,
     keyfile?: Uint8Array,
   ): Promise<Uint8Array> {
+    // CLIENT-07 : borne TOUS les appelants (en-tête de fichier, `kdf` renvoyé par le
+    // serveur au prelogin, …) AVANT toute allocation Argon2 — un serveur/fichier
+    // malveillant ne peut pas imposer t/m/p arbitraires (DoS mémoire/CPU).
+    if (!kdfWithinBounds({ t, m, p })) {
+      throw new Error(`KDF parameters out of bounds (DoS protection): t=${t}, m=${m}, p=${p}`);
+    }
     let pwdBytes = te.encode(password);
 
     if (keyfile) {
@@ -544,9 +553,18 @@ export class EliumCryptoEngine {
     const headerLen = dv.getUint32(pos, false);
     pos += 4;
 
+    if (pos + headerLen > blob.length) throw new Error("Truncated container header.");
     const headerBytes = blob.subarray(pos, pos + headerLen);
     pos += headerLen;
-    const header: EliumHeader = JSON.parse(td.decode(headerBytes));
+    let header: EliumHeader;
+    try {
+      header = JSON.parse(td.decode(headerBytes));
+    } catch {
+      throw new Error("Public Header is corrupted.");
+    }
+    if (!header || typeof header !== "object" || !header.kdf || typeof header.kdf !== "object" || !header.crypto || !header.flags) {
+      throw new Error("Public Header is corrupted.");
+    }
 
     if (header.version !== VERSION) {
       throw new Error(`Unsupported version ${header.version}`);
@@ -575,7 +593,7 @@ export class EliumCryptoEngine {
       throw new Error(`Unsupported cascade cipher: ${header.crypto.cascade}`);
     }
 
-    if (saltHex.length !== 32) {
+    if (typeof saltHex !== "string" || saltHex.length !== 32) {
       throw new Error("Invalid salt length");
     }
 
@@ -595,8 +613,14 @@ export class EliumCryptoEngine {
       throw new Error("This file requires a keyfile to be decrypted.");
     }
 
-    const ctLen = Number(dv.getBigUint64(pos, false));
+    const ctLenBig = dv.getBigUint64(pos, false);
     pos += 8;
+    // Contrôle structurel AVANT la dérivation Argon2 (miroir container.py).
+    const needed = ctLenBig + BigInt(header.flags?.signed ? SIGNATURE_SIZE : 0) + BigInt(HMAC_SIZE);
+    if (needed > BigInt(blob.length - pos)) {
+      throw new Error("Truncated container (declared ciphertext exceeds file size).");
+    }
+    const ctLen = Number(ctLenBig);
 
     let ct = blob.subarray(pos, pos + ctLen);
     pos += ctLen;
@@ -667,14 +691,21 @@ export class EliumCryptoEngine {
       innerData = await decompressData(innerData);
     }
 
+    if (innerData.length < 4) throw new Error("Inner payload too short.");
     const innerDv = new DataView(innerData.buffer, innerData.byteOffset, innerData.byteLength);
     const manifestLen = innerDv.getUint32(0, false);
+    if (4 + manifestLen > innerData.length) throw new Error("Inner manifest length out of range.");
     const manifestBytes = innerData.subarray(4, 4 + manifestLen);
     // @ts-ignore
     // @ts-ignore
     const resultPayload: any = innerData.subarray(4 + manifestLen);
 
-    const manifest: EliumManifest = JSON.parse(td.decode(manifestBytes));
+    let manifest: EliumManifest;
+    try {
+      manifest = JSON.parse(td.decode(manifestBytes));
+    } catch {
+      throw new Error("Inner manifest is corrupted.");
+    }
 
     return { payload: resultPayload, manifest, header, signatureValid };
   }

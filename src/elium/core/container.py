@@ -36,6 +36,11 @@ from elium.crypto.primitives import (
 MAGIC_V3 = b"ELIUM\x03"
 VERSION = 3
 
+# CORE-10: decompressed inner payload cap, aligned with the package reader's
+# per-entry cap (package.py MAX_ENTRY_BYTES = 128 MiB) + 1 MiB headroom for the
+# inner manifest. Mirror of elium-crypto.ts (decompressData).
+MAX_INNER_BYTES = 129 * 1024 * 1024
+
 class EliumContainer:
     """
     Elium v3 Secure Container encoder and decoder.
@@ -150,7 +155,22 @@ class EliumContainer:
         """
         Decodes a v3 container.
         Returns: (payload_bytes, manifest_dict, public_header_dict)
+
+        Any malformed/truncated input is reported as an Elium error (never a raw
+        KeyError/struct.error/ValueError/zlib.error).
         """
+        try:
+            return EliumContainer._decode(blob, password, keyfile, verify_public_key)
+        except (KeyError, TypeError, ValueError, AttributeError, IndexError, struct.error, zlib.error) as e:
+            raise EliumFormatError("Conteneur Elium malformé ou corrompu.") from e
+
+    @staticmethod
+    def _decode(
+        blob: bytes,
+        password: str,
+        keyfile: bytes | None,
+        verify_public_key: Ed25519PublicKey | None,
+    ) -> tuple[bytes, dict[str, Any], dict[str, Any]]:
         # Normalize: a keyfile-only container is opened with an empty password
         # (mirrors encode's "password or keyfile" contract) — avoid a None
         # reaching derive_master_key's `.encode()` call.
@@ -166,6 +186,8 @@ class EliumContainer:
         header_len = struct.unpack(">I", blob[pos:pos+4])[0]
         pos += 4
 
+        if pos + header_len > len(blob):
+            raise EliumFormatError("Truncated container header.")
         header_bytes = blob[pos:pos+header_len]
         pos += header_len
 
@@ -174,6 +196,8 @@ class EliumContainer:
         except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as e:
             raise EliumFormatError("Public Header is corrupted.") from e
 
+        if not isinstance(header, dict):
+            raise EliumFormatError("Public Header is corrupted.")
         if header.get("version") != VERSION:
             raise EliumVersionError(f"Unsupported version: {header.get('version')}")
 
@@ -194,6 +218,8 @@ class EliumContainer:
         t = header["kdf"].get("t", 0)
         m = header["kdf"].get("m", 0)
         p = header["kdf"].get("p", 0)
+        if any(isinstance(v, bool) or not isinstance(v, int) for v in (t, m, p)):
+            raise EliumFormatError("Invalid KDF parameter types.")
         if not (1 <= t <= 6 and 8192 <= m <= 262144 and 1 <= p <= 16):
             raise EliumSecurityError(f"KDF parameters out of bounds (DoS protection): t={t}, m={m}, p={p}")
 
@@ -221,6 +247,11 @@ class EliumContainer:
 
         ct_len = struct.unpack(">Q", blob[pos:pos+8])[0]
         pos += 8
+        # Structural length check BEFORE the (expensive, memory-hungry) Argon2id
+        # derivation: a truncated/garbage blob must fail fast and cheap.
+        needed = ct_len + (SIGNATURE_SIZE if is_signed else 0) + HMAC_SIZE
+        if needed > len(blob) - pos:
+            raise EliumFormatError("Truncated container (declared ciphertext exceeds file size).")
 
         ct = blob[pos:pos+ct_len]
         pos += ct_len
@@ -264,13 +295,17 @@ class EliumContainer:
         inner_data = decrypt_aead(k_aes, nonce_aes, ct, header_bytes)
 
         if is_compressed:
-            # Prevent decompression bomb (max 512 MiB)
+            # Prevent decompression bomb (aligned on the package entry cap)
             decompressor = zlib.decompressobj()
-            inner_data = decompressor.decompress(inner_data, max_length=536870912)
+            inner_data = decompressor.decompress(inner_data, max_length=MAX_INNER_BYTES)
             if not decompressor.eof or decompressor.unconsumed_tail:
-                raise EliumSecurityError("Decompression payload exceeded 512 MiB limit.")
+                raise EliumSecurityError("Decompression payload exceeded 128 MiB limit.")
 
+        if len(inner_data) < 4:
+            raise EliumFormatError("Inner payload too short.")
         manifest_len = struct.unpack(">I", inner_data[:4])[0]
+        if 4 + manifest_len > len(inner_data):
+            raise EliumFormatError("Inner manifest length out of range.")
         manifest_bytes = inner_data[4:4+manifest_len]
         payload = inner_data[4+manifest_len:]
 

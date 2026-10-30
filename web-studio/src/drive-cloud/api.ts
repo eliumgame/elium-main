@@ -997,7 +997,16 @@ export class DriveApi {
       hasMore?: boolean;
     }>("GET", `/collab/${nodeId}/updates`, { query: { since } });
   }
-  /** WebSocket URL for the encrypted collaboration room. */
+  /**
+   * WebSocket URL for the encrypted collaboration room.
+   *
+   * Limite connue (audit CLIENT-10) : le jeton d'accès voyage en query string, car
+   * l'API WebSocket du navigateur ne permet pas d'en-tête Authorization. Il peut
+   * donc apparaître dans les journaux d'un proxy. Atténuations en place : jeton à
+   * courte durée de vie, rafraîchi, et contenu chiffré de bout en bout. Remplacer
+   * par un ticket à usage unique ou une authentification par 1er message exige un
+   * changement côté serveur (server/src/collab) : volontairement non fait ici.
+   */
   collabSocketUrl(nodeId: string): string {
     const base = this.baseUrl.startsWith("http")
       ? this.baseUrl.replace(/^http/, "ws")

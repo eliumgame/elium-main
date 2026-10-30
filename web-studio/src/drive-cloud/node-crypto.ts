@@ -11,6 +11,11 @@ import { toHex, fromHex } from "../format/canonical";
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 const buf = (u: Uint8Array): BufferSource => u as unknown as BufferSource;
+// CLIENT-08 : AAD volontairement STATIQUE. La clé (CEK) est propre à chaque nœud, donc un
+// chiffré ne peut pas être rejoué sur un autre nœud ; en revanche nom / méta / contenu
+// d'un MÊME nœud partagent clé+AAD (un serveur pourrait les permuter). Lier un contexte
+// (nœud, rôle) à l'AAD rendrait ILLISIBLES toutes les données déjà chiffrées : non
+// modifié (migration versionnée nécessaire).
 const NODE_AAD = enc.encode("elium-drive/node/1");
 
 /** An opaque recipients envelope (parsed JSON). Stored as JSONB server-side. */

@@ -14,6 +14,7 @@
  * with an automatic refetch when a token presents an unknown `kid` — i.e. the
  * IdP rotated its keys).
  */
+import { safeHttpsGet } from "./safe-fetch.js";
 import { createPublicKey, createVerify, verify as edVerify, type JsonWebKey } from "node:crypto";
 
 export interface OidcConfig {
@@ -269,7 +270,8 @@ async function resolveJwks(config: OidcConfig, opts: VerifyOpts): Promise<JsonWe
     return staticKeys;
   }
   const now = (opts.now ?? Date.now)();
-  const fetchImpl = opts.fetchImpl ?? fetch;
+  // Par défaut : GET HTTPS épinglé sur une adresse publique validée (anti-SSRF / DNS rebinding).
+  const fetchImpl = opts.fetchImpl ?? (safeHttpsGet as unknown as typeof fetch);
   const timeoutMs = opts.timeoutMs ?? 5_000;
   const cached = jwksCache.get(config.jwksUri);
   if (!opts.forceRefresh && cached && cached.expiresAt > now) {

@@ -16,8 +16,10 @@ export class FsStorage implements BlobStorage {
   }
 
   private pathFor(key: string): string {
-    const safe = key.replace(/[^a-zA-Z0-9_-]/g, "");
-    return join(this.root, safe.slice(0, 2), safe.slice(2, 4), safe);
+    // Validation STRICTE (au lieu d'un nettoyage silencieux qui faisait collisionner « a/b » et « ab ») :
+    // newKey() produit 48 caractères hexadécimaux ; toute autre forme est refusée.
+    if (!/^[a-zA-Z0-9_-]{8,128}$/.test(key)) throw new Error("Clé de stockage invalide.");
+    return join(this.root, key.slice(0, 2), key.slice(2, 4), key);
   }
 
   newKey(): string {

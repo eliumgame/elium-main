@@ -171,7 +171,7 @@ function tocHtml(headings: Heading[]): string {
     ? `<ol class="elium-toc__list">${headings
         .map(
           (h) =>
-            `<li class="elium-toc__item elium-toc__item--h${h.level}"><a href="#${h.slug}">${esc(h.text)}</a></li>`,
+            `<li class="elium-toc__item elium-toc__item--h${h.level}"><a href="#${esc(h.slug)}">${esc(h.text)}</a></li>`,
         )
         .join("")}</ol>`
     : '<p class="elium-toc__empty">Aucun titre.</p>';
@@ -239,7 +239,7 @@ function inlineHtml(node: ProseMirrorNode): string {
         const decoStyle = a.doubleStrike
           ? "double"
           : a.underlineStyle && a.underlineStyle !== "none" && a.underlineStyle !== "single"
-            ? String(a.underlineStyle)
+            ? safeCss(String(a.underlineStyle))
             : "";
         const style = [
           a.color ? `color:${safeCss(String(a.color))}` : "",
@@ -1017,7 +1017,10 @@ function pageCss(file: EliumFile): string {
   // into the width/height pair.
   const { width: pw, height: ph } = pageSizeOf(page);
   const size = `${pw}mm ${ph}mm`;
-  const m = page.margins ?? { top: 20, right: 20, bottom: 20, left: 20 };
+  const rawM = page.margins ?? { top: 20, right: 20, bottom: 20, left: 20 };
+  // Valeurs numériques uniquement : `margins` vient du document, jamais injecté tel quel dans <style>.
+  const mm = (v: unknown) => (Number.isFinite(Number(v)) ? Math.min(Math.max(Number(v), 0), 200) : 20);
+  const m = { top: mm(rawM.top), right: mm(rawM.right), bottom: mm(rawM.bottom), left: mm(rawM.left) };
   const boxes: string[] = [];
   if (page.header)
     boxes.push(`@top-center{content:${cssStr(expandTokens(page.header, title))};font-size:9pt;color:#64748b}`);
@@ -1086,10 +1089,14 @@ export function exportText(file: EliumFile): void {
 }
 
 export function exportPdf(file: EliumFile, verdicts?: Record<string, SignatureVerdict>): void {
-  // Open from a Blob URL (opaque origin) rather than document.write into an
-  // about:blank window: the print preview can no longer inherit the app origin
-  // or reach its localStorage, even if the document contained active content.
-  const html = buildStandaloneHtml(file, verdicts);
+  // NB : une Blob URL créée par l'app HÉRITE de l'origine de l'app (elle n'est
+  // pas opaque). La protection réelle est donc la CSP injectée ci-dessous
+  // (`script-src 'none'`) : aucun script ni gestionnaire inline ne s'exécute dans
+  // la fenêtre d'aperçu, même si le document contenait du contenu actif.
+  const csp =
+    `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: blob: https: http:; ` +
+    `style-src 'unsafe-inline'; font-src data:; object-src 'none'; base-uri 'none'; form-action 'none'">`;
+  const html = buildStandaloneHtml(file, verdicts).replace('<meta charset="utf-8">', `<meta charset="utf-8">${csp}`);
   const url = URL.createObjectURL(new Blob([html], { type: "text/html" }));
   const win = window.open(url, "_blank");
   if (!win) {

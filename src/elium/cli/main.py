@@ -111,6 +111,10 @@ def cmd_doc_create(args: argparse.Namespace) -> None:
     document = create_document_model(text_to_doc(text))
 
     profile = args.profile
+    if getattr(args, "encrypt_metadata", False) and not PROFILES[profile]["encrypted"]:
+        raise SystemExit(
+            f"--encrypt-metadata n'a de sens que pour un profil chiffré (protected, encrypted, secure_max) ; « {profile} » ne l'est pas."
+        )
     journal = create_journal(profile, title)
 
     recipients = args.recipient or None
@@ -127,6 +131,7 @@ def cmd_doc_create(args: argparse.Namespace) -> None:
     blob = write_elium(
         document, profile=profile, title=title, journal=journal,
         password=password, recipients=recipients, seal_private_key_hex=seal_key,
+        encrypt_metadata=bool(getattr(args, "encrypt_metadata", False)),
     )
     with open(args.output, "wb") as f:
         f.write(blob)
@@ -364,6 +369,9 @@ def build_parser() -> argparse.ArgumentParser:
                         "Chiffre POUR ces destinataires au lieu d'un mot de passe.")
     p.add_argument("--seal-key", dest="seal_key",
                    help="Fichier avec la clé privée Ed25519 (hex) pour sceller le document")
+    p.add_argument("--encrypt-metadata", dest="encrypt_metadata", action="store_true",
+                   help="Chiffrer aussi titre, signatures et journal (profils chiffrés uniquement) : "
+                        "sans cette option ils restent lisibles en clair dans l'archive.")
     p.set_defaults(func=cmd_doc_create)
 
     p = sub.add_parser("doc-open", help="Ouvrir et résumer un document .elium (v4)")

@@ -22,25 +22,26 @@ import { sha256Hex, randomToken } from "../lib/crypto-server.js";
 import { verifyIdTokenAsync, OidcError, type OidcConfig } from "../lib/oidc.js";
 import { badRequest, unauthorized, notFound, forbidden } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
+import { isIP } from "node:net";
+import { isNonPublicAddress } from "./tsa.js";
 import { resyncOrgGroupRoles } from "./scim.js";
 
-// Basic SSRF guard: the jwksUri is set by a semi-trusted org admin, but it must
-// still not be pointed at loopback / link-local / obvious private ranges. This
-// blocks literal private hosts; it does NOT defend against DNS pointing a public
-// name at a private IP (documented residual — a network egress policy is the
-// real fix in a hostile-tenant deployment).
-function isSafeJwksUrl(raw: string): boolean {
+// Garde SSRF à la saisie : https, sans identifiants, hôte non « localhost » et, pour un
+// littéral IP (v4, v6, ::ffff:v4, NAT64, 6to4…), adresse publique. Les noms DNS sont
+// revérifiés (toutes adresses résolues + connexion épinglée) À CHAQUE récupération
+// dans lib/safe-fetch.ts, ce qui couvre le DNS rebinding.
+export function isSafeJwksUrl(raw: string): boolean {
   let u: URL;
   try {
     u = new URL(raw);
   } catch {
     return false;
   }
-  if (u.protocol !== "https:") return false;
-  const h = u.hostname.toLowerCase();
-  if (h === "localhost" || h.endsWith(".localhost") || h === "::1" || h === "[::1]") return false;
-  if (/^127\./.test(h) || /^10\./.test(h) || /^192\.168\./.test(h) || /^169\.254\./.test(h)) return false;
-  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return false;
+  if (u.protocol !== "https:" || u.username || u.password) return false;
+  const h = u.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".internal") || h.endsWith(".local")) return false;
+  if (isIP(h) && isNonPublicAddress(h)) return false;
+  // Formes numériques non canoniques (« 2130706433 », « 0x7f.1 ») normalisées par URL en IPv4 : déjà couvertes ci-dessus.
   return true;
 }
 

@@ -31,7 +31,7 @@ import { storage } from "../storage/adapter.js";
 import { config } from "../config.js";
 import { assertDiskSpace } from "../lib/disk.js";
 import { audit } from "../lib/audit.js";
-import { notifyOrg } from "../collab/relay.js";
+import { kickRoom, notifyOrg } from "../collab/relay.js";
 
 const hex = (v: string) => Buffer.from(v, "hex");
 const envelope = z.record(z.string(), z.unknown()); // recipients envelope (opaque)
@@ -446,6 +446,10 @@ export default async function signingRoutes(app: FastifyInstance): Promise<void>
         await store.delete(key).catch(() => {});
         throw err;
       });
+
+      // Le contenu courant vient d'être remplacé par le fichier signé : les pairs de co-édition
+      // encore connectés sur ce nœud sont éjectés (ils se reconnectent et rechargent l'état).
+      kickRoom(nodeId, "content-replaced");
 
       // Audit anonyme (actor null) + réveil de la vue émetteur (poll conforté par push).
       await audit(orgId, null, "node.sign.submit", "file", nodeId, { signerFpr: signerFpr ?? undefined }, req.ip);

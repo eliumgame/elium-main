@@ -35,7 +35,12 @@ export type { DocumentSeal };
 interface SubsetOpts {
   docId: boolean;
   recipients: boolean;
+  /** Seal message v2 (CORE-03): docId / recipients are ALWAYS signed (null / [] when absent). */
+  strict?: boolean;
 }
+
+/** Signed-message generation carried by new seals (`seal.msgVersion`). */
+export const SEAL_MSG_VERSION = 2;
 
 function manifestSubset(m: EliumManifest, opts: SubsetOpts): Record<string, unknown> {
   return {
@@ -48,6 +53,7 @@ function manifestSubset(m: EliumManifest, opts: SubsetOpts): Record<string, unkn
     // Included only when set, so existing seals (no expiry/docId) stay byte-identical.
     ...(m.accessExpiresAt ? { accessExpiresAt: m.accessExpiresAt } : {}),
     ...(opts.docId && m.docId ? { docId: m.docId } : {}),
+    ...(opts.strict ? { docId: m.docId || null } : {}),
     protection: {
       encrypted: m.protection.encrypted,
       locked: m.protection.locked,
@@ -57,6 +63,7 @@ function manifestSubset(m: EliumManifest, opts: SubsetOpts): Record<string, unkn
       // displayed recipient fingerprint cannot be silently added or removed.
       // Present only on recipient files → non-recipient seals are unchanged.
       ...(opts.recipients && m.protection.recipients?.length ? { recipients: m.protection.recipients } : {}),
+      ...(opts.strict ? { recipients: [...(m.protection.recipients ?? [])] } : {}),
     },
     integrity: {
       algorithm: m.integrity.algorithm,
@@ -66,6 +73,7 @@ function manifestSubset(m: EliumManifest, opts: SubsetOpts): Record<string, unkn
 }
 
 const FULL_SUBSET: SubsetOpts = { docId: true, recipients: true };
+const STRICT_SUBSET: SubsetOpts = { docId: true, recipients: true, strict: true };
 
 /** The exact canonical string that gets signed (identical in TS and Python). */
 export async function sealMessage(
@@ -75,7 +83,7 @@ export async function sealMessage(
   opts: SubsetOpts = FULL_SUBSET,
 ): Promise<string> {
   return canonicalJSON({
-    v: 1,
+    v: opts.strict ? SEAL_MSG_VERSION : 1,
     manifest: manifestSubset(manifest, opts),
     signaturesHash: await sha256Hex(canonicalJSON(signatures)),
     journalHash: await sha256Hex(canonicalJSON(journal)),
@@ -88,10 +96,11 @@ export async function createSeal(
   journal: Journal,
   privateKeyHex: string,
 ): Promise<DocumentSeal> {
-  const message = await sealMessage(manifest, signatures, journal);
+  const message = await sealMessage(manifest, signatures, journal, STRICT_SUBSET);
   const publicKeyHex = await publicKeyHexFromPrivate(privateKeyHex);
   return {
     alg: "ed25519",
+    msgVersion: SEAL_MSG_VERSION,
     publicKeyHex,
     fingerprint: await fingerprintOf(publicKeyHex),
     sealedAt: nowIso(),
@@ -118,7 +127,12 @@ export async function verifySeal(
   const recipientForms = manifest.protection.recipients?.length ? [true, false] : [false];
   const docIdForms = manifest.docId ? [true, false] : [false];
   let authentic = false;
-  outer: for (const recipients of recipientForms) {
+  if (seal.msgVersion === SEAL_MSG_VERSION) {
+    // v2 seal: exactly one form, no downgrade (a v2 signature never matches a legacy message,
+    // so stripping `msgVersion` doesn't help an attacker either).
+    const message = await sealMessage(manifest, signatures, journal, STRICT_SUBSET);
+    authentic = await verifyMessage(seal.signatureHex, message, seal.publicKeyHex);
+  } else outer: for (const recipients of recipientForms) {
     for (const docId of docIdForms) {
       const message = await sealMessage(manifest, signatures, journal, { docId, recipients });
       if (await verifyMessage(seal.signatureHex, message, seal.publicKeyHex)) {

@@ -79,21 +79,32 @@ export function totpNow(secretB32: string, atMs = Date.now()): string {
 }
 
 /**
- * Constant-time verify of a 6-digit code, tolerating ±`window` steps of clock
- * drift (default ±1 → a 90-second acceptance window).
+ * Pas TOTP (compteur) auquel correspond le code, tolérant ±`window` pas de dérive
+ * d'horloge, ou null. Comparaison à temps constant. Le pas permet à l'appelant de
+ * refuser un rejeu (mémoriser le dernier pas consommé).
  */
-export function verifyTotp(secretB32: string, code: string, window = 1, atMs = Date.now()): boolean {
+export function matchTotpStep(secretB32: string, code: string, window = 1, atMs = Date.now()): number | null {
   const normalized = code.replace(/\s/g, "");
-  if (!/^\d{6}$/.test(normalized)) return false;
+  if (!/^\d{6}$/.test(normalized)) return null;
   const secret = base32Decode(secretB32);
   const counter = Math.floor(atMs / 1000 / STEP_SECONDS);
+  let found: number | null = null;
   for (let w = -window; w <= window; w++) {
     const expected = hotp(secret, counter + w);
     const a = Buffer.from(expected);
     const b = Buffer.from(normalized);
-    if (a.length === b.length && timingSafeEqual(a, b)) return true;
+    if (a.length === b.length && timingSafeEqual(a, b) && found === null) found = counter + w;
   }
-  return false;
+  return found;
+}
+
+/**
+ * Constant-time verify of a 6-digit code, tolerating ±`window` steps of clock
+ * drift (default ±1 → a 90-second acceptance window). SANS mémoire de rejeu :
+ * pour un second facteur réel, utiliser `matchTotpStep` + dernier pas consommé.
+ */
+export function verifyTotp(secretB32: string, code: string, window = 1, atMs = Date.now()): boolean {
+  return matchTotpStep(secretB32, code, window, atMs) !== null;
 }
 
 /** The `otpauth://` URI an authenticator app scans (issuer + account label). */

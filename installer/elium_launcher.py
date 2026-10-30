@@ -74,6 +74,18 @@ def _token_meta_tag() -> bytes:
     )
 
 
+def _is_authorized_open_request(token: Optional[str], sec_fetch_site: Optional[str]) -> bool:
+    """GET /__open__ : jeton de session valide, ou requête same-origin du navigateur.
+
+    Limite assumée : un processus local qui lit index.html obtient aussi le jeton ;
+    ce contrôle ne protège que contre les pages web tierces (déjà bloquées par la
+    SOP) et contre un simple `curl /__open__` sans contexte.
+    """
+    if token and secrets.compare_digest(token.encode("utf-8"), _SESSION_TOKEN.encode("utf-8")):
+        return True
+    return (sec_fetch_site or "").strip().lower() == "same-origin"
+
+
 def _is_authorized_state_request(
     token: Optional[str], origin: Optional[str], host: Optional[str], port: int
 ) -> bool:
@@ -1380,6 +1392,14 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                     "application/json; charset=utf-8",
                 )
             else:
+                # Le contenu d'un document : réservé à la page de CE serveur (jeton de
+                # session, ou en-tête Sec-Fetch-Site: same-origin que le navigateur pose
+                # lui-même et qu'une page tierce ne peut pas forger).
+                if not _is_authorized_open_request(
+                    self.headers.get("X-Elium-Token"), self.headers.get("Sec-Fetch-Site")
+                ):
+                    self.send_error(403, "Requête non autorisée")
+                    return
                 self._serve_opened_file()
             return
         if clean == "/__update__":
@@ -1886,6 +1906,10 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             self.send_error(404, "Aucun fichier en attente")
             return
         name, data = item
+        # Purge après lecture : le document n'a pas à rester en mémoire (ni servi
+        # indéfiniment) une fois remis à la page. open_seq, lui, continue de compter.
+        if QuietHandler.opened_file is item:
+            QuietHandler.opened_file = None
         self.send_response(200)
         self.send_header("Content-Type", "application/x-elium")
         self.send_header("Content-Length", str(len(data)))

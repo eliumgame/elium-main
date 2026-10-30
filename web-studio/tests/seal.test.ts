@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { unzipSync, zipSync, strToU8 } from "fflate";
 import { readEliumPackage } from "../src/format/elium-package";
-import { createSeal, verifySeal } from "../src/sign/seal";
-import { generateIdentity } from "../src/sign/keys";
+import { createSeal, verifySeal, sealMessage } from "../src/sign/seal";
+import { generateIdentity, signMessage, fingerprintOf } from "../src/sign/keys";
 import { emptyJournal, appendEvent } from "../src/format/journal";
 import type { EliumManifest, EliumSignature } from "../src/format/types";
 
@@ -19,6 +19,22 @@ const PY_B64 =
 const PY_PUBKEY_REC = "41c4a57e97ff2603e97d3572fc0cb71dba14f63aa39fde8ef9327ac0d65b384a";
 const PY_B64_REC =
   "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";
+
+/** A seal the way OLD versions made it: v1 message, no msgVersion, chosen optional fields. */
+async function legacySeal(
+  m: EliumManifest,
+  journal: ReturnType<typeof emptyJournal>,
+  id: { privateKeyHex?: string; publicKeyHex: string },
+  opts: { docId: boolean; recipients: boolean },
+) {
+  return {
+    alg: "ed25519" as const,
+    publicKeyHex: id.publicKeyHex,
+    fingerprint: await fingerprintOf(id.publicKeyHex),
+    sealedAt: "2026-01-01T00:00:00Z",
+    signatureHex: await signMessage(await sealMessage(m, [], journal, opts), id.privateKeyHex!),
+  };
+}
 
 function b64ToBytes(b64: string): Uint8Array {
   return Uint8Array.from(Buffer.from(b64, "base64"));
@@ -125,7 +141,7 @@ describe("document seal (TypeScript)", () => {
     const journal = emptyJournal();
     // A seal computed BEFORE docId was covered (a file with no docId at seal time).
     const legacy = baseManifest();
-    const seal = await createSeal(legacy, [], journal, id.privateKeyHex!);
+    const seal = await legacySeal(legacy, journal, id, { docId: false, recipients: false });
     // A later app version stamped a docId onto the same file; the seal predates it.
     const manifest = { ...legacy, docId: "doc-legacy", seal } as EliumManifest;
     expect(await verifySeal(manifest, [], journal)).toBe("valid"); // fallback rescues it
@@ -171,7 +187,7 @@ describe("document seal (TypeScript)", () => {
       docId: "doc-r",
       protection: { ...base.protection, encrypted: true, contentEntry: "content/document.elium" },
     } as EliumManifest;
-    const seal = await createSeal(legacy, [], journal, id.privateKeyHex!);
+    const seal = await legacySeal(legacy, journal, id, { docId: true, recipients: false });
     // A later version stamped the recipient list onto the same file; the seal predates it.
     const manifest = {
       ...legacy,
@@ -202,8 +218,31 @@ describe("document seal (TypeScript)", () => {
     for (const [name, data] of Object.entries(entries)) {
       rebuilt[name] = name === "manifest.json" ? strToU8(JSON.stringify(manifest)) : (data as Uint8Array);
     }
+    // CORE-04: the spoofed badge is now rejected outright (profile/protection incoherent).
+    await expect(readEliumPackage(zipSync(rebuilt))).rejects.toThrow(/incohérent/);
+    // A COHERENT spoof (tracked→signed, same protection flags) is still caught by the seal.
+    manifest.profile = "signed";
+    rebuilt["manifest.json"] = strToU8(JSON.stringify(manifest));
     const r = await readEliumPackage(zipSync(rebuilt));
     expect(r.seal.verdict).toBe("broken");
+  });
+
+  it("CORE-03: a v2 seal rejects a docId / recipient list injected after sealing", async () => {
+    const id = await generateIdentity();
+    const journal = emptyJournal();
+    const base = baseManifest();
+    const noDoc = { ...base } as EliumManifest;
+    delete (noDoc as { docId?: string }).docId;
+    const seal = await createSeal(noDoc, [], journal, id.privateKeyHex!);
+    expect(seal.msgVersion).toBe(2);
+    const m = { ...noDoc, seal } as EliumManifest;
+    expect(await verifySeal(m, [], journal)).toBe("valid");
+    expect(await verifySeal({ ...m, docId: "injected" } as EliumManifest, [], journal)).toBe("broken");
+    const injected = { ...m, protection: { ...m.protection, recipients: ["evil"] } } as EliumManifest;
+    expect(await verifySeal(injected, [], journal)).toBe("broken");
+    // Stripping the marker is no downgrade path.
+    const { msgVersion: _drop, ...bare } = seal;
+    expect(await verifySeal({ ...injected, seal: bare } as EliumManifest, [], journal)).toBe("broken");
   });
 
   it("verifies a Python-sealed MULTI-RECIPIENT seal (recipients in the sealed subset)", async () => {

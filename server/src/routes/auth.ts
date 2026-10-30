@@ -29,6 +29,7 @@ import { generateTotpSecret, verifyTotp, otpauthUri, generateBackupCodes } from 
 import { authenticate, requireUser } from "../middleware/auth.js";
 import { badRequest, unauthorized, conflict, notFound, ApiError } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
+import { kickUser } from "../collab/relay.js";
 import { config } from "../config.js";
 import { assertSignupAllowed, autoJoinSiteOrg, getSiteState } from "../lib/site-settings.js";
 import { verifySecondFactor, MFA_LOGIN_PURPOSE } from "../lib/second-factor.js";
@@ -235,11 +236,11 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
         r.id,
       ]);
       if (!used.rowCount) throw notFound("Lien de réinitialisation invalide, expiré ou déjà utilisé.");
-      await c.query(
+      const upd = await c.query(
         `UPDATE users SET ed25519_public_hex = $2, p256_public_hex = $3, fingerprint = $4,
                 auth_sign_public_hex = $5, kdf_salt = $6, kdf_params = $7, key_bundle = $8,
                 token_epoch = now(), updated_at = now()
-          WHERE id = $1`,
+          WHERE id = $1 AND status = 'active'`,
         [
           r.user_id,
           b.ed25519PublicHex,
@@ -251,6 +252,8 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
           JSON.stringify(b.keyBundle),
         ],
       );
+      // Un compte supprimé/suspendu entre-temps ne doit pas être ressuscité par un lien encore valide.
+      if (upd.rowCount === 0) throw notFound("Lien de réinitialisation invalide, expiré ou déjà utilisé.");
       // Toutes les sessions s'arrêtent : seul le nouveau mot de passe ouvre le compte.
       // token_epoch (ci-dessus) couvre en plus un access token déjà émis sous
       // l'ANCIENNE identité : il est refusé dès la prochaine requête, pas
@@ -260,6 +263,7 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
       // Une passkey (éventuellement posée par un attaquant) ne doit pas survivre à une réinitialisation.
       await c.query(`DELETE FROM webauthn_credentials WHERE user_id = $1`, [r.user_id]);
     });
+    kickUser(r.user_id, "password-reset");
     await audit((await getSiteState()).orgId, r.user_id, "auth.password_reset.complete", "user", r.user_id, {}, req.ip);
     return { ok: true, email: r.email };
   });
@@ -702,7 +706,13 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
   app.post("/reauth", { preHandler: authenticate, ...rl(10) }, async (req) => {
     const user = requireUser(req);
     const b = z
-      .object({ challengeId: z.string().uuid(), signature: hex(128), code: z.string().max(32).optional() })
+      .object({
+        challengeId: z.string().uuid(),
+        signature: hex(128),
+        code: z.string().max(32).optional(),
+        // Réponse WebAuthn (à la place du code) : obligatoire pour un compte à clés d'accès seules.
+        webauthn: z.record(z.string(), z.unknown()).optional(),
+      })
       .parse(req.body);
     const row = await queryOne<{ auth_sign_public_hex: string | null; mfa_enabled: boolean }>(
       `SELECT auth_sign_public_hex, mfa_enabled FROM users WHERE id = $1 AND status = 'active'`,
@@ -724,15 +734,33 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
       await audit(null, user.id, "auth.reauth.denied", "user", user.id, {}, req.ip);
       throw unauthorized("Mot de passe incorrect.");
     }
-    if (row.mfa_enabled) {
-      if (!b.code) throw new ApiError(403, "mfa_code_required", "Saisissez aussi un code de vérification.");
-      if (!(await verifySecondFactor(user.id, b.code))) {
+    // 2e facteur dès qu'un facteur existe : TOTP/code de secours OU clé WebAuthn (comme à la connexion).
+    const webauthn = await hasWebauthn(user.id);
+    if (row.mfa_enabled || webauthn) {
+      let secondOk = false;
+      if (b.webauthn && webauthn) {
+        secondOk = await verifyAuthentication(user.id, b.webauthn as never);
+      } else if (b.code && row.mfa_enabled) {
+        secondOk = await verifySecondFactor(user.id, b.code);
+      } else {
+        throw new ApiError(403, "mfa_code_required", "Saisissez aussi un code de vérification.", {
+          methods: { totp: row.mfa_enabled, webauthn },
+        });
+      }
+      if (!secondOk) {
         await audit(null, user.id, "auth.reauth.denied", "user", user.id, { reason: "mfa" }, req.ip);
         throw unauthorized("Code de vérification invalide.");
       }
     }
     await audit(null, user.id, "auth.reauth", "user", user.id, {}, req.ip);
     return { reauthToken: issueReauthToken(user.id) };
+  });
+
+  // Options WebAuthn pour la ré-authentification (compte à clés d'accès).
+  app.post("/reauth/webauthn-options", { preHandler: authenticate, ...rl(10) }, async (req) => {
+    const user = requireUser(req);
+    if (!(await hasWebauthn(user.id))) throw badRequest("Aucune clé d'accès enregistrée.");
+    return authenticationOptions(user.id);
   });
 
   // --- Change password / key passphrase ------------------------------------
@@ -790,6 +818,8 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
     // expiration naturelle. La session fraîche émise ci-dessous (après le bump)
     // reste valide : son iat est postérieur à la nouvelle époque.
     await query(`UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`, [user.id]);
+    // Les WebSockets ouvertes sous l'ancien mot de passe sont coupées (la nouvelle session se reconnecte).
+    kickUser(user.id, "password-changed");
     const session = await issueSession(app, user.id, user.fingerprint, req.headers["user-agent"] ?? "", req.ip);
     await audit(null, user.id, "auth.password.change", "user", user.id, {}, req.ip);
     return { ok: true as const, ...session };

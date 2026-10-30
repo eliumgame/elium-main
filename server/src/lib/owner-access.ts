@@ -40,8 +40,13 @@ export async function resetOwnerAccess(email: string): Promise<ResetOutcome> {
     await c.query(`DELETE FROM mfa_backup_codes WHERE user_id = $1`, [user.id]);
     const del = await c.query(`DELETE FROM webauthn_credentials WHERE user_id = $1`, [user.id]);
     passkeys = del.rowCount ?? 0;
+    await c.query(`UPDATE users SET token_epoch = now() WHERE id = $1`, [user.id]);
     await c.query(`UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`, [user.id]);
   });
+
+  // (Pas de kickUser ici : ce code tourne dans un processus CLI sans WebSocket ni backplane ;
+  // token_epoch ci-dessus refuse tout jeton déjà émis, et les sockets existantes sont
+  // fermées à l'expiration de leur jeton.)
 
   // La politique « 2FA obligatoire » doit retomber, sinon le compte serait aussitôt
   // renvoyé vers l'enrôlement forcé (acceptable, mais pas de piège pour le propriétaire).

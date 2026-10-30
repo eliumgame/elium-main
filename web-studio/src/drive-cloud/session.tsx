@@ -171,6 +171,10 @@ export function DriveProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // One API client for the whole session; token refreshes are persisted.
+  // Limite connue (audit CLIENT-10) : les jetons vivent dans localStorage, donc
+  // lisibles par toute XSS de l'origine. Défense en profondeur : CSP stricte sans
+  // 'unsafe-inline' (lanceur + Caddyfile), jetons courts, et les clés de contenu ne
+  // sont jamais stockées en clair (seul le key bundle chiffré l'est).
   const api = useMemo(
     () =>
       new DriveApi({

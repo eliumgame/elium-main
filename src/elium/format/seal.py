@@ -36,7 +36,12 @@ SEAL_UNKNOWN_KEY = "unknown_key"    # seal verifies but signer key != trusted ke
 SEAL_BROKEN = "broken"              # seal does not verify: tampered or corrupt
 
 
-def _manifest_subset(manifest: dict, include_doc_id: bool, include_recipients: bool) -> dict[str, Any]:
+SEAL_MSG_VERSION = 2  # signed-message generation carried by new seals (seal["msgVersion"])
+
+
+def _manifest_subset(
+    manifest: dict, include_doc_id: bool, include_recipients: bool, strict: bool = False
+) -> dict[str, Any]:
     """The integrity-critical fields the seal protects.
 
     Excludes volatile/derived fields (modifiedAt, generator, features, rgpd)
@@ -80,6 +85,14 @@ def _manifest_subset(manifest: dict, include_doc_id: bool, include_recipients: b
         subset["accessExpiresAt"] = manifest["accessExpiresAt"]
     if include_doc_id and manifest.get("docId"):
         subset["docId"] = manifest["docId"]
+    if strict:
+        # Seal message v2 (CORE-03): `docId` and `protection.recipients` are ALWAYS
+        # present in the signed subset (null / [] when absent). Their absence is
+        # therefore itself signed: nobody can inject a docId or a recipient list
+        # into a file that was sealed without one. The legacy multi-form fallback
+        # (which accepted exactly that) is only used for seals WITHOUT msgVersion=2.
+        subset["docId"] = manifest.get("docId") or None
+        protection_subset["recipients"] = list(protection.get("recipients") or [])
     return subset
 
 
@@ -89,12 +102,16 @@ def seal_message(
     journal: dict,
     include_doc_id: bool = True,
     include_recipients: bool = True,
+    strict: bool = False,
 ) -> str:
-    """The exact canonical string that gets signed (identical in Python and TS)."""
+    """The exact canonical string that gets signed (identical in Python and TS).
+
+    `strict=True` is the v2 form (new seals); `False` reproduces the legacy v1
+    forms byte-for-byte so already-sealed files keep verifying."""
     return canonical_json(
         {
-            "v": 1,
-            "manifest": _manifest_subset(manifest, include_doc_id, include_recipients),
+            "v": SEAL_MSG_VERSION if strict else 1,
+            "manifest": _manifest_subset(manifest, include_doc_id, include_recipients, strict),
             "signaturesHash": sha256_hex(canonical_json(signatures)),
             "journalHash": sha256_hex(canonical_json(journal)),
         }
@@ -107,10 +124,11 @@ def create_seal(manifest: dict, signatures: list[dict], journal: dict, private_k
     pub_raw = priv.public_key().public_bytes(
         encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw
     )
-    message = seal_message(manifest, signatures, journal).encode("utf-8")
+    message = seal_message(manifest, signatures, journal, strict=True).encode("utf-8")
     signature = priv.sign(message)
     return {
         "alg": "ed25519",
+        "msgVersion": SEAL_MSG_VERSION,
         "publicKeyHex": pub_raw.hex(),
         "fingerprint": hashlib.sha256(pub_raw).hexdigest(),
         "sealedAt": now_iso(),
@@ -146,8 +164,12 @@ def verify_seal(
     if seal.get("fingerprint") != hashlib.sha256(bytes.fromhex(seal["publicKeyHex"])).hexdigest():
         return SEAL_BROKEN
 
-    def _matches(include_doc_id: bool, include_recipients: bool) -> bool:
-        message = seal_message(manifest, signatures, journal, include_doc_id, include_recipients).encode("utf-8")
+    strict_seal = seal.get("msgVersion") == SEAL_MSG_VERSION
+
+    def _matches(include_doc_id: bool, include_recipients: bool, strict: bool = False) -> bool:
+        message = seal_message(
+            manifest, signatures, journal, include_doc_id, include_recipients, strict
+        ).encode("utf-8")
         try:
             pub.verify(sig, message)
             return True
@@ -156,7 +178,12 @@ def verify_seal(
 
     recipient_forms = [True, False] if manifest.get("protection", {}).get("recipients") else [False]
     docid_forms = [True, False] if manifest.get("docId") else [False]
-    authentic = any(_matches(d, r) for r in recipient_forms for d in docid_forms)
+    if strict_seal:
+        # v2 seal: exactly one form, no downgrade. Stripping `msgVersion` cannot help
+        # an attacker either: a v2 signature never matches a legacy message.
+        authentic = _matches(True, True, strict=True)
+    else:
+        authentic = any(_matches(d, r) for r in recipient_forms for d in docid_forms)
     if not authentic:
         return SEAL_BROKEN
 

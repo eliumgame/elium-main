@@ -163,7 +163,7 @@ export async function syncEmbeddedFonts(file: EliumFile, available: EmbeddableFo
   return { ...file, resourceIndex: nextIndex, resources };
 }
 
-const cssEscapeFamily = (name: string) => name.replace(/["\\]/g, "");
+const cssEscapeFamily = (name: string) => name.replace(/["\\<>{};\r\n]/g, "");
 
 /**
  * `@font-face` rules from font bytes, as data URLs so the result is a single

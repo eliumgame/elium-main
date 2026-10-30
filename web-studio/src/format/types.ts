@@ -286,6 +286,8 @@ export interface RgpdMetadata {
  */
 export interface DocumentSeal {
   alg: "ed25519";
+  /** 2 = signed message always binds docId + recipients (absence is signed). Absent = legacy. */
+  msgVersion?: number;
   publicKeyHex: string;
   fingerprint: string;
   sealedAt: string;

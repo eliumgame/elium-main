@@ -13,6 +13,7 @@ from elium.format.package import (
     ENTRY_JOURNAL,
     ENTRY_MANIFEST,
     ENTRY_SIGNATURES,
+    EliumPackageError,
     read_elium,
     write_elium,
 )
@@ -82,7 +83,15 @@ def test_seal_detects_profile_badge_spoof(sealed):
     man = json.loads(zipfile.ZipFile(io.BytesIO(blob)).read(ENTRY_MANIFEST))
     man["profile"] = "secure_max"
     tampered = _repack(blob, {ENTRY_MANIFEST: json.dumps(man, ensure_ascii=False).encode()})
-    assert read_elium(tampered)["seal"]["verdict"] == "broken"
+    # CORE-04: profile/protection incoherence is now rejected at read time, before
+    # the seal is even consulted (a spoofed badge can never be displayed).
+    with pytest.raises(EliumPackageError):
+        read_elium(tampered)
+    # A coherent profile swap (same protection flags) is still caught by the seal.
+    man["profile"] = "tracked"  # not locked -> incoherent with sealed locked=True ...
+    man["protection"]["locked"] = False
+    tampered2 = _repack(blob, {ENTRY_MANIFEST: json.dumps(man, ensure_ascii=False).encode()})
+    assert read_elium(tampered2)["seal"]["verdict"] == "broken"
 
 
 def test_seal_survives_benign_resave(sealed):
@@ -176,19 +185,80 @@ def test_seal_covers_recipient_set():
     assert verify_seal({**manifest, "protection": prot}, [], journal) == "broken"
 
 
+def _legacy_seal(manifest, signatures, journal, private_key_hex, *, doc_id=True, recipients=True):
+    """Forge a seal the way OLD Elium versions did (v1 message, no msgVersion)."""
+    import hashlib
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from elium.format.seal import seal_message
+
+    priv = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(private_key_hex))
+    pub = priv.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+    msg = seal_message(manifest, signatures, journal, doc_id, recipients, strict=False).encode()
+    return {"alg": "ed25519", "publicKeyHex": pub.hex(), "fingerprint": hashlib.sha256(pub).hexdigest(),
+            "sealedAt": "2026-01-01T00:00:00Z", "signatureHex": priv.sign(msg).hex()}
+
+
+_LEGACY_BASE = {
+    "format": "elium", "formatVersion": 4, "profile": "encrypted", "title": "T",
+    "language": "fr", "createdAt": "2026-01-01T00:00:00Z", "docId": "doc-r",
+    "protection": {"encrypted": True, "locked": False, "keyfileRequired": False,
+                   "contentEntry": "content/document.elium"},
+    "integrity": {"algorithm": "sha-256", "contentHash": "ab" * 32},
+}
+
+
 def test_legacy_recipient_seal_verifies_via_fallback():
-    """A recipient file sealed BEFORE recipients were covered still verifies."""
+    """A recipient file sealed BEFORE recipients were covered still verifies
+    (legacy v1 seal, no msgVersion)."""
+    from elium.format.seal import verify_seal
+
+    author = generate_identity()
+    journal = empty_journal()
+    legacy = dict(_LEGACY_BASE)
+    seal = _legacy_seal(legacy, [], journal, author["privateKeyHex"], recipients=False)
+    manifest = {**legacy, "protection": {**legacy["protection"], "recipients": ["fpra", "fprb"]}, "seal": seal}
+    assert verify_seal(manifest, [], journal) == "valid"  # recipients:false fallback rescues
+
+
+def test_legacy_seal_without_docid_still_verifies():
+    from elium.format.seal import verify_seal
+
+    author = generate_identity()
+    journal = empty_journal()
+    legacy = {k: v for k, v in _LEGACY_BASE.items() if k != "docId"}
+    seal = _legacy_seal(legacy, [], journal, author["privateKeyHex"])
+    assert verify_seal({**legacy, "seal": seal}, [], journal) == "valid"
+
+
+def test_core03_new_seal_rejects_injected_recipients_and_docid():
+    """CORE-03: a v2 seal signed WITHOUT docId/recipients must not stay valid when
+    an attacker injects either afterwards."""
     from elium.format.seal import create_seal, verify_seal
 
     author = generate_identity()
     journal = empty_journal()
-    legacy = {
-        "format": "elium", "formatVersion": 4, "profile": "encrypted", "title": "T",
-        "language": "fr", "createdAt": "2026-01-01T00:00:00Z", "docId": "doc-r",
-        "protection": {"encrypted": True, "locked": False, "keyfileRequired": False,
-                       "contentEntry": "content/document.elium"},
-        "integrity": {"algorithm": "sha-256", "contentHash": "ab" * 32},
-    }
-    seal = create_seal(legacy, [], journal, author["privateKeyHex"])  # no recipients at seal time
-    manifest = {**legacy, "protection": {**legacy["protection"], "recipients": ["fpra", "fprb"]}, "seal": seal}
-    assert verify_seal(manifest, [], journal) == "valid"  # recipients:false fallback rescues
+    base = {k: v for k, v in _LEGACY_BASE.items() if k != "docId"}
+    seal = create_seal(base, [], journal, author["privateKeyHex"])
+    assert seal["msgVersion"] == 2
+    manifest = {**base, "seal": seal}
+    assert verify_seal(manifest, [], journal) == "valid"
+    with_recipients = {**manifest, "protection": {**base["protection"], "recipients": ["evil"]}}
+    assert verify_seal(with_recipients, [], journal) == "broken"
+    assert verify_seal({**manifest, "docId": "injected"}, [], journal) == "broken"
+    # Stripping the msgVersion marker is no downgrade path either.
+    downgraded = {**with_recipients, "seal": {k: v for k, v in seal.items() if k != "msgVersion"}}
+    assert verify_seal(downgraded, [], journal) == "broken"
+
+
+def test_core03_v2_seal_with_docid_and_recipients_round_trip():
+    from elium.format.seal import create_seal, verify_seal
+
+    author = generate_identity()
+    journal = empty_journal()
+    m = {**_LEGACY_BASE, "protection": {**_LEGACY_BASE["protection"], "recipients": ["fpra"]}}
+    m["seal"] = create_seal(m, [], journal, author["privateKeyHex"])
+    assert verify_seal(m, [], journal) == "valid"
+    assert verify_seal({**m, "docId": "other"}, [], journal) == "broken"
+    no_doc = {k: v for k, v in m.items() if k != "docId"}
+    assert verify_seal(no_doc, [], journal) == "broken"

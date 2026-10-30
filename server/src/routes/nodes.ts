@@ -119,6 +119,20 @@ async function validateRole(roleId: string, orgId: string): Promise<void> {
   if (!r) throw badRequest("Rôle invalide pour cette organisation.");
 }
 
+/**
+ * Placer un nœud à la RACINE du Drive (création ou déplacement vers parentId null) :
+ * `space.create`, ou — si le réglage du portail l'autorise — tout membre actif.
+ */
+async function requireRootPlacement(req: FastifyRequest, orgId: string): Promise<void> {
+  try {
+    await requireOrgPerm(req, orgId, "space.create");
+  } catch (err) {
+    if (!(err instanceof ApiError) || err.statusCode !== 403) throw err;
+    if (!(await getSiteSettings()).membersCanCreateSpaces) throw err;
+    await requireMembership(req, orgId);
+  }
+}
+
 export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
   app.addHook("preHandler", authenticate);
 
@@ -133,13 +147,7 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
     } else {
       // Racine du Drive : `space.create`, ou — par défaut sur un Drive partagé — tout
       // membre actif peut ouvrir SON espace privé (réglage du portail du propriétaire).
-      try {
-        await requireOrgPerm(req, b.orgId, "space.create");
-      } catch (err) {
-        if (!(err instanceof ApiError) || err.statusCode !== 403) throw err;
-        if (!(await getSiteSettings()).membersCanCreateSpaces) throw err;
-        await requireMembership(req, b.orgId);
-      }
+      await requireRootPlacement(req, b.orgId);
     }
 
     // The creator must retain access to their own node.
@@ -313,6 +321,8 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
     const isMove = b.parentId !== undefined;
     if (isMove) {
       const access = await requireNodePerm(req, id, "node.move");
+      // Sortir un nœud à la racine revient à créer un espace : même garde que POST /.
+      if (b.parentId === null) await requireRootPlacement(req, access.orgId);
       if (b.parentId) {
         const target = await requireNodePerm(req, b.parentId, "node.create");
         if (target.orgId !== access.orgId) throw badRequest("Déplacement inter-organisation interdit.");
@@ -348,6 +358,7 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
       params.push(b.parentId);
     }
 
+    const revokedNodeIds = new Set<string>();
     const node = await withTx(async (c) => {
       const { rows } = await c.query(`UPDATE nodes SET ${sets.join(", ")} WHERE id = $1 RETURNING *`, params);
       if (!rows[0]) throw notFound();
@@ -361,18 +372,23 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
         // to. Direct grants made specifically on this subtree
         // (inherited_from IS NULL — including the owner's own key row) are
         // kept; re-sharing at the new location is a separate, explicit action.
-        await c.query(
+        const dropped = await c.query(
           `WITH RECURSIVE sub AS (
              SELECT id FROM nodes WHERE id = $1
              UNION
              SELECT n.id FROM nodes n JOIN sub ON n.parent_id = sub.id
            )
-           DELETE FROM node_keys WHERE node_id IN (SELECT id FROM sub) AND inherited_from IS NOT NULL`,
+           DELETE FROM node_keys WHERE node_id IN (SELECT id FROM sub) AND inherited_from IS NOT NULL
+           RETURNING node_id`,
           [id],
         );
+        for (const r of (dropped?.rows ?? []) as { node_id: string }[]) revokedNodeIds.add(r.node_id);
       }
       return rows[0];
     });
+    // Les pairs connectés via un accès hérité qu'on vient de retirer sont éjectés (ils se reconnectent
+    // et ré-évaluent leur ACL ; un pair sans accès échoue la porte RBAC).
+    for (const nid of revokedNodeIds) kickRoom(nid, "node-moved");
     await audit(node.org_id as string, user.id, "node.update", node.kind as string, id, {}, req.ip);
     notifyOrg(node.org_id as string);
     return { node: nodeMetaDto(node) };
@@ -384,6 +400,17 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
     const access = await requireNodePerm(req, id, "node.delete");
     const user = requireUser(req);
     await query(`UPDATE nodes SET trashed_at = now() WHERE id = $1 AND trashed_at IS NULL`, [id]);
+    // Corbeille : on coupe les sessions de co-édition du nœud et de ses descendants.
+    const subtree = await query<{ id: string }>(
+      `WITH RECURSIVE sub AS (
+         SELECT id FROM nodes WHERE id = $1
+         UNION
+         SELECT n.id FROM nodes n JOIN sub ON n.parent_id = sub.id
+       )
+       SELECT id FROM sub`,
+      [id],
+    );
+    for (const r of subtree ?? []) kickRoom(r.id, "node-trashed");
     await audit(access.orgId, user.id, "node.trash", access.kind, id, {}, req.ip);
     notifyOrg(access.orgId);
     return { ok: true };

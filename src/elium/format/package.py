@@ -383,6 +383,33 @@ def _safe_json_loads(data: bytes, what: str) -> Any:
         raise EliumPackageError(f"JSON invalide ({what}).") from e
 
 
+def _check_manifest_coherence(manifest: Any) -> None:
+    """CORE-04: the manifest's declared `profile` must agree with its `protection`
+    block (encrypted / locked / contentEntry), as written by `_build_manifest`.
+    An incoherent manifest is a tampered or forged file: reject with a typed error
+    instead of mis-parsing ciphertext as JSON or showing a spoofed badge."""
+    if not isinstance(manifest, dict):
+        raise EliumPackageError("Manifeste invalide : structure inattendue.")
+    prot = manifest.get("protection")
+    if not isinstance(prot, dict):
+        raise EliumPackageError("Manifeste invalide : bloc « protection » manquant.")
+    profile = manifest.get("profile")
+    if not isinstance(profile, str) or profile not in PROFILES:
+        raise EliumPackageError(f"Profil inconnu dans le manifeste : {profile!r}.")
+    p = PROFILES[profile]
+    if bool(prot.get("encrypted")) != p["encrypted"] or bool(prot.get("locked")) != p["locked"]:
+        raise EliumPackageError(
+            f"Manifeste incohérent : la protection déclarée ne correspond pas au profil « {profile} » (fichier altéré)."
+        )
+    expected = ENTRY_CONTENT_ENC if p["encrypted"] else ENTRY_CONTENT_PLAIN
+    if prot.get("contentEntry") != expected:
+        raise EliumPackageError(
+            f"Manifeste incohérent : entrée de contenu inattendue pour le profil « {profile} » (fichier altéré)."
+        )
+    if not isinstance(manifest.get("integrity", {}), dict):
+        raise EliumPackageError("Manifeste invalide : bloc « integrity » malformé.")
+
+
 def read_elium(
     blob: bytes,
     *,
@@ -434,6 +461,8 @@ def read_elium(
     except KeyError as e:
         raise EliumPackageError("Manifeste manquant : fichier .elium invalide.") from e
     manifest = _safe_json_loads(manifest_raw, "manifeste")
+    if not isinstance(manifest, dict):
+        raise EliumPackageError("Manifeste invalide : structure inattendue.")
 
     if manifest.get("format") != ELIUM_FORMAT:
         raise EliumPackageError("Ce fichier n'est pas un document Elium.")
@@ -442,6 +471,7 @@ def read_elium(
             f"Version de format {manifest['formatVersion']} non prise en charge."
         )
 
+    _check_manifest_coherence(manifest)
     content_entry = manifest["protection"]["contentEntry"]
     try:
         content_bytes = _read_capped(content_entry)
@@ -518,6 +548,9 @@ def read_elium(
         try:
             data = _read_capped(f"resources/{res_id}")
         except KeyError:
+            # Listed in the index but absent from the ZIP: removed/substituted
+            # entry (CORE-06) — report it like a hash mismatch instead of ignoring.
+            resources_tampered.append(res_id)
             continue
         if sha256_hex(data) == res_id:
             resources[res_id] = data

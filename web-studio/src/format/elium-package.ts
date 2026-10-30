@@ -28,7 +28,7 @@ import {
 } from "../crypto/recipients";
 import { createSeal, verifySeal, type SealVerdict } from "../sign/seal";
 import { sha256Hex, nowIso } from "./canonical";
-import { profileOf } from "./profiles";
+import { PROFILES, profileOf } from "./profiles";
 import { emptyJournal } from "./journal";
 import {
   ELIUM_FORMAT,
@@ -354,6 +354,27 @@ export async function writeEliumPackage(file: EliumFile, opts: WriteOptions = {}
 
 // --- Read -----------------------------------------------------------------
 
+/** CORE-04 : `manifest.profile` doit être cohérent avec `manifest.protection`
+ *  (encrypted / locked / contentEntry), tel qu'écrit par `buildManifest`. Miroir de
+ *  `_check_manifest_coherence` (package.py). */
+function assertManifestCoherence(manifest: EliumManifest): void {
+  const prot = (manifest as { protection?: unknown }).protection as EliumManifest["protection"] | undefined;
+  if (!prot || typeof prot !== "object") throw new EliumPackageError("Manifeste invalide : bloc « protection » manquant.");
+  const profile = manifest.profile as string;
+  if (typeof profile !== "string" || !Object.prototype.hasOwnProperty.call(PROFILES, profile))
+    throw new EliumPackageError(`Profil inconnu dans le manifeste : ${JSON.stringify(profile)}.`);
+  const def = profileOf(profile as EliumManifest["profile"]);
+  if (!!prot.encrypted !== def.encrypted || !!prot.locked !== def.locked)
+    throw new EliumPackageError(
+      `Manifeste incohérent : la protection déclarée ne correspond pas au profil « ${profile} » (fichier altéré).`,
+    );
+  const expected = def.encrypted ? ENTRY.contentEnc : ENTRY.contentPlain;
+  if (prot.contentEntry !== expected)
+    throw new EliumPackageError(
+      `Manifeste incohérent : entrée de contenu inattendue pour le profil « ${profile} » (fichier altéré).`,
+    );
+}
+
 export async function readEliumPackage(blob: Uint8Array, opts: WriteOptions = {}): Promise<ReadResult> {
   let entries: Record<string, Uint8Array>;
   let total = 0;
@@ -417,6 +438,7 @@ export async function readEliumPackage(blob: Uint8Array, opts: WriteOptions = {}
     );
   }
 
+  assertManifestCoherence(manifest);
   const contentEntry = manifest.protection.contentEntry;
   const contentBytes = entries[contentEntry];
   if (!contentBytes) throw new EliumPackageError("Contenu du document manquant.");
@@ -453,7 +475,7 @@ export async function readEliumPackage(blob: Uint8Array, opts: WriteOptions = {}
       );
       payloadBytes = payload;
     }
-    const parsed = JSON.parse(strFromU8(payloadBytes));
+    const parsed = safeJsonParse<any>(payloadBytes, "contenu");
     if (secure) {
       if (!parsed || parsed.schema !== SECURE_SCHEMA) {
         throw new EliumPackageError("Enveloppe de métadonnées chiffrées invalide.");
@@ -493,7 +515,11 @@ export async function readEliumPackage(blob: Uint8Array, opts: WriteOptions = {}
   const resourcesTampered: string[] = [];
   for (const res of resourceIndex) {
     const bytes = entries[`resources/${res.id}`];
-    if (!bytes) continue;
+    if (!bytes) {
+      // Listée dans l'index mais absente du ZIP : entrée supprimée/substituée (CORE-06).
+      resourcesTampered.push(res.id);
+      continue;
+    }
     const actual = await sha256Hex(bytes);
     if (actual === res.id) resources.set(res.id, bytes);
     else resourcesTampered.push(res.id);

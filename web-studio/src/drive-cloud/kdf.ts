@@ -14,7 +14,7 @@
  */
 import { EliumCryptoEngine } from "../crypto/elium-crypto";
 import { toHex, fromHex } from "../format/canonical";
-import { KDF_PROFILES } from "../crypto/kdf-profiles";
+import { KDF_PROFILES, kdfWithinBounds } from "../crypto/kdf-profiles";
 
 export interface KdfParams {
   alg: "argon2id";
@@ -50,6 +50,11 @@ export async function deriveAccountSecrets(
   kdfSaltHex: string,
   params: KdfParams = DEFAULT_KDF_PARAMS,
 ): Promise<AccountSecrets> {
+  // CLIENT-07 : `params` peut venir du serveur (prelogin). Un serveur hostile ne doit
+  // pas pouvoir imposer un Argon2id démesuré (DoS mémoire/CPU) ni un autre algorithme.
+  if (!params || params.alg !== "argon2id" || !kdfWithinBounds(params)) {
+    throw new Error("Paramètres KDF du serveur hors bornes ou non pris en charge (refusés par sécurité).");
+  }
   const root = await EliumCryptoEngine.deriveMasterKey(password, fromHex(kdfSaltHex), params.t, params.m, params.p);
   const [authSecret, authSignSeed, masterKey] = await Promise.all([
     hkdf(root, "elium-drive/auth/1"),

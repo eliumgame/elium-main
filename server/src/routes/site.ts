@@ -425,7 +425,10 @@ export default async function siteRoutes(app: FastifyInstance): Promise<void> {
         userId,
       ]);
       if (!mem) throw notFound("Utilisateur introuvable dans ce Drive.");
+      // token_epoch invalide aussi les access tokens déjà émis (stateless) ; kickUser coupe les WebSockets.
+      await query(`UPDATE users SET token_epoch = now() WHERE id = $1`, [userId]);
       await query(`UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`, [userId]);
+      kickUser(userId, "sessions-revoked");
       await audit(orgId, actor.id, "site.user.revoke_sessions", "user", userId, {}, req.ip);
       return { ok: true };
     });

@@ -12,6 +12,12 @@ const t = (text: string, marks?: Mark[]): ProseMirrorNode =>
   marks?.length ? { type: "text", text, marks } : { type: "text", text };
 const para = (children: ProseMirrorNode[]): ProseMirrorNode =>
   children.length ? { type: "paragraph", content: children } : { type: "paragraph" };
+/** Schémas de lien autorisés à l'import : tout le reste (javascript:, data:, vbscript:…) devient « # ». */
+export function safeImportHref(url: string): string {
+  // Contrôles/espaces dans le schéma (« java<TAB>script: ») sont ignorés par les navigateurs.
+  const u = url.replace(/[\x00-\x20]+/g, "");
+  return /^(https?:|mailto:|tel:|#|\/|\.{0,2}\/)/i.test(u) || !/^[a-z][a-z0-9+.-]*:/i.test(u) ? url.trim() : "#";
+}
 const wrapDoc = (content: ProseMirrorNode[]): ProseMirrorNode => ({
   type: "doc",
   content: content.length ? content : [{ type: "paragraph" }],
@@ -33,7 +39,7 @@ const INLINE: Array<{ re: RegExp; make: (m: RegExpExecArray) => ProseMirrorNode 
   { re: /^~~([^~]+)~~/, make: (m) => t(m[1], [{ type: "strike" }]) },
   { re: /^\*([^*]+)\*/, make: (m) => t(m[1], [{ type: "italic" }]) },
   { re: /^_([^_]+)_/, make: (m) => t(m[1], [{ type: "italic" }]) },
-  { re: /^\[([^\]]+)\]\(([^)]+)\)/, make: (m) => t(m[1], [{ type: "link", attrs: { href: m[2] } }]) },
+  { re: /^\[([^\]]+)\]\(([^)]+)\)/, make: (m) => t(m[1], [{ type: "link", attrs: { href: safeImportHref(m[2]) } }]) },
 ];
 
 function parseInline(s: string): ProseMirrorNode[] {
@@ -155,7 +161,7 @@ function inlineFromDom(node: ChildNode, marks: Mark[]): ProseMirrorNode[] {
   if (el.tagName === "BR") return [{ type: "hardBreak" }];
   let nextMarks = marks;
   if (el.tagName === "A") {
-    nextMarks = [...marks, { type: "link", attrs: { href: el.getAttribute("href") ?? "#" } }];
+    nextMarks = [...marks, { type: "link", attrs: { href: safeImportHref(el.getAttribute("href") ?? "#") } }];
   } else if (MARK_TAGS[el.tagName]) {
     nextMarks = [...marks, MARK_TAGS[el.tagName]];
   }

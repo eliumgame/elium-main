@@ -379,3 +379,19 @@ describe("assertSignupAllowed", () => {
     await expect(assertSignupAllowed("boss@acme.fr")).resolves.toBeUndefined();
   });
 });
+
+describe("POST /api/site/admin/users/:userId/revoke-sessions (SRV-07)", () => {
+  it("bump token_epoch (jetons déjà émis refusés), révoque les sessions et coupe les WebSockets", async () => {
+    db({ siteOrg: ORG });
+    const base = mQueryOne.getMockImplementation()!;
+    mQueryOne.mockImplementation((async (sql: string, p: unknown[]) =>
+      sql.includes("FROM memberships") ? { id: "m1" } : base(sql, p)) as never);
+    const app = await makeApp();
+    const res = await app.inject({ method: "POST", url: `/api/site/admin/users/${MEMBER}/revoke-sessions` });
+    expect(res.statusCode).toBe(200);
+    expect(mQuery).toHaveBeenCalledWith(expect.stringContaining("token_epoch = now()"), [MEMBER]);
+    expect(mQuery).toHaveBeenCalledWith(expect.stringContaining("UPDATE sessions SET revoked_at"), [MEMBER]);
+    expect(mKickUser).toHaveBeenCalledWith(MEMBER, "sessions-revoked");
+    await app.close();
+  });
+});

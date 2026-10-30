@@ -5,7 +5,7 @@
  */
 import { queryOne } from "../db/pool.js";
 import { decryptServerSecret, sha256Hex } from "./crypto-server.js";
-import { verifyTotp } from "./totp.js";
+import { matchTotpStep } from "./totp.js";
 
 /** Usage du jeton intermédiaire émis entre le mot de passe (ou le SSO) et le second facteur. */
 export const MFA_LOGIN_PURPOSE = "mfa-login";
@@ -25,7 +25,18 @@ export async function verifySecondFactor(userId: string, code: string): Promise<
   if (u?.mfa_secret_enc && u.mfa_secret_nonce && /^\d{6}$/.test(norm)) {
     try {
       const secret = decryptServerSecret(u.mfa_secret_enc, u.mfa_secret_nonce);
-      if (verifyTotp(secret, norm)) return true;
+      const step = matchTotpStep(secret, norm);
+      if (step !== null) {
+        // Anti-rejeu : le pas ne doit pas être ≤ au dernier consommé (UPDATE atomique).
+        const fresh = await queryOne<{ id: string }>(
+          `UPDATE users SET mfa_last_step = $2
+            WHERE id = $1 AND (mfa_last_step IS NULL OR mfa_last_step < $2)
+            RETURNING id`,
+          [userId, step],
+        );
+        if (fresh) return true;
+        return false; // code déjà consommé : pas de repli sur les codes de secours
+      }
     } catch {
       // Secret illisible (TOKEN_SECRET changé depuis l'enrôlement) : on retombe sur
       // les codes de secours, seule issue restante avant un verrouillage définitif.

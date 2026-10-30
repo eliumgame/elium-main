@@ -154,10 +154,13 @@ jobs:
     - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
     - name: Installer libicu60 (dép. runtime du Postgres embarqué)
       run: |
-        curl -fsSL -o /tmp/libicu60.deb \
-          http://archive.ubuntu.com/ubuntu/pool/main/i/icu/libicu60_60.2-3ubuntu3.2_amd64.deb \
-        || curl -fsSL -o /tmp/libicu60.deb \
-          http://archive.ubuntu.com/ubuntu/pool/main/i/icu/libicu60_60.2-3ubuntu3_amd64.deb
+        # HTTPS + empreinte SHA-256 épinglée (relevée sur archive.ubuntu.com en HTTPS,
+        # le 2026-10-30 : à re-vérifier contre le Packages.gz Ubuntu si besoin).
+        fetch() { curl -fsSL -o /tmp/libicu60.deb "$1" && echo "$2  /tmp/libicu60.deb" | sha256sum -c -; }
+        fetch https://archive.ubuntu.com/ubuntu/pool/main/i/icu/libicu60_60.2-3ubuntu3.2_amd64.deb \
+              f01f61f57e63dc905e02e6441d10370fe0c79e43e70e6f5fe24b342fd2633209 \
+        || fetch https://archive.ubuntu.com/ubuntu/pool/main/i/icu/libicu60_60.2-3ubuntu3_amd64.deb \
+              7a2f29ea19f2a14007fd84f25eb88db4fb3ca43bdb07fdb681329d2b5daca500
         sudo dpkg -i /tmp/libicu60.deb || sudo apt-get -f install -y
     - name: Set up Node.js
       uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4

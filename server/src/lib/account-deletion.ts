@@ -128,6 +128,9 @@ export async function eraseAccount(userId: string): Promise<ErasureResult> {
     await c.query(`DELETE FROM group_members WHERE user_id = $1`, [userId]);
     await c.query(`DELETE FROM org_recovery_keys WHERE admin_user_id = $1`, [userId]);
     await c.query(`DELETE FROM memberships WHERE user_id = $1`, [userId]);
+    await c.query(`DELETE FROM password_resets WHERE user_id = $1`, [userId]);
+    // Invitations adressées à l'e-mail du compte (clé par e-mail, pas de FK) — avant l'anonymisation.
+    await c.query(`DELETE FROM invites WHERE email = (SELECT email FROM users WHERE id = $1)`, [userId]);
 
     // 6) Anonymized tombstone: wipe PII + key material, disable the account, keep
     //    the opaque id so the tamper-evident audit chain stays valid.

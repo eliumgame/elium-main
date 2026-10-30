@@ -504,13 +504,18 @@ export default async function shareRoutes(app: FastifyInstance): Promise<void> {
       if (!link) throw notFound("Lien introuvable, révoqué ou expiré.");
       if (!link.n_content_ref) throw notFound("Aucun contenu.");
 
-      // Count the download atomically (re-checking the cap to avoid overshoot).
-      await query(
+      // Count the download atomically (re-checking the cap to avoid overshoot). Si l'UPDATE
+      // ne touche aucune ligne (plafond atteint par une requête concurrente, lien révoqué
+      // entre-temps), on REFUSE : sans ce contrôle, N requêtes parallèles passaient toutes
+      // la vérification de resolveLink et dépassaient max_downloads.
+      const counted = await queryOne<{ id: string }>(
         `UPDATE share_links SET download_count = download_count + 1
         WHERE id = $1 AND revoked_at IS NULL
-          AND (max_downloads IS NULL OR download_count < max_downloads)`,
+          AND (max_downloads IS NULL OR download_count < max_downloads)
+        RETURNING id`,
         [link.id],
       );
+      if (!counted) throw notFound("Lien introuvable, révoqué ou expiré.");
 
       reply.header("content-type", "application/octet-stream");
       if (link.n_content_nonce) {

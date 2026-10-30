@@ -41,6 +41,11 @@ _HKDF_INFO_AES = b"elium-recipients/1/cek-aes"
 _HKDF_INFO_CHA = b"elium-recipients/1/cek-cha"
 _CURVE = ec.SECP256R1()
 
+# CORE-07: bound the recipient list. Encrypting does one ECDH + AES-GCM wrap per
+# recipient and decrypting may try every entry, so an unbounded list (attacker-
+# supplied envelope, or a runaway caller) is a CPU/size DoS. Mirror of recipients.ts.
+MAX_RECIPIENTS = 256
+
 
 # --- key helpers ------------------------------------------------------------
 
@@ -98,6 +103,8 @@ def encrypt_for_recipients(
     """
     if not recipient_public_hexes:
         raise EliumSecurityError("Aucun destinataire fourni.")
+    if len(recipient_public_hexes) > MAX_RECIPIENTS:
+        raise EliumSecurityError(f"Trop de destinataires (maximum {MAX_RECIPIENTS}).")
 
     # This is the material wrapped per-recipient below. Without cascade it IS
     # the AES-256-GCM key directly; with cascade it is expanded (HKDF) into
@@ -183,7 +190,7 @@ def decrypt_as_recipient(blob: bytes, private_hex: str) -> bytes:
         env = json.loads(blob)
     except (json.JSONDecodeError, UnicodeDecodeError) as e:
         raise EliumSecurityError("Enveloppe multi-destinataires illisible.") from e
-    if env.get("schema") != RECIPIENTS_SCHEMA:
+    if not isinstance(env, dict) or env.get("schema") != RECIPIENTS_SCHEMA:
         raise EliumSecurityError("Ce n'est pas une enveloppe multi-destinataires Elium.")
 
     # Le champ `alg` doit être cohérent avec `cascade` (il était décoratif) :
@@ -201,6 +208,11 @@ def decrypt_as_recipient(blob: bytes, private_hex: str) -> bytes:
     # Try the entry matching our fingerprint first, then fall back to trying all
     # (a sender might mislabel fingerprints; ECDH+AEAD still gates correctness).
     entries = env.get("recipients", [])
+    if not isinstance(entries, list):
+        raise EliumSecurityError("Enveloppe multi-destinataires invalide : liste de destinataires malformée.")
+    if len(entries) > MAX_RECIPIENTS:
+        raise EliumSecurityError(f"Enveloppe multi-destinataires refusée : plus de {MAX_RECIPIENTS} destinataires.")
+    entries = [r for r in entries if isinstance(r, dict)]
     ordered = sorted(entries, key=lambda r: r.get("fpr") != my_fpr)
 
     last_err: Exception | None = None

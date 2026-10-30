@@ -362,6 +362,8 @@ def test_csp_style_and_font_sources_are_local_only():
 def test_every_response_carries_the_csp(monkeypatch):
     import http.server as _hs
 
+    # Isole la config locale de la machine (un drive_origin déclaré change la CSP).
+    monkeypatch.setattr(elium_launcher, "_drive_origin", lambda: None)
     sent: list[tuple[str, str]] = []
 
     class _Probe(elium_launcher.QuietHandler):
@@ -845,3 +847,44 @@ def test_remembered_port_busy_falls_back_without_overwriting_it(isolated_config)
         assert port != busy_port
         assert fallback_used is True
     assert elium_launcher._last_port() == busy_port  # on reviendra à l'origine habituelle
+
+
+# --------------------------------------------------------------------------- #
+# /__open__ : authentification + purge après lecture
+# --------------------------------------------------------------------------- #
+
+def test_open_request_needs_token_or_same_origin():
+    ok = elium_launcher._is_authorized_open_request
+    assert ok(elium_launcher._SESSION_TOKEN, None)
+    assert ok(None, "same-origin")
+    assert not ok(None, None)
+    assert not ok("mauvais", "cross-site")
+    assert not ok(None, "same-site")
+
+
+def test_serve_opened_file_purges_after_read(monkeypatch):
+    monkeypatch.setattr(elium_launcher.QuietHandler, "opened_file", ("a.elium", b"xyz"))
+    sent = []
+
+    class _Probe(elium_launcher.QuietHandler):
+        def __init__(self):
+            self.wfile = __import__("io").BytesIO()
+
+        def send_response(self, code, message=None):
+            sent.append(code)
+
+        def send_header(self, k, v):
+            pass
+
+        def end_headers(self):
+            pass
+
+        def send_error(self, code, message=None, explain=None):
+            sent.append(code)
+
+    p = _Probe()
+    p._serve_opened_file()
+    assert p.wfile.getvalue() == b"xyz"
+    assert elium_launcher.QuietHandler.opened_file is None
+    p._serve_opened_file()
+    assert sent == [200, 404]

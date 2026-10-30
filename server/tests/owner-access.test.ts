@@ -38,6 +38,7 @@ describe("resetOwnerAccess (secours en ligne de commande)", () => {
     expect(r).toMatchObject({ email: "boss@acme.fr", hadTotp: true, passkeysRemoved: 2, policyReset: true });
     const all = executed.join("\n");
     expect(all).toContain("mfa_enabled = false");
+    expect(all).toContain("token_epoch = now()");
     expect(all).toContain("DELETE FROM mfa_backup_codes");
     expect(all).toContain("DELETE FROM webauthn_credentials");
     expect(all).toContain("UPDATE sessions SET revoked_at");

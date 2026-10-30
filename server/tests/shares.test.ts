@@ -717,14 +717,23 @@ describe("GET /api/links/:token (public resolution)", () => {
 
 describe("GET /api/links/:token/content (public streaming)", () => {
   it("streams the encrypted blob and bumps the download counter", async () => {
-    mQueryOne.mockResolvedValueOnce(linkRow());
+    mQueryOne.mockResolvedValueOnce(linkRow()).mockResolvedValueOnce({ id: LINK });
     const app = await makeApp();
     const res = await app.inject({ method: "GET", url: `/api/links/sometoken/content` });
     expect(res.statusCode).toBe(200);
     expect(res.headers["content-type"]).toBe("application/octet-stream");
     expect(res.headers["x-content-nonce"]).toBe(Buffer.from("cc", "hex").toString("hex"));
-    expect(mQuery).toHaveBeenCalledWith(expect.stringMatching(/UPDATE share_links SET download_count/), [LINK]);
+    expect(mQueryOne).toHaveBeenCalledWith(expect.stringMatching(/UPDATE share_links SET download_count[\s\S]*RETURNING/), [LINK]);
     expect(storageMock.getStream).toHaveBeenCalledWith("blob-key-1");
+    await app.close();
+  });
+
+  it("404 sans streamer si l'incrément atomique ne touche aucune ligne (plafond atteint en concurrence)", async () => {
+    mQueryOne.mockResolvedValueOnce(linkRow({ max_downloads: 1, download_count: 0 })).mockResolvedValueOnce(null);
+    const app = await makeApp();
+    const res = await app.inject({ method: "GET", url: `/api/links/sometoken/content` });
+    expect(res.statusCode).toBe(404);
+    expect(storageMock.getStream).not.toHaveBeenCalled();
     await app.close();
   });
 

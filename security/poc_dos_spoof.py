@@ -44,11 +44,15 @@ man["profile"]="secure_max"
 man["protection"]["locked"]=True
 man["features"]["signatures"]=True
 spoof=repack(blob,{ENTRY_MANIFEST:json.dumps(man,indent=2,ensure_ascii=False).encode()})
-res=read_elium(spoof)
-m2=res["manifest"]
-print(INF,"Spoofed manifest now advertises profile:",m2["profile"],"| locked:",m2["protection"]["locked"],"| integrity intact:",res["integrity"]["contentIntact"])
-if m2["profile"]=="secure_max" and res["integrity"]["contentIntact"]:
-    print(PWN,"A plaintext doc now presents as 'Document ultra sécurisé / Verrouillé' with intact integrity.")
+try:
+    res=read_elium(spoof)
+except EliumError as e:
+    print(BLK,"Spoofed profile/protection rejected at read time:",e)
+else:
+    m2=res["manifest"]
+    print(INF,"Spoofed manifest now advertises profile:",m2["profile"],"| locked:",m2["protection"]["locked"],"| integrity intact:",res["integrity"]["contentIntact"])
+    if m2["profile"]=="secure_max" and res["integrity"]["contentIntact"]:
+        print(PWN,"A plaintext doc now presents as 'Document ultra sécurisé / Verrouillé' with intact integrity.")
 
 # ---------------------------------------------------------------------------
 line("ATTACK 9 — Outer-ZIP decompression DoS (memory exhaustion)")

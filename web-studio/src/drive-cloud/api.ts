@@ -352,8 +352,12 @@ export class DriveApi {
     });
   }
   /** Ré-authentification : défi signé (+ code 2FA si actif) → jeton de 5 minutes. */
-  reauth(body: { challengeId: string; signature: string; code?: string }) {
+  reauth(body: { challengeId: string; signature: string; code?: string; webauthn?: unknown }) {
     return this.json<{ reauthToken: string }>("POST", "/auth/reauth", { body });
+  }
+  /** Options WebAuthn pour la ré-authentification (compte à clés d'accès). */
+  webauthnReauthOptions() {
+    return this.json<Record<string, unknown>>("POST", "/auth/reauth/webauthn-options", { body: {} });
   }
   webauthnCredentials() {
     return this.json<{ credentials: { id: string; name: string; createdAt: string; lastUsedAt: string | null }[] }>(

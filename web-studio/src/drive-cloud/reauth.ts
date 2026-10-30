@@ -7,10 +7,16 @@ import type { DriveApi } from "./api";
 import { prepareLogin, signLoginChallenge } from "./account";
 import type { KdfParams } from "./kdf";
 
-export async function reauthenticate(api: DriveApi, email: string, password: string, code?: string): Promise<string> {
+export async function reauthenticate(
+  api: DriveApi,
+  email: string,
+  password: string,
+  code?: string,
+  webauthn?: unknown,
+): Promise<string> {
   const pre = await api.prelogin(email);
   const { authSignSeedHex } = await prepareLogin(password, pre.kdfSalt, pre.kdfParams as KdfParams);
   const { challengeId, challenge } = await api.loginInit(email);
   const signature = await signLoginChallenge(challenge, authSignSeedHex);
-  return (await api.reauth({ challengeId, signature, ...(code ? { code } : {}) })).reauthToken;
+  return (await api.reauth({ challengeId, signature, ...(code ? { code } : {}), ...(webauthn ? { webauthn } : {}) })).reauthToken;
 }

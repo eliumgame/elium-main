@@ -16,6 +16,7 @@
 #   bash install.sh auto-update on|off|status|now   # màj auto signées du serveur
 #   bash install.sh self-update         # une passe de màj signée (appelée par le timer)
 #   bash install.sh restore <timestamp> # restaure une sauvegarde de backups/
+#   bash install.sh release-feed        # rafraîchit release.json (carte « nouvelle version » du site)
 #
 # Options de « drive » :
 #   --domain <fqdn>     domaine public (HTTPS automatique via Caddy/Let's Encrypt)
@@ -487,6 +488,30 @@ run_suite() {
 # =============================================================================
 #  Mise à jour / état / sauvegarde
 # =============================================================================
+
+# Carte « nouvelle version » du site public (release.json).
+# L'identité de CE déploiement (version, date de build, notes) est embarquée dans
+# l'image web elle-même (générée par `gen-release-info.mjs` au build) ; on l'extrait
+# de l'image EN SERVICE (jamais périmée, même après un self-update) pour servir de
+# base à `deploy/release-feed.py`, qui y ajoute la dernière publication GitHub.
+# Repli sur `web-dist/release.json` pour une install qui reconstruit localement
+# (pas d'image épinglée). Jamais fatal : la carte est cosmétique.
+do_release_feed() {
+  command -v python3 >/dev/null 2>&1 || { warn "python3 requis pour rafraîchir release.json — ignoré."; return 0; }
+  mkdir -p "$SCRIPT_DIR/release"
+  local web_image base; web_image="$(read_env ELIUM_WEB_IMAGE)"; base="$SCRIPT_DIR/release/.base-release.json"
+  if [ -n "$web_image" ] && command -v docker >/dev/null 2>&1 \
+     && docker run --rm --entrypoint cat "$web_image" /usr/share/caddy/release.json > "$base" 2>/dev/null; then
+    :
+  elif [ -f "$SCRIPT_DIR/web-dist/release.json" ]; then
+    cp "$SCRIPT_DIR/web-dist/release.json" "$base"
+  else
+    warn "release.json : aucune source (ni image épinglée, ni web-dist/) — ignoré."; return 0
+  fi
+  python3 "$SCRIPT_DIR/deploy/release-feed.py" --base "$base" --out "$SCRIPT_DIR/release/release.json"
+  rm -f "$base"
+}
+
 do_update() {
   detect_compose; [ -n "$DC" ] || die "Docker Compose requis."
   [ -f "$ENV_FILE" ] || die "Aucun .env — lancez d'abord : bash install.sh drive"
@@ -500,6 +525,7 @@ do_update() {
   info "Reconstruction + redémarrage…"
   compose_up_stack
   set_env_var ELIUM_VERSION "$(repo_version)"
+  do_release_feed || warn "release.json (carte de mise à jour du site) non rafraîchi — sans conséquence sur le service."
   ok "Pile mise à jour (migrations ré-appliquées, idempotentes)."
 }
 
@@ -627,6 +653,7 @@ do_self_update() {
   if compose_up_stack && wait_health; then
     hr; ok "${bold}Mise à jour appliquée : $remote_ver.${rst} (migrations idempotentes rejouées)"
     ulog "success -> $remote_ver ($target)"
+    do_release_feed || ulog "release-feed: échec (sans conséquence sur le service)"
     prune_update_backups
     return 0
   fi
@@ -914,7 +941,7 @@ do_restore() {
   ok "${bold}Restauration depuis $ts terminée.${rst} Vérifiez : bash install.sh status"
 }
 
-show_help() { sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'; }
+show_help() { sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; }
 
 menu() {
   hr
@@ -957,6 +984,7 @@ case "$CMD" in
   status)      do_status ;;
   backup)      do_backup ;;
   restore)     do_restore ;;
+  release-feed) do_release_feed ;;
   help|-h|--help) show_help ;;
   *) die "Commande inconnue : $CMD (essayez : bash install.sh help)" ;;
 esac

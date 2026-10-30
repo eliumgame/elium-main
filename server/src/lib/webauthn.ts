@@ -26,6 +26,7 @@ import type {
 } from "@simplewebauthn/server";
 import { query, queryOne } from "../db/pool.js";
 import { config } from "../config.js";
+import { conflict } from "./errors.js";
 
 const CHALLENGE_TTL_SEC = 300;
 export type WebauthnPurpose = "register" | "auth";
@@ -132,10 +133,11 @@ export async function verifyRegistration(
   }
   if (!verification.verified || !verification.registrationInfo) return false;
   const { credential } = verification.registrationInfo;
-  await query(
+  const inserted = await query<{ id: string }>(
     `INSERT INTO webauthn_credentials (user_id, credential_id, public_key, counter, transports, name)
      VALUES ($1, $2, $3, $4, $5, $6)
-     ON CONFLICT (credential_id) DO NOTHING`,
+     ON CONFLICT (credential_id) DO NOTHING
+     RETURNING id`,
     [
       userId,
       credential.id,
@@ -145,6 +147,8 @@ export async function verifyRegistration(
       name.slice(0, 64),
     ],
   );
+  // Doublon de credential_id (clé déjà enregistrée, pour ce compte ou un autre) : pas de faux succès.
+  if (inserted.length === 0) throw conflict("Cette clé d'accès est déjà enregistrée.");
   return true;
 }
 

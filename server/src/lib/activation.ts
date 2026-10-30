@@ -63,6 +63,10 @@ export async function isActivationRequired(): Promise<boolean> {
 // --- Anti force brute -------------------------------------------------------
 const MAX_FAILS_PER_IP = 5;
 const IP_LOCK_MS = 15 * 60_000;
+// Plafond global (défense contre une force brute répartie sur beaucoup d'IP). Compromis connu :
+// un tiers disposant de plusieurs adresses peut verrouiller l'activation 1 h (déni de service,
+// sans accès : le code reste secret et le verrou expire). Le compteur PAR IP ci-dessus
+// limite déjà chaque source à 5 essais / 15 min ; on conserve volontairement le global.
 const MAX_FAILS_GLOBAL = 30;
 const GLOBAL_WINDOW_MS = 60 * 60_000;
 const perIp = new Map<string, { fails: number; lockedUntil: number }>();

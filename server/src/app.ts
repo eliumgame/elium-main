@@ -85,6 +85,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   // le compteur est PARTAGÉ via Redis → non contournable en répartissant les
   // requêtes ; sinon compteur en mémoire de processus (mono-instance).
   const rlRedis = createRateLimitRedis();
+  // @fastify/rate-limit ne ferme pas un client Redis fourni : on le ferme à l'arrêt.
+  if (rlRedis) app.addHook("onClose", async () => void (await rlRedis.quit().catch(() => {})));
   await app.register(rateLimit, { max: 600, timeWindow: "1 minute", ...(rlRedis ? { redis: rlRedis } : {}) });
   // Borne dure de la taille d'un frame WebSocket (le relais collab recoit des
   // updates chiffrés hex, ~2× la taille en clair) : défend contre un frame géant

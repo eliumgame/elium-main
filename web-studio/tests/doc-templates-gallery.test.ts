@@ -39,4 +39,37 @@ describe("galerie de modèles", () => {
   it("chaque modèle a une catégorie", () => {
     for (const t of TEMPLATES) expect(t.category).toBeTruthy();
   });
+  it("les modèles sont de vrais documents structurés, pas des squelettes", () => {
+    const count = (n: unknown, type: string): number => {
+      const node = n as { type: string; content?: unknown[] };
+      return (node.type === type ? 1 : 0) + (node.content ?? []).reduce<number>((a, c) => a + count(c, type), 0);
+    };
+    const words = (n: unknown): number => {
+      const node = n as { text?: string; content?: unknown[] };
+      return (
+        (node.text ? node.text.split(/\s+/).filter(Boolean).length : 0) +
+        (node.content ?? []).reduce<number>((a, c) => a + words(c), 0)
+      );
+    };
+    for (const t of TEMPLATES) {
+      const { doc } = t.build();
+      const html = docToHtml(createDocumentModel(doc, t.page));
+      // Aucun point de suspension de remplissage : le contenu d'exemple est réaliste.
+      expect(html, t.id).not.toContain("……");
+      if (t.id === "blank") continue;
+      // Courriers et pièces comptables suivent leur mise en page normée : pas de titres.
+      if (!["courrier", "lettre-motivation", "facture", "devis"].includes(t.id))
+        expect(count(doc, "heading"), t.id).toBeGreaterThanOrEqual(1);
+      expect(words(doc), t.id).toBeGreaterThan(60);
+    }
+    for (const id of ["rapport", "facture", "devis", "compte-rendu", "fiche"]) {
+      const { doc } = TEMPLATES.find((t) => t.id === id)!.build();
+      expect(count(doc, "table"), id).toBeGreaterThanOrEqual(1);
+    }
+  });
+  it("les tableaux de données portent un style de tableau intégré", () => {
+    const { doc } = TEMPLATES.find((t) => t.id === "facture")!.build();
+    const tables = (doc.content ?? []).filter((n) => n.type === "table");
+    expect(tables.some((t) => t.attrs?.tableStyle === "header-accent")).toBe(true);
+  });
 });

@@ -2,16 +2,23 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 .tplgal__tab {
-  padding: 4px 12px;
+  padding: 5px 14px;
   border: 1px solid var(--border, #e2e8f0);
   border-radius: 999px;
-  background: transparent;
+  background: var(--surface, transparent);
+  color: var(--text, inherit);
   font: inherit;
   font-size: 13px;
   cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+.tplgal__tab:hover {
+  border-color: var(--primary, #2563eb);
 }
 .tplgal__tab.is-active {
   background: var(--primary, #2563eb);
@@ -20,39 +27,114 @@
 }
 .tplgal__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, 216px);
+  justify-content: start;
+  gap: 18px;
 }
 .tplgal__card {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 8px;
+  padding: 8px 8px 12px;
   text-align: left;
   border: 1px solid var(--border, #e2e8f0);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--surface, #fff);
+  color: var(--text, inherit);
   font: inherit;
   cursor: pointer;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s,
+    transform 0.15s;
 }
 .tplgal__card:hover,
 .tplgal__card:focus-visible {
   border-color: var(--primary, #2563eb);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.18);
+  transform: translateY(-2px);
 }
+/* Feuille A4 miniature : 794 px de large (96 dpi) réduits à 198 px. */
 .tplgal__preview {
   position: relative;
-  height: 220px;
+  width: 198px;
+  height: 280px;
+  margin: 0 auto 8px;
   overflow: hidden;
-  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 3px;
   background: #fff;
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.12),
+    0 2px 8px rgba(15, 23, 42, 0.14);
 }
 .tplgal__page {
-  width: 760px;
-  padding: 24px 32px;
+  width: 794px;
+  min-height: 1123px;
+  box-sizing: border-box;
+  padding: 64px 72px;
   color: #0f172a;
-  transform: scale(0.22);
+  font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.55;
+  transform: scale(0.25);
   transform-origin: top left;
   pointer-events: none;
+}
+.tplgal__page h1 {
+  margin: 0 0 8px;
+  font-size: 34px;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+.tplgal__page h2 {
+  margin: 22px 0 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 21px;
+  line-height: 1.25;
+}
+.tplgal__page h3 {
+  margin: 14px 0 4px;
+  font-size: 17px;
+}
+.tplgal__page p {
+  margin: 0 0 8px;
+}
+.tplgal__page ul,
+.tplgal__page ol {
+  margin: 4px 0 10px;
+  padding-left: 24px;
+}
+.tplgal__page hr {
+  margin: 14px 0;
+  border: 0;
+  border-top: 2px solid #1d4ed8;
+}
+.tplgal__page table {
+  width: 100%;
+  margin: 10px 0;
+  border-collapse: collapse;
+}
+.tplgal__page th,
+.tplgal__page td {
+  padding: 6px 10px;
+  border: 1px solid #cbd5e1;
+  vertical-align: top;
+  text-align: left;
+}
+.tplgal__page th {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+  color: #fff;
+}
+.tplgal__page tr:nth-child(even) td {
+  background: #f8fafc;
+}
+.tplgal__page table[data-table-style="minimal"] th,
+.tplgal__page table[data-table-style="minimal"] td {
+  border: 0;
+  background: transparent;
+  padding-left: 0;
 }
 .tplgal__label {
   font-weight: 600;
@@ -61,4 +143,5 @@
 .tplgal__desc {
   color: var(--text-muted, #64748b);
   font-size: 12px;
+  line-height: 1.4;
 }

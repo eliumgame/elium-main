@@ -123,6 +123,13 @@ export async function verifyAuditChain(orgId: string | null): Promise<AuditVerif
         continue;
       }
       if (r.entry_hash == null) {
+        if (started) {
+          // Une ligne SANS hash APRÈS le début de la chaîne n'est pas une entrée héritée
+          // (celles-ci précèdent la 1re entrée hachée) : c'est une insertion hors-chaîne
+          // (forgée / altérée) → maillon rompu.
+          brokenAtId = r.id;
+          continue;
+        }
         // Entrée héritée non chaînée : on ne vérifie pas, et elle ne fixe pas le
         // maillon (la chaîne démarre à la première entrée hachée, dont prev = GENESIS).
         continue;

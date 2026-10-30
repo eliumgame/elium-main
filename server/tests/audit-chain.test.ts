@@ -146,6 +146,15 @@ describe("verifyAuditChain", () => {
     expect(res).toEqual({ ok: true, total: 3, hashed: 2 });
   });
 
+  it("détecte une ligne SANS hash insérée APRÈS le début de la chaîne", async () => {
+    const rows = buildChain(3);
+    const forged = { ...rows[1]!, id: "99", prev_hash: null, entry_hash: null };
+    rowsRef.rows = [...rows, forged];
+    const res = await verifyAuditChain("org-1");
+    expect(res.ok).toBe(false);
+    expect(res.brokenAtId).toBe("99");
+  });
+
   // --- Lecture paginée : la table audit_log est append-only et ne fait que
   // croître, verifyAuditChain lit désormais par pages de VERIFY_PAGE_SIZE
   // lignes plutôt qu'un unique SELECT sans LIMIT. Les tests ci-dessous prouvent

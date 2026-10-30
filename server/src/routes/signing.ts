@@ -466,12 +466,13 @@ export default async function signingRoutes(app: FastifyInstance): Promise<void>
     const link = await queryOne<{
       can_sign: boolean;
       revoked_at: string | null;
+      expires_at: string | null;
       node_id: string;
       org_id: string;
       party_id: string | null;
       party_status: string | null;
     }>(
-      `SELECT sl.can_sign, sl.revoked_at, sl.node_id, n.org_id,
+      `SELECT sl.can_sign, sl.revoked_at, sl.expires_at, sl.node_id, n.org_id,
                 p.id AS party_id, p.status AS party_status
            FROM share_links sl
            JOIN nodes n ON n.id = sl.node_id
@@ -480,6 +481,9 @@ export default async function signingRoutes(app: FastifyInstance): Promise<void>
       [sha256Hex(token)],
     );
     if (!link || link.revoked_at) throw notFound("Lien introuvable, révoqué ou expiré.");
+    if (link.expires_at && new Date(link.expires_at).getTime() < Date.now()) {
+      throw notFound("Lien introuvable, révoqué ou expiré.");
+    }
     if (!link.can_sign || !link.party_id) throw badRequest("Ce lien n'autorise pas la signature.");
     if (link.party_status === "signed") throw conflict("Cette partie a déjà signé.");
 

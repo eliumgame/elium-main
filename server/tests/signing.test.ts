@@ -422,6 +422,15 @@ describe("POST /api/links/:token/decline (refus anonyme)", () => {
     await app.close();
   });
 
+  it("refuse un lien expiré (404) sans modifier la partie", async () => {
+    mQueryOne.mockResolvedValueOnce(declineLink({ expires_at: new Date(Date.now() - 1000).toISOString() }));
+    const app = await makeApp();
+    const res = await app.inject({ method: "POST", url: `/api/links/tok/decline` });
+    expect(res.statusCode).toBe(404);
+    expect(mQuery).not.toHaveBeenCalledWith(expect.stringMatching(/declined/), expect.anything());
+    await app.close();
+  });
+
   it("refuse si la partie a déjà signé (409)", async () => {
     mQueryOne.mockResolvedValueOnce(declineLink({ party_status: "signed" }));
     const app = await makeApp();

@@ -67,7 +67,9 @@ const ALTERNATIVES = [
 // qu'à la demande ; à surveiller : le worker d'images du Détecteur embarque son propre moteur.
 // 8,2 Mo → 9,7 Mo : le Worker pdf-lib (enregistrement, lecture et analyse des PDF hors du fil principal) embarque
 // sa propre copie de pdf-lib et du code d'enregistrement (~1,25 Mo). Chargé à la demande, jamais au démarrage.
-const TOTAL_JS_BUDGET_BYTES = 9_700_000;
+// 9,7 Mo → 9,8 Mo : 4.32 — 13 modèles de documents refaits (contenu d'exemple réaliste, ~30 Ko) et durcissement
+// de sécurité (tickets WebSocket, preuves à docId, parité format Python/TS).
+const TOTAL_JS_BUDGET_BYTES = 9_800_000;
 
 function fmtKiB(bytes) {
   return `${(bytes / 1024).toFixed(1)} KiB`;

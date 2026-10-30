@@ -461,6 +461,9 @@ export async function readEliumPackage(blob: Uint8Array, opts: WriteOptions = {}
       envelope = parsed as SecureEnvelope;
       document = envelope.document;
     } else {
+      if (parsed && parsed.schema === SECURE_SCHEMA) {
+        throw new EliumPackageError("Enveloppe de métadonnées chiffrées sans drapeau metadataEncrypted : fichier altéré.");
+      }
       document = parsed;
     }
   } else {

@@ -67,6 +67,14 @@ const patchSchema = z.object({
   permissions: z.array(z.string()).max(256).optional(),
 });
 
+/** Plafond de privilège : on ne confère jamais une permission qu'on ne détient pas (seul le propriétaire est exempté). */
+function assertCanGrantPermissions(ctx: { isOwner: boolean; permissions: Set<string> }, perms: string[]): void {
+  if (ctx.isOwner) return;
+  if (perms.some((p) => !ctx.permissions.has(p))) {
+    throw forbidden("Vous ne pouvez pas conférer une permission que vous ne détenez pas.");
+  }
+}
+
 export default async function roleRoutes(app: FastifyInstance): Promise<void> {
   app.addHook("preHandler", authenticate);
 
@@ -97,10 +105,11 @@ export default async function roleRoutes(app: FastifyInstance): Promise<void> {
   app.post("/:orgId/roles", async (req) => {
     const { orgId } = z.object({ orgId: z.string().uuid() }).parse(req.params);
     const b = createSchema.parse(req.body);
-    await requireOrgPerm(req, orgId, "role.create");
+    const ctx = await requireOrgPerm(req, orgId, "role.create");
     const user = requireUser(req);
 
     const permissions = sanitizePermissions(b.permissions);
+    assertCanGrantPermissions(ctx, permissions);
     const row = await queryOne<RoleRow>(
       `INSERT INTO roles (org_id, key, name, description, color, is_system, permissions)
        VALUES ($1, $2, $3, $4, $5, false, $6)
@@ -117,11 +126,15 @@ export default async function roleRoutes(app: FastifyInstance): Promise<void> {
   app.patch("/:orgId/roles/:roleId", async (req) => {
     const { orgId, roleId } = z.object({ orgId: z.string().uuid(), roleId: z.string().uuid() }).parse(req.params);
     const b = patchSchema.parse(req.body);
-    await requireOrgPerm(req, orgId, "role.manage");
+    const ctx = await requireOrgPerm(req, orgId, "role.manage");
     const user = requireUser(req);
 
     const existing = await loadOrgRole(orgId, roleId);
     if (!existing) throw notFound("Rôle introuvable.");
+    if (b.permissions !== undefined) {
+      if (existing.key === "owner") throw forbidden("Les permissions du rôle propriétaire ne sont pas modifiables.");
+      assertCanGrantPermissions(ctx, sanitizePermissions(b.permissions));
+    }
     // Les rôles par défaut sont des COPIES propres à l'organisation : les
     // modifier n'affecte qu'elle. On les rend donc éditables (nom/couleur/
     // permissions ; la `key` reste figée, préservant la logique par clé). Le

@@ -29,6 +29,7 @@ import { badRequest, notFound, conflict, tooLarge, insufficientStorage } from ".
 import { sha256Hex, randomToken } from "../lib/crypto-server.js";
 import { storage } from "../storage/adapter.js";
 import { config } from "../config.js";
+import { assertDiskSpace } from "../lib/disk.js";
 import { audit } from "../lib/audit.js";
 import { notifyOrg } from "../collab/relay.js";
 
@@ -335,6 +336,7 @@ export default async function signingRoutes(app: FastifyInstance): Promise<void>
       const { node_id: nodeId, org_id: orgId } = link;
 
       // Flux direct vers le stockage (borné + comptabilisé), comme PUT content.
+      await assertDiskSpace(Number(req.headers["content-length"]) || 0);
       const store = storage();
       const key = store.newKey();
       let size: number;

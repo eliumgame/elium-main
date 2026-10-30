@@ -17,7 +17,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { query, queryOne, withTx } from "../db/pool.js";
 import { authenticate, requireUser, requireNodePerm } from "../middleware/auth.js";
-import { badRequest, notFound, conflict } from "../lib/errors.js";
+import { badRequest, forbidden, notFound, conflict } from "../lib/errors.js";
 import { sha256Hex, randomToken } from "../lib/crypto-server.js";
 import { storage } from "../storage/adapter.js";
 import { audit } from "../lib/audit.js";
@@ -49,9 +49,16 @@ function linkNodeMetaDto(n: Record<string, unknown>) {
 }
 
 /** Assert `roleId` is a role usable in `orgId` (org-scoped or a global template). */
-async function validateRole(roleId: string, orgId: string): Promise<void> {
-  const r = await queryOne(`SELECT id FROM roles WHERE id = $1 AND (org_id = $2 OR org_id IS NULL)`, [roleId, orgId]);
+async function validateRole(roleId: string, orgId: string, held?: Set<string>): Promise<void> {
+  const r = await queryOne<{ id: string; permissions: string[] | null }>(
+    `SELECT id, permissions FROM roles WHERE id = $1 AND (org_id = $2 OR org_id IS NULL)`,
+    [roleId, orgId],
+  );
   if (!r) throw badRequest("Rôle invalide pour cette organisation.");
+  // Plafond de privilège : on ne confère pas sur un nœud plus que ce qu'on y détient.
+  if (held && (r.permissions ?? []).some((p) => !held.has(p))) {
+    throw forbidden("Vous ne pouvez pas accorder un rôle plus puissant que vos droits sur ce nœud.");
+  }
 }
 
 /**
@@ -184,7 +191,7 @@ export default async function shareRoutes(app: FastifyInstance): Promise<void> {
     const access = await requireNodePerm(req, id, "node.share.internal");
     await requireNodePerm(req, id, "node.acl.manage");
 
-    await validateRole(b.roleId, access.orgId);
+    await validateRole(b.roleId, access.orgId, access.permissions);
 
     const row = await queryOne<{ id: string }>(
       `INSERT INTO node_keys (node_id, principal_type, principal_id, role_id, wrapped_key, granted_by, inherited_from)
@@ -224,7 +231,7 @@ export default async function shareRoutes(app: FastifyInstance): Promise<void> {
     const user = requireUser(req);
 
     const access = await requireNodePerm(req, id, "node.acl.manage");
-    await validateRole(b.roleId, access.orgId);
+    await validateRole(b.roleId, access.orgId, access.permissions);
 
     const row = await queryOne<{ id: string }>(
       `UPDATE node_keys SET role_id = $3 WHERE id = $2 AND node_id = $1 RETURNING id`,
@@ -320,7 +327,7 @@ export default async function shareRoutes(app: FastifyInstance): Promise<void> {
     const user = requireUser(req);
 
     const access = await requireNodePerm(req, id, "node.share.link");
-    await validateRole(b.roleId, access.orgId);
+    await validateRole(b.roleId, access.orgId, access.permissions);
 
     const token = randomToken(32);
     const tokenHash = sha256Hex(token);

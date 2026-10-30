@@ -123,6 +123,11 @@ def verify_proof(signature: dict, model: dict, trusted_key_hex: str | None = Non
     except (InvalidSignature, ValueError):
         return "invalid"
 
+    # Empreinte annoncée = SHA-256 de la clé qui a signé (anti-usurpation d'empreinte).
+    fp = proof.get("fingerprint")
+    if fp is not None and fp != hashlib.sha256(bytes.fromhex(proof["publicKeyHex"])).hexdigest():
+        return "invalid"
+
     if trusted_key_hex and trusted_key_hex.strip().lower() != proof["publicKeyHex"].lower():
         return "unknown_key"
 

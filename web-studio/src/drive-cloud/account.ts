@@ -13,7 +13,7 @@ import {
   type KdfParams,
   type KeyBundle,
 } from "./kdf";
-import { toHex } from "../format/canonical";
+import { fromHex, toHex } from "../format/canonical";
 
 export interface RegistrationPayload {
   email: string;
@@ -166,6 +166,17 @@ export async function unlockAccount(
   publicKeys: { ed25519PublicHex: string; p256PublicHex: string; fingerprint: string },
 ): Promise<AccountKeys> {
   const secrets = await openKeyBundle(masterKey, keyBundle);
+  // Les clés publiques viennent du serveur : on les re-dérive des scalaires privés déchiffrés, sinon un
+  // serveur compromis pourrait substituer la sienne (et recevoir les clés des nouveaux fichiers).
+  const { p256 } = await import("@noble/curves/nist.js");
+  const edPub = await publicKeyHexFromPrivate(secrets.ed25519Priv);
+  const p256Pub = toHex(p256.getPublicKey(fromHex(secrets.p256Priv), false));
+  if (
+    edPub.toLowerCase() !== publicKeys.ed25519PublicHex.toLowerCase() ||
+    p256Pub.toLowerCase() !== publicKeys.p256PublicHex.toLowerCase()
+  ) {
+    throw new Error("Les clés publiques du serveur ne correspondent pas à vos clés privées : compte refusé.");
+  }
   return {
     identity: {
       privateKeyHex: secrets.ed25519Priv,

@@ -14,6 +14,22 @@ import { resolveNodeAccess } from "../rbac/engine.js";
 import { badRequest } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
 import { config } from "../config.js";
+import { mfaEnrollmentRequired } from "../lib/site-settings.js";
+
+/** Revalidation à l'ouverture d'une WebSocket : compte actif, jeton non révoqué (token_epoch), 2FA imposée satisfaite. */
+async function socketUserAllowed(claims: { sub: string; iat: number }): Promise<boolean> {
+  try {
+    const u = await queryOne<{ status: string; token_epoch: string }>(
+      `SELECT status, token_epoch FROM users WHERE id = $1`,
+      [claims.sub],
+    );
+    if (!u || u.status !== "active") return false;
+    if (claims.iat < Math.floor(new Date(u.token_epoch).getTime() / 1000)) return false;
+    return !(await mfaEnrollmentRequired(claims.sub));
+  } catch {
+    return false;
+  }
+}
 import { initBackplane, publishRelay, type RelayMsg } from "./backplane.js";
 
 // Plafond de la longueur du ciphertext hex (2 caractères hex par octet).
@@ -194,7 +210,7 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
     const orgId = (req.params as { orgId?: string }).orgId ?? "";
     const token = (req.query as { token?: string }).token ?? "";
     const claims = verifyAccessToken(token);
-    if (!claims || !/^[0-9a-fA-F-]{36}$/.test(orgId)) {
+    if (!claims || !/^[0-9a-fA-F-]{36}$/.test(orgId) || !(await socketUserAllowed(claims))) {
       socket.close(1008, "unauthorized");
       return;
     }
@@ -254,7 +270,7 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
     const token = (req.query as { token?: string }).token ?? "";
 
     const claims = verifyAccessToken(token);
-    if (!claims || !/^[0-9a-fA-F-]{36}$/.test(nodeId)) {
+    if (!claims || !/^[0-9a-fA-F-]{36}$/.test(nodeId) || !(await socketUserAllowed(claims))) {
       socket.close(1008, "unauthorized");
       return;
     }
@@ -361,6 +377,8 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
           // amplification (un pair envoie 1× une charge géante → N× sur le fil).
           const payload = msg.payload as { u?: unknown } | undefined;
           if (payload && typeof payload.u === "string" && payload.u.length > MAX_AWARENESS_CHARS) return;
+          // Le plafond doit couvrir TOUT le message, pas seulement `u` (autres champs = amplification).
+          if (text.length > MAX_AWARENESS_CHARS + 1024) return;
           const awMsg = { type: "awareness", from: peer.userId, payload: msg.payload };
           broadcast(nodeId, peer, awMsg);
           publishRelay({ k: "bcast", nodeId, message: awMsg });

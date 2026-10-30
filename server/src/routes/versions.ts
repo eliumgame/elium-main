@@ -16,6 +16,7 @@ import { notFound, badRequest, tooLarge } from "../lib/errors.js";
 import { storage } from "../storage/adapter.js";
 import { audit } from "../lib/audit.js";
 import { config } from "../config.js";
+import { assertDiskSpace } from "../lib/disk.js";
 import type { Readable } from "node:stream";
 
 const idParams = z.object({ id: z.string().uuid() });
@@ -87,6 +88,7 @@ export default async function versionRoutes(app: FastifyInstance): Promise<void>
     const body = req.body as Readable | undefined;
     if (!body || typeof body.pipe !== "function") throw badRequest("Corps binaire attendu (application/octet-stream).");
 
+    await assertDiskSpace(Number(req.headers["content-length"]) || 0);
     const store = storage();
     const newRef = store.newKey();
     try {

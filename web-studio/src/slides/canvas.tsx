@@ -324,8 +324,9 @@ function ElementView({
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const node = ref.current;
-    if (node && editing && document.activeElement !== node && el.html != null && node.innerHTML !== el.html)
-      node.innerHTML = el.html;
+    if (!node || !editing || document.activeElement === node || el.html == null) return;
+    const safe = DOMPurify.sanitize(el.html);
+    if (node.innerHTML !== safe) node.innerHTML = safe;
   }, [editing, el.html]);
   // Entrée en édition (double-clic, Entrée) : le champ est un nouveau nœud DOM, il faut lui donner le
   // focus — sinon Ctrl+A et la saisie partent dans le vide — et placer le curseur en fin de texte.

@@ -141,6 +141,11 @@ def verify_seal(
     except (ValueError, KeyError):
         return SEAL_BROKEN
 
+    # L'empreinte affichée DOIT être celle de la clé qui a réellement signé : sinon un
+    # attaquant re-signe avec sa clé en gardant l'empreinte de la victime.
+    if seal.get("fingerprint") != hashlib.sha256(bytes.fromhex(seal["publicKeyHex"])).hexdigest():
+        return SEAL_BROKEN
+
     def _matches(include_doc_id: bool, include_recipients: bool) -> bool:
         message = seal_message(manifest, signatures, journal, include_doc_id, include_recipients).encode("utf-8")
         try:

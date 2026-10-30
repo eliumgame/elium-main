@@ -128,6 +128,8 @@ export async function verifySeal(
     }
   }
   if (!authentic) return "broken";
+  // L'empreinte affichée doit être celle de la clé qui a signé (anti-usurpation d'empreinte).
+  if (seal.fingerprint !== (await fingerprintOf(seal.publicKeyHex))) return "broken";
 
   if (trustedKeyHex && trustedKeyHex.trim().toLowerCase() !== seal.publicKeyHex.toLowerCase()) {
     return "unknown_key";

@@ -33,7 +33,7 @@ vi.mock("../src/middleware/auth.js", () => ({
     membershipId: "m1",
     roleId: "r1",
     roleKey: "admin",
-    permissions: new Set<string>(),
+    permissions: new Set<string>(["node.read", "node.edit"]),
     isOwner: false,
   })),
 }));
@@ -216,5 +216,17 @@ describe("DELETE /api/orgs/:orgId/roles/:roleId", () => {
     const res = await app.inject({ method: "DELETE", url: `/api/orgs/${ORG}/roles/${ROLE}` });
     expect(res.statusCode).toBe(200);
     expect(mQuery).toHaveBeenCalledWith(expect.stringMatching(/DELETE FROM roles/), [ROLE, ORG]);
+  });
+});
+
+describe("privilege ceiling", () => {
+  it("403s when creating a role with a permission the caller does not hold", async () => {
+    const app = await makeApp();
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/orgs/${ORG}/roles`,
+      payload: { name: "Sneaky", permissions: ["node.read", "role.manage"] },
+    });
+    expect(res.statusCode).toBe(403);
   });
 });

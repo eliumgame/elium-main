@@ -744,7 +744,8 @@ async function main(): Promise<void> {
 
     // Disable → login is single-step again.
     await expectStatus("désactivation refusée avec un mauvais code", bob.api.mfaDisable("000000"), 401);
-    await bob.api.mfaDisable(totpNow(setup.secret));
+    // Le pas TOTP courant vient d'être consommé par la connexion (anti-rejeu) : on utilise un code de secours.
+    await bob.api.mfaDisable(enabled.backupCodes[1]!);
     ok("MFA désactivée", (await bob.api.mfaStatus()).enabled === false);
     const { res: plain } = await loginFull(base, bob.user.email, bob.password);
     ok(
@@ -887,16 +888,19 @@ async function main(): Promise<void> {
     // Un compte avec 2FA locale ne s'ouvre PAS sur le seul jeton d'identité (IdP faux/compromis).
     const { totpNow: totpSso } = await import("../../server/src/lib/totp");
     const bobSetup = await bob.api.mfaSetup();
-    await bob.api.mfaEnable(totpSso(bobSetup.secret));
+    const bobEnabled = await bob.api.mfaEnable(totpSso(bobSetup.secret));
     const ssoMfa = (await ssoApi.ssoVerify(org.id, signIdToken(claimsFor(bob.user.email)))) as unknown as {
       mfaRequired?: boolean;
       mfaToken?: string;
       accessToken?: string;
     };
     ok("SSO : un compte avec 2FA reçoit un défi, pas de session", ssoMfa.mfaRequired === true && !ssoMfa.accessToken);
-    const ssoDone = await new DriveApi({ baseUrl: base }).loginMfa(ssoMfa.mfaToken!, totpSso(bobSetup.secret));
+    const ssoDone = await new DriveApi({ baseUrl: base }).loginMfa(
+      ssoMfa.mfaToken!,
+      totpSso(bobSetup.secret, Date.now() + 30_000), // pas suivant : le pas courant est consommé (anti-rejeu)
+    );
     ok("SSO + code 2FA : session émise", !!ssoDone.accessToken);
-    await bob.api.mfaDisable(totpSso(bobSetup.secret));
+    await bob.api.mfaDisable(bobEnabled.backupCodes[0]!);
 
     await expectStatus(
       "SSO : mauvaise audience → 401",

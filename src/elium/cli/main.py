@@ -113,7 +113,8 @@ def cmd_doc_create(args: argparse.Namespace) -> None:
     profile = args.profile
     if getattr(args, "encrypt_metadata", False) and not PROFILES[profile]["encrypted"]:
         raise SystemExit(
-            f"--encrypt-metadata n'a de sens que pour un profil chiffré (protected, encrypted, secure_max) ; « {profile} » ne l'est pas."
+            "--encrypt-metadata n'a de sens que pour un profil chiffré "
+            f"(protected, encrypted, secure_max) ; « {profile} » ne l'est pas."
         )
     journal = create_journal(profile, title)
 

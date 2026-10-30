@@ -7,14 +7,13 @@ import zipfile
 import pytest
 
 from elium.core.container import EliumContainer
-from elium.core.exceptions import EliumError, EliumFormatError
+from elium.core.exceptions import EliumError, EliumFormatError, EliumSecurityError
 from elium.crypto.recipients import (
     MAX_RECIPIENTS,
     decrypt_as_recipient,
     encrypt_for_recipients,
     generate_recipient_keypair,
 )
-from elium.core.exceptions import EliumSecurityError
 from elium.format.canonical import sha256_hex
 from elium.format.document import create_document_model, text_to_doc
 from elium.format.package import (

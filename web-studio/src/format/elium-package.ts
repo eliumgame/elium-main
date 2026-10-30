@@ -359,7 +359,8 @@ export async function writeEliumPackage(file: EliumFile, opts: WriteOptions = {}
  *  `_check_manifest_coherence` (package.py). */
 function assertManifestCoherence(manifest: EliumManifest): void {
   const prot = (manifest as { protection?: unknown }).protection as EliumManifest["protection"] | undefined;
-  if (!prot || typeof prot !== "object") throw new EliumPackageError("Manifeste invalide : bloc « protection » manquant.");
+  if (!prot || typeof prot !== "object")
+    throw new EliumPackageError("Manifeste invalide : bloc « protection » manquant.");
   const profile = manifest.profile as string;
   if (typeof profile !== "string" || !Object.prototype.hasOwnProperty.call(PROFILES, profile))
     throw new EliumPackageError(`Profil inconnu dans le manifeste : ${JSON.stringify(profile)}.`);
@@ -484,7 +485,9 @@ export async function readEliumPackage(blob: Uint8Array, opts: WriteOptions = {}
       document = envelope.document;
     } else {
       if (parsed && parsed.schema === SECURE_SCHEMA) {
-        throw new EliumPackageError("Enveloppe de métadonnées chiffrées sans drapeau metadataEncrypted : fichier altéré.");
+        throw new EliumPackageError(
+          "Enveloppe de métadonnées chiffrées sans drapeau metadataEncrypted : fichier altéré.",
+        );
       }
       document = parsed;
     }

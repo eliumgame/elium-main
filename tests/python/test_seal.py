@@ -188,8 +188,10 @@ def test_seal_covers_recipient_set():
 def _legacy_seal(manifest, signatures, journal, private_key_hex, *, doc_id=True, recipients=True):
     """Forge a seal the way OLD Elium versions did (v1 message, no msgVersion)."""
     import hashlib
+
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
     from elium.format.seal import seal_message
 
     priv = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(private_key_hex))

@@ -5,16 +5,20 @@ import { fontFaceCss } from "../src/format/embedded-fonts";
 import { htmlToDoc, markdownToDoc, safeImportHref } from "../src/format/importers";
 import type { ProseMirrorNode } from "../src/format/types";
 
-const doc = (...content: ProseMirrorNode[]) => ({ schema: "elium-doc/1" as const, doc: { type: "doc", content } as ProseMirrorNode });
+const doc = (...content: ProseMirrorNode[]) => ({
+  schema: "elium-doc/1" as const,
+  doc: { type: "doc", content } as ProseMirrorNode,
+});
 
 describe("Export : champs du document échappés (CLIENT-03)", () => {
   it("échappe le slug (refId) du sommaire", () => {
     const evil = 'x"><img src=x onerror=alert(1)>';
     const html = docToHtml(
-      doc(
-        { type: "tableOfContents" } as ProseMirrorNode,
-        { type: "heading", attrs: { level: 1, refId: evil }, content: [{ type: "text", text: "T" }] },
-      ),
+      doc({ type: "tableOfContents" } as ProseMirrorNode, {
+        type: "heading",
+        attrs: { level: 1, refId: evil },
+        content: [{ type: "text", text: "T" }],
+      }),
     );
     expect(html).not.toContain("<img src=x");
     expect(html).toContain("&quot;&gt;&lt;img");

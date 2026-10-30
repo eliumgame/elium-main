@@ -517,7 +517,9 @@ def read_elium(
         else:
             document = _safe_json_loads(payload, "contenu")
             if isinstance(document, dict) and document.get("schema") == SECURE_SCHEMA:
-                raise EliumPackageError("Enveloppe de métadonnées chiffrées sans drapeau metadataEncrypted : fichier altéré.")
+                raise EliumPackageError(
+                    "Enveloppe de métadonnées chiffrées sans drapeau metadataEncrypted : fichier altéré."
+                )
     else:
         document = _safe_json_loads(content_bytes, "contenu")
 

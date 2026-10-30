@@ -4,7 +4,12 @@ import { createEliumFile } from "../src/format/document";
 import { fromHex, sha256Hex } from "../src/format/canonical";
 import { writeEliumPackage, readEliumPackage } from "../src/format/elium-package";
 import { EliumCryptoEngine } from "../src/crypto/elium-crypto";
-import { encryptForRecipients, decryptAsRecipient, generateRecipientKeypair, MAX_RECIPIENTS } from "../src/crypto/recipients";
+import {
+  encryptForRecipients,
+  decryptAsRecipient,
+  generateRecipientKeypair,
+  MAX_RECIPIENTS,
+} from "../src/crypto/recipients";
 import { deriveAccountSecrets } from "../src/drive-cloud/kdf";
 
 describe("CORE-04 cohérence manifeste/profil", () => {
@@ -48,7 +53,9 @@ describe("CORE-06 ressource listée mais absente", () => {
 describe("CORE-07 plafond de destinataires", () => {
   it("refuse > MAX_RECIPIENTS à l'écriture et à la lecture", async () => {
     const kp = await generateRecipientKeypair();
-    await expect(encryptForRecipients(new Uint8Array([1]), Array(MAX_RECIPIENTS + 1).fill(kp.publicHex))).rejects.toThrow(/Trop de destinataires/);
+    await expect(
+      encryptForRecipients(new Uint8Array([1]), Array(MAX_RECIPIENTS + 1).fill(kp.publicHex)),
+    ).rejects.toThrow(/Trop de destinataires/);
     const blob = await encryptForRecipients(new Uint8Array([1]), [kp.publicHex]);
     expect(Array.from(await decryptAsRecipient(blob, kp))).toEqual([1]);
     const env = JSON.parse(new TextDecoder().decode(blob));
@@ -81,7 +88,9 @@ describe("CLIENT-07 bornes Argon2id", () => {
     ]) {
       await expect(deriveAccountSecrets("pw", salt, params as any)).rejects.toThrow(/KDF|hors bornes/);
     }
-    await expect(EliumCryptoEngine.deriveMasterKey("pw", new Uint8Array(16), 3, 999_999_999, 1)).rejects.toThrow(/out of bounds/);
+    await expect(EliumCryptoEngine.deriveMasterKey("pw", new Uint8Array(16), 3, 999_999_999, 1)).rejects.toThrow(
+      /out of bounds/,
+    );
   });
 });
 

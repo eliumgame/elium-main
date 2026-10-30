@@ -111,7 +111,8 @@ export async function verifyProof(
   const authentic = await verifyMessage(proof.signatureHex, message, proof.publicKeyHex);
   if (!authentic) return "invalid";
   // Empreinte annoncée = empreinte de la clé qui a signé (anti-usurpation d'empreinte).
-  if (proof.fingerprint !== undefined && proof.fingerprint !== (await fingerprintOf(proof.publicKeyHex))) return "invalid";
+  if (proof.fingerprint !== undefined && proof.fingerprint !== (await fingerprintOf(proof.publicKeyHex)))
+    return "invalid";
 
   if (trustedKeyHex && trustedKeyHex.trim().toLowerCase() !== proof.publicKeyHex.toLowerCase()) {
     return "unknown_key";

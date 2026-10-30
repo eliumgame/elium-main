@@ -18,5 +18,6 @@ export async function reauthenticate(
   const { authSignSeedHex } = await prepareLogin(password, pre.kdfSalt, pre.kdfParams as KdfParams);
   const { challengeId, challenge } = await api.loginInit(email);
   const signature = await signLoginChallenge(challenge, authSignSeedHex);
-  return (await api.reauth({ challengeId, signature, ...(code ? { code } : {}), ...(webauthn ? { webauthn } : {}) })).reauthToken;
+  return (await api.reauth({ challengeId, signature, ...(code ? { code } : {}), ...(webauthn ? { webauthn } : {}) }))
+    .reauthToken;
 }

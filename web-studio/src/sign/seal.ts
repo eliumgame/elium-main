@@ -132,15 +132,16 @@ export async function verifySeal(
     // so stripping `msgVersion` doesn't help an attacker either).
     const message = await sealMessage(manifest, signatures, journal, STRICT_SUBSET);
     authentic = await verifyMessage(seal.signatureHex, message, seal.publicKeyHex);
-  } else outer: for (const recipients of recipientForms) {
-    for (const docId of docIdForms) {
-      const message = await sealMessage(manifest, signatures, journal, { docId, recipients });
-      if (await verifyMessage(seal.signatureHex, message, seal.publicKeyHex)) {
-        authentic = true;
-        break outer;
+  } else
+    outer: for (const recipients of recipientForms) {
+      for (const docId of docIdForms) {
+        const message = await sealMessage(manifest, signatures, journal, { docId, recipients });
+        if (await verifyMessage(seal.signatureHex, message, seal.publicKeyHex)) {
+          authentic = true;
+          break outer;
+        }
       }
     }
-  }
   if (!authentic) return "broken";
   // L'empreinte affichée doit être celle de la clé qui a signé (anti-usurpation d'empreinte).
   if (seal.fingerprint !== (await fingerprintOf(seal.publicKeyHex))) return "broken";

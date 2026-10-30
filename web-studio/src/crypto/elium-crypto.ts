@@ -562,7 +562,14 @@ export class EliumCryptoEngine {
     } catch {
       throw new Error("Public Header is corrupted.");
     }
-    if (!header || typeof header !== "object" || !header.kdf || typeof header.kdf !== "object" || !header.crypto || !header.flags) {
+    if (
+      !header ||
+      typeof header !== "object" ||
+      !header.kdf ||
+      typeof header.kdf !== "object" ||
+      !header.crypto ||
+      !header.flags
+    ) {
       throw new Error("Public Header is corrupted.");
     }
 

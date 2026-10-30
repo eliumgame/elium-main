@@ -165,7 +165,8 @@ export async function encryptForRecipients(
   cascade = false,
 ): Promise<Uint8Array> {
   if (!recipientPublicHexes.length) throw new Error("Aucun destinataire fourni.");
-  if (recipientPublicHexes.length > MAX_RECIPIENTS) throw new Error(`Trop de destinataires (maximum ${MAX_RECIPIENTS}).`);
+  if (recipientPublicHexes.length > MAX_RECIPIENTS)
+    throw new Error(`Trop de destinataires (maximum ${MAX_RECIPIENTS}).`);
 
   // Wrapped per-recipient below. Without cascade it IS the AES-256-GCM key
   // directly; with cascade it is expanded (HKDF) into two subkeys.
@@ -285,7 +286,8 @@ export async function decryptAsRecipient(blob: Uint8Array, kp: RecipientKeypair)
   } catch {
     throw new Error("Enveloppe multi-destinataires illisible.");
   }
-  if (!env || env.schema !== RECIPIENTS_SCHEMA) throw new Error("Ce n'est pas une enveloppe multi-destinataires Elium.");
+  if (!env || env.schema !== RECIPIENTS_SCHEMA)
+    throw new Error("Ce n'est pas une enveloppe multi-destinataires Elium.");
   if (env.recipients !== undefined && !Array.isArray(env.recipients))
     throw new Error("Enveloppe multi-destinataires invalide : liste de destinataires malformée.");
   if ((env.recipients?.length ?? 0) > MAX_RECIPIENTS)

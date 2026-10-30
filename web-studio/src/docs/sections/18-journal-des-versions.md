@@ -1,6 +1,13 @@
 ## Journal des versions
 
-> Dernière version publiée : **4.30.0**, étiquetée le 26 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
+> Dernière version publiée : **4.31.0**, étiquetée le 30 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
+
+### Version 4.31.0 — Durcissement de sécurité (audit)
+
+- **Sceaux et preuves** : l'empreinte affichée doit correspondre à la clé qui a réellement signé ; les nouveaux sceaux (format v2) signent toujours l'identifiant du document et la liste des destinataires. Les anciens sceaux restent valides ; une ancienne version de l'application lira un sceau v2 comme « rompu ».
+- **Lecture des fichiers .elium** : profil et protections incohérents, enveloppe chiffrée sans drapeau, ressource manquante ou liste de destinataires démesurée sont désormais refusés ou signalés comme altération ; nouvelle option `--encrypt-metadata` en ligne de commande.
+- **Drive** : plafond de privilège sur les rôles et les partages, comptes et jetons revalidés à l'ouverture des connexions temps réel, anti-rejeu des codes TOTP, ré-authentification par clé d'accès, contrôle d'espace disque sur les écritures, protection contre le SSRF sur l'annuaire d'identité, effacement RGPD complété. Le serveur applique une nouvelle migration (0013).
+- **Éditeurs et exports** : correction d'une faille XSS à l'édition d'une zone de texte de présentation, échappement des champs exportés en HTML/PDF, liens importés filtrés, clés publiques du Drive vérifiées contre les clés privées.
 
 ### Version 4.30.0 — Dossier E51 (BTS Gestion de la PME)
 

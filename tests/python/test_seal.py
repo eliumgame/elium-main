@@ -264,3 +264,7 @@ def test_core03_v2_seal_with_docid_and_recipients_round_trip():
     assert verify_seal({**m, "docId": "other"}, [], journal) == "broken"
     no_doc = {k: v for k, v in m.items() if k != "docId"}
     assert verify_seal(no_doc, [], journal) == "broken"
+def test_empty_seal_is_broken_not_unsealed():
+    from elium.format.seal import verify_seal
+
+    assert verify_seal({"seal": {}}, [], {"version": 1, "events": []}) == "broken"

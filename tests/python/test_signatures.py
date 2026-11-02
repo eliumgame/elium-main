@@ -59,3 +59,9 @@ def test_key_serialization(tmp_path):
     # Ensure they produce the same signature
     msg = b"test"
     assert priv.sign(msg) == loaded_priv.sign(msg)
+def test_malformed_proof_returns_invalid():
+    from elium.format.proof import verify_proof
+
+    for proof in ({}, {"fingerprint": None}, {"signedDocId": None},
+                  {"signedContentHash": "x"}):
+        assert verify_proof({"id": "s", "signer": {}, "proof": proof}, {}) == "invalid"

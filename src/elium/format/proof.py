@@ -122,24 +122,24 @@ def verify_proof(
     sans `signedDocId` (anciennes) se vérifient exactement comme avant.
     """
     proof = signature.get("proof")
-    if not proof:
+    if proof is None:
         return "visual_only"
+    if not isinstance(proof, dict) or not proof or proof.get("fingerprint", "absent") is None:
+        return "invalid"
+    if "signedDocId" in proof and not isinstance(proof["signedDocId"], str):
+        return "invalid"
 
     # Reconstruct against the snapshots embedded in the proof (present ⇒ v2, the
     # proof binds placement/visual; absent ⇒ legacy). Mirror of proof.ts.
-    message = _to_be_signed(
-        signature["id"],
-        proof["signedContentHash"],
-        signature.get("signer", {}),
-        proof["signedAt"],
-        proof.get("signedPlacement"),
-        proof.get("signedVisual"),
-        proof.get("signedDocId"),
-    ).encode("utf-8")
     try:
+        message = _to_be_signed(
+            signature["id"], proof["signedContentHash"], signature.get("signer", {}),
+            proof["signedAt"], proof.get("signedPlacement"), proof.get("signedVisual"),
+            proof.get("signedDocId"),
+        ).encode("utf-8")
         pub = Ed25519PublicKey.from_public_bytes(bytes.fromhex(proof["publicKeyHex"]))
         pub.verify(bytes.fromhex(proof["signatureHex"]), message)
-    except (InvalidSignature, ValueError):
+    except (InvalidSignature, ValueError, KeyError, TypeError):
         return "invalid"
 
     # Empreinte annoncée = SHA-256 de la clé qui a signé (anti-usurpation d'empreinte).

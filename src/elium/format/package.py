@@ -594,5 +594,6 @@ def read_elium(
         "resourceIndex": resource_index,
         "resources": resources,
         "integrity": integrity,
-        "seal": {"verdict": seal_verdict, "fingerprint": (manifest.get("seal") or {}).get("fingerprint")},
+        "seal": {"verdict": seal_verdict, "fingerprint": manifest["seal"].get("fingerprint")
+                 if isinstance(manifest.get("seal"), dict) else None},
     }

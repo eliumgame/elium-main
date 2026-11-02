@@ -114,6 +114,7 @@ export async function verifyProof(
 ): Promise<SignatureVerdict> {
   const proof = signature.proof;
   if (!proof) return "visual_only";
+  if (proof.signedDocId === null || proof.fingerprint === null) return "invalid";
 
   // Reconstruct against the SNAPSHOTS embedded in the proof (present ⇒ v2, the
   // proof binds placement/visual; absent ⇒ legacy, it doesn't). Their presence

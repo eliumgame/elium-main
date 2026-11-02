@@ -144,8 +144,10 @@ def verify_seal(
 ) -> str:
     """Returns one of: unsealed | valid | unknown_key | broken."""
     seal = manifest.get("seal")
-    if not seal:
+    if seal is None:
         return SEAL_UNSEALED
+    if not isinstance(seal, dict):
+        return SEAL_BROKEN
 
     # Multi-mode: the sealed subset gained optional fields over time (docId, then
     # the recipient set). Accept a seal that matches the current full form OR an

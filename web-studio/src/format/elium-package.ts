@@ -271,6 +271,10 @@ export async function writeEliumPackage(file: EliumFile, opts: WriteOptions = {}
   }
 
   const useRecipients = def.encrypted && !!opts.recipients?.length;
+  if (def.encrypted && file.manifest.protection.keyfileRequired && !opts.keyfile)
+    throw new EliumPackageError("Fichier-clé requis pour réenregistrer ce document sans perdre sa protection.");
+  if (useRecipients && opts.keyfile)
+    throw new EliumPackageError("Le fichier-clé ne peut pas être combiné avec le chiffrement par destinataires.");
   let contentBytes: Uint8Array;
   let recipientFprs: string[] | undefined;
   if (def.encrypted) {
@@ -311,6 +315,7 @@ export async function writeEliumPackage(file: EliumFile, opts: WriteOptions = {}
 
   const contentHash = await sha256Hex(contentBytes);
   const manifest = buildManifest(file, contentHash, secure, recipientFprs);
+  manifest.protection.keyfileRequired = def.encrypted && !!opts.keyfile;
 
   // Clear (on-disk) signatures/journal/parapheur are redacted when metadata is
   // encrypted; the real ones live in the encrypted envelope, bound via

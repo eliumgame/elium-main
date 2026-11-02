@@ -28,6 +28,7 @@ describe("keyfile modify cycle (no password), with metadata encryption + seal", 
       doc: docWith("Version 1"),
     });
     let bytes = await writeEliumPackage(file, { keyfile: kf, encryptMetadata: true, sealPrivateKeyHex: seal });
+    expect((await readEliumPackage(bytes, { keyfile: kf })).file.manifest.protection.keyfileRequired).toBe(true);
 
     // No credential → must refuse (proves it really is encrypted).
     await expect(readEliumPackage(bytes, {})).rejects.toBeInstanceOf(EliumPasswordRequired);
@@ -40,6 +41,7 @@ describe("keyfile modify cycle (no password), with metadata encryption + seal", 
 
     // 3. Edit the document in place (as the editor would), keeping the same flags.
     file = { ...read.file, document: { ...read.file.document, doc: docWith("Version 2 modifiée") } };
+    await expect(writeEliumPackage(file, { password: "accidental" })).rejects.toThrow(/Fichier-clé requis/);
 
     // 4. Re-save with the keyfile ALONE (no password) — the modify path.
     bytes = await writeEliumPackage(file, {

@@ -400,8 +400,12 @@ export class DriveApi {
   mfaStatus() {
     return this.json<MfaStatus>("GET", "/auth/mfa/status");
   }
-  mfaSetup() {
-    return this.json<{ secret: string; otpauthUri: string }>("POST", "/auth/mfa/setup", { body: {} });
+  /** Enrôlement TOTP : exige un jeton de ré-authentification (voir `reauth`). */
+  mfaSetup(reauthToken: string) {
+    return this.json<{ secret: string; otpauthUri: string }>("POST", "/auth/mfa/setup", {
+      body: {},
+      headers: reauthHeader(reauthToken),
+    });
   }
   mfaEnable(code: string) {
     return this.json<{ enabled: boolean; backupCodes: string[] }>("POST", "/auth/mfa/enable", { body: { code } });

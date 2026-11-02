@@ -21,6 +21,7 @@ import EmbeddedPostgres from "embedded-postgres";
 import * as Y from "yjs";
 
 import { DriveApi, ApiError } from "../src/drive-cloud/api";
+import { reauthenticate } from "../src/drive-cloud/reauth";
 import {
   buildRegistration,
   prepareLogin,
@@ -695,7 +696,7 @@ async function main(): Promise<void> {
     ok("statut initial : MFA désactivée", (await bob.api.mfaStatus()).enabled === false);
 
     // Enroll: setup → confirm with a live code.
-    const setup = await bob.api.mfaSetup();
+    const setup = await bob.api.mfaSetup(await reauthenticate(bob.api, bob.user.email, bob.password));
     ok(
       "setup renvoie un secret + une URI otpauth",
       /^[A-Z2-7]+$/.test(setup.secret) && setup.otpauthUri.startsWith("otpauth://totp/"),
@@ -887,7 +888,7 @@ async function main(): Promise<void> {
 
     // Un compte avec 2FA locale ne s'ouvre PAS sur le seul jeton d'identité (IdP faux/compromis).
     const { totpNow: totpSso } = await import("../../server/src/lib/totp");
-    const bobSetup = await bob.api.mfaSetup();
+    const bobSetup = await bob.api.mfaSetup(await reauthenticate(bob.api, bob.user.email, bob.password));
     const bobEnabled = await bob.api.mfaEnable(totpSso(bobSetup.secret));
     // SRV-10 : on repart d'un compte NON lié, pour vérifier que le lien se fait à la réussite du 2e facteur.
     await query(`UPDATE users SET sso_subject = NULL WHERE id = $1`, [bob.user.id]);

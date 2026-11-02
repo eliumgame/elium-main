@@ -693,7 +693,7 @@ async function main(): Promise<void> {
     await boss.api.patchSiteUser(carol.user.id, { roleId: roleIdByKey["viewer"]! });
 
     // Passkeys : ajout/retrait exigent une confirmation fraîche (mot de passe + code 2FA).
-    const aSetup = await nl.api.mfaSetup();
+    const aSetup = await nl.api.mfaSetup(await reauthenticate(nl.api, "alice@acme.fr", newPw));
     const aEnabled = await nl.api.mfaEnable(totpNow(aSetup.secret));
     await query(
       `INSERT INTO webauthn_credentials (user_id, credential_id, public_key, counter) VALUES ($1, 'e2e-reauth-cred', $2, 0)`,
@@ -995,7 +995,7 @@ async function main(): Promise<void> {
       boss.api.putSiteSettings({ ...s, mfaPolicy: "required" }, null),
       409,
     );
-    const setup = await boss.api.mfaSetup();
+    const setup = await boss.api.mfaSetup(await reauthenticate(boss.api, "boss@acme.fr", boss.password));
     const enabled = await boss.api.mfaEnable(totpNow(setup.secret));
     await expectStatus(
       "imposer la 2FA SANS code (ré-authentification) : refusé",
@@ -1020,7 +1020,7 @@ async function main(): Promise<void> {
     );
     const me = await carol.api.siteMe();
     ok("Carol peut interroger /site/me et voit qu'elle doit s'enrôler", me.mfaEnrollmentRequired === true);
-    const csetup = await carol.api.mfaSetup();
+    const csetup = await carol.api.mfaSetup(await reauthenticate(carol.api, "carol@acme.fr", carol.password));
     await carol.api.mfaEnable(totpNow(csetup.secret));
     ok(
       "après enrôlement 2FA, Carol retrouve l'accès",

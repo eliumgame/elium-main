@@ -533,8 +533,13 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // --- Setup: generate a pending secret + otpauth URI ----------------------
+  // Ré-authentification exigée (comme l'ajout d'une passkey) : sans elle, un jeton d'accès volé
+  // suffisait à poser SA propre 2FA et à récupérer les codes de secours, verrouillant la victime
+  // hors de son compte (/mfa/disable exige alors un facteur qu'elle n'a pas). /mfa/enable ne fait
+  // que confirmer le secret en attente, qui n'existe que si /mfa/setup a été ré-authentifié.
   app.post("/mfa/setup", { preHandler: authenticate }, async (req) => {
     const user = requireUser(req);
+    await requireReauth(req, user.id);
     const secret = generateTotpSecret();
     const { ct, nonce } = encryptServerSecret(secret);
     await query(`UPDATE users SET mfa_pending_enc = $2, mfa_pending_nonce = $3 WHERE id = $1`, [user.id, ct, nonce]);

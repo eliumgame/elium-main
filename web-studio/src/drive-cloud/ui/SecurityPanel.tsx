@@ -193,7 +193,9 @@ export default function SecurityPanel() {
     setErr(null);
     setBusy(true);
     try {
-      const { secret: s, otpauthUri } = await d.api.mfaSetup();
+      const tok = await reauth(); // poser une 2FA = opération sensible : confirmation fraîche
+      if (!tok) return;
+      const { secret: s, otpauthUri } = await d.api.mfaSetup(tok);
       setSecret(s);
       setQr(await makeQrDataUrl(otpauthUri));
       setStage("enrolling");

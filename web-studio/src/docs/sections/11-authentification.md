@@ -45,7 +45,7 @@ Un compte créé par SSO utilise la même route pour fixer la phrase de passe qu
 
 ### Second facteur : TOTP
 
-Mot de passe à usage unique de type RFC 6238, avec enrôlement par QR code.
+Mot de passe à usage unique de type RFC 6238, avec enrôlement par QR code. Démarrer l'enrôlement (`POST /mfa/setup`) exige une **ré-authentification** fraîche, comme l'ajout d'une clé d'accès : un jeton d'accès volé ne permet pas de poser sa propre 2FA sur le compte d'autrui.
 
 - Le secret est **chiffré au repos** avec une clé dérivée de `TOKEN_SECRET`.
 - Le paquet de clés n'est livré qu'**après** le second facteur : `/login/verify` renvoie un jeton court, `/login/mfa` livre le paquet.

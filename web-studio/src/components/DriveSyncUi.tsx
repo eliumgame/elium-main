@@ -11,6 +11,7 @@ import { reportError } from "../ui/crash-log";
 import type { ConflictChoice } from "../workspace/backup";
 import { planBackupRestore } from "../workspace/backup";
 import {
+  confirmBackupOrg,
   dismissRestorePrompt,
   dismissRestored,
   flushNow,
@@ -31,6 +32,7 @@ export function DriveSyncUi({ ws }: { ws: WorkspaceApi }) {
       <SyncPill />
       <RestoredBanner ws={ws} />
       <RestorePrompt ws={ws} />
+      <OrgConfirmPrompt />
     </>
   );
 }
@@ -97,6 +99,11 @@ export function SyncPill() {
       icon = <RotateCcw size={13} aria-hidden="true" />;
       label = "Sauvegarde du Drive à restaurer — envoi en pause";
       break;
+    case "confirm-org":
+      tone = "warn";
+      icon = <Cloud size={13} aria-hidden="true" />;
+      label = `Sauvegarder aussi dans « ${s.orgName ?? "cette organisation"} » ? — envoi en pause`;
+      break;
     case "locked":
       tone = "warn";
       icon = <AlertTriangle size={13} aria-hidden="true" />;
@@ -112,7 +119,7 @@ export function SyncPill() {
       break;
   }
   const act =
-    s.phase === "needs-restore"
+    s.phase === "needs-restore" || s.phase === "confirm-org"
       ? () => window.dispatchEvent(new Event(OPEN_RESTORE_EVENT))
       : s.phase === "pending" || s.phase === "error" || s.phase === "offline"
         ? () => void flushNow()
@@ -187,6 +194,9 @@ export function SaveToDriveButton({
       else if (r.reason === "needs-restore") {
         window.dispatchEvent(new Event(OPEN_RESTORE_EVENT));
         onDone?.(false, "Une sauvegarde existe déjà dans le Drive : restaurez-la ou repartez à neuf d'abord.");
+      } else if (r.reason === "confirm-org") {
+        window.dispatchEvent(new Event(OPEN_RESTORE_EVENT));
+        onDone?.(false, "Confirmez d'abord la sauvegarde de votre espace dans cette organisation.");
       } else
         onDone?.(
           false,
@@ -352,6 +362,59 @@ function RestorePrompt({ ws }: { ws: WorkspaceApi }) {
       <Alert tone="info">
         L'envoi automatique reste en pause tant que vous n'avez pas choisi : aucune sauvegarde existante n'est écrasée
         sans votre accord.
+      </Alert>
+    </Modal>
+  );
+}
+
+/**
+ * Première sauvegarde dans une organisation autre que celle(s) déjà acceptée(s) : l'espace local
+ * (propre au compte) n'y part qu'avec l'accord explicite de l'utilisateur, l'organisation étant nommée.
+ */
+function OrgConfirmPrompt() {
+  const s = useSyncStatus();
+  const [hidden, setHidden] = useState(false);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (s.phase === "confirm-org") setHidden(false);
+  }, [s.phase]);
+  useEffect(() => {
+    const on = () => setHidden(false);
+    window.addEventListener(OPEN_RESTORE_EVENT, on);
+    return () => window.removeEventListener(OPEN_RESTORE_EVENT, on);
+  }, []);
+  if (s.phase !== "confirm-org" || hidden) return null;
+  const org = s.orgName ?? "cette organisation";
+  return (
+    <Modal
+      title={`Sauvegarder votre espace dans « ${org} » ?`}
+      onClose={() => setHidden(true)}
+      footer={
+        <>
+          <Button variant="ghost" disabled={busy} onClick={() => setHidden(true)}>
+            Pas dans cette organisation
+          </Button>
+          <Button
+            disabled={busy}
+            onClick={() => {
+              setBusy(true);
+              void confirmBackupOrg().finally(() => setBusy(false));
+            }}
+            data-testid="confirm-backup-org"
+          >
+            {busy ? <Loader2 size={14} className="icon-spin" /> : <Cloud size={14} />} Sauvegarder dans « {org} »
+          </Button>
+        </>
+      }
+    >
+      <p>
+        Votre espace de travail local est déjà sauvegardé dans une autre organisation. Le sauvegarder aussi dans «{" "}
+        <strong>{org}</strong> » y enverrait tous vos documents, tableurs, présentations et PDF, chiffrés pour vous et
+        récupérables par les administrateurs de cette organisation (clé de recouvrement).
+      </p>
+      <Alert tone="info">
+        Rien n'est envoyé tant que vous n'avez pas confirmé. Revenez dans votre organisation habituelle pour continuer
+        la sauvegarde là-bas.
       </Alert>
     </Modal>
   );

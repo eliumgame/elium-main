@@ -18,6 +18,9 @@ import {
 import { EXTRA_PIECES, packRecords, unpackRecords, type ExtraPiece, type Records } from "../src/workspace/extras";
 import {
   backupFolderCandidates,
+  backupOrgsKey,
+  needsOrgConsent,
+  parseBackupOrgs,
   ownedBy,
   sharesArePrivate,
   splitTrustRecords,
@@ -228,5 +231,22 @@ describe("moteur : dossier compromis et ancres de confiance", () => {
     expect(await importTrustFromDrive(s.env, { apply: true })).toEqual({ c2pa: 2, pdf: 1 });
     expect(s.storage.get("elium.detector.c2paTrust.v1")).toBe("[{},{}]");
     expect(s.applied.at(-1)).toEqual({ trusted: [{ id: "cert" }] });
+  });
+});
+
+describe("seconde organisation : pas de première sauvegarde automatique sans accord", () => {
+  it("première organisation acceptée d'office, une autre demande confirmation", () => {
+    expect(needsOrgConsent([], "A")).toBe(false);
+    expect(needsOrgConsent(["A"], "A")).toBe(false);
+    expect(needsOrgConsent(["A"], "B")).toBe(true);
+    expect(needsOrgConsent(["A", "B"], "B")).toBe(false);
+  });
+
+  it("liste mémorisée par compte, robuste aux valeurs corrompues", () => {
+    expect(backupOrgsKey("u1")).toBe("elium_drive_backup_orgs_v1:u1");
+    expect(parseBackupOrgs(null)).toEqual([]);
+    expect(parseBackupOrgs("{")).toEqual([]);
+    expect(parseBackupOrgs("null")).toEqual([]);
+    expect(parseBackupOrgs('["A", 3, "B"]')).toEqual(["A", "B"]);
   });
 });

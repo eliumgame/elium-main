@@ -62,8 +62,9 @@ export default function DriveSyncRunner({
       auto,
       required,
       appVersion,
+      orgName: d.currentOrg?.name,
     });
-  }, [ctx, auto, required, appVersion, tick]);
+  }, [ctx, auto, required, appVersion, tick, d.currentOrg?.name]);
 
   // Un élément créé / modifié / supprimé, ou une pièce annexe (brouillon, version, police…) modifiée.
   const sig = ws.ready ? workspaceSignature(ws.items) : "";

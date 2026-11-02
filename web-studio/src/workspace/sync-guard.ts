@@ -101,3 +101,23 @@ export function splitTrustRecords(
   }
   return { kept, trust, trustCount };
 }
+
+// --- Organisation de sauvegarde --------------------------------------------------------------------
+// L'espace local est propre au COMPTE, pas à l'organisation : sans garde-fou, passer sur (ou rejoindre)
+// une seconde organisation y enverrait tout l'espace, avec une part de clé pour cette organisation.
+
+/** Organisations où l'utilisateur a accepté que son espace soit sauvegardé (par compte). */
+export const backupOrgsKey = (userId: string) => `elium_drive_backup_orgs_v1:${userId}`;
+
+export function parseBackupOrgs(raw: string | null): string[] {
+  try {
+    const v = raw ? (JSON.parse(raw) as unknown) : [];
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Première sauvegarde dans `orgId` : confirmation requise si l'espace est déjà sauvegardé ailleurs. */
+export const needsOrgConsent = (approved: string[], orgId: string): boolean =>
+  approved.length > 0 && !approved.includes(orgId);

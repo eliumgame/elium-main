@@ -173,6 +173,17 @@ export default function DriveBackupSection({ bridge }: { bridge: WorkspaceSettin
               </div>
             </Alert>
           )}
+          {s.phase === "confirm-org" && (
+            <Alert tone="warning" title="Sauvegarde en pause dans cette organisation">
+              Votre espace est déjà sauvegardé dans une autre organisation : confirmez avant de l'envoyer aussi dans «{" "}
+              {s.orgName ?? "cette organisation"} ».
+              <div className="settings__row">
+                <Button size="sm" onClick={() => window.dispatchEvent(new Event(OPEN_RESTORE_EVENT))}>
+                  Choisir
+                </Button>
+              </div>
+            </Alert>
+          )}
           {s.phase === "offline" && <Alert tone="warning">{s.message}</Alert>}
           {s.phase === "error" && <Alert tone="danger">{s.message}</Alert>}
           {s.phase === "locked" && <Alert tone="warning">{s.message}</Alert>}

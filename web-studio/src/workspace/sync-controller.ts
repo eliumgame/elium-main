@@ -24,12 +24,14 @@ import {
 } from "./drive-sync";
 import { EXTRA_PIECES, applyExtra, dumpExtra, packRecords, unpackRecords } from "./extras";
 import { clearDirty, dirtyPieces } from "./sync-dirty";
+import { backupOrgsKey, needsOrgConsent, parseBackupOrgs } from "./sync-guard";
 import type { WorkItem } from "./types";
 
 export type SyncPhase =
   | "off" // pas de session Drive déverrouillée
   | "checking" // détection d'une sauvegarde existante
   | "needs-restore" // une sauvegarde existe : à restaurer ou à écarter avant tout envoi
+  | "confirm-org" // première sauvegarde dans une AUTRE organisation que celle(s) déjà acceptée(s) : à confirmer
   | "idle" // à jour
   | "syncing"
   | "pending" // des modifications attendent leur envoi
@@ -47,6 +49,8 @@ export interface SyncStatus {
   auto: boolean;
   required: boolean;
   probe?: RemoteProbe;
+  /** Organisation courante (nommée dans la confirmation « confirm-org »). */
+  orgName?: string;
   /** Restauration automatique (appareil vide) terminée : résumé affiché dans un bandeau. */
   restored?: { summary: string; reload: boolean };
 }
@@ -71,6 +75,8 @@ interface Config {
   auto: boolean;
   required: boolean;
   appVersion?: string;
+  /** Nom de l'organisation courante (confirmation avant une première sauvegarde dans une autre organisation). */
+  orgName?: string;
 }
 
 let cfg: Config | null = null;
@@ -126,7 +132,7 @@ function refreshPending(): void {
 export function configureSync(next: Config): void {
   const id = next.ctx ? `${next.ctx.userId}:${next.ctx.orgId}` : "";
   cfg = next;
-  set({ auto: next.auto, required: next.required });
+  set({ auto: next.auto, required: next.required, orgName: next.orgName });
   if (!next.ctx) {
     ctxId = "";
     if (timer) clearTimeout(timer);
@@ -150,6 +156,7 @@ export async function reconcile(): Promise<void> {
   try {
     const st = env.store.load();
     if (st.ready) {
+      approveOrg(c.ctx!); // espace déjà sauvegardé dans cette organisation : choix antérieur
       set({ phase: "idle", lastOkAt: st.lastOkAt });
       refreshPending();
       if (c.auto || c.required) request("reconnexion");
@@ -158,6 +165,12 @@ export async function reconcile(): Promise<void> {
     set({ phase: "checking" });
     const probe = await probeRemote(env);
     if (probe.kind === "none") {
+      if (needsOrgConsent(approvedOrgs(c.ctx!.userId), c.ctx!.orgId)) {
+        // Jamais d'envoi automatique de tout l'espace dans une nouvelle organisation sans accord explicite.
+        set({ phase: "confirm-org", probe: undefined, message: undefined });
+        return;
+      }
+      approveOrg(c.ctx!);
       markReady(env, probe.folderId);
       set({ phase: "idle", probe: undefined });
       refreshPending();
@@ -191,6 +204,33 @@ export async function reconcile(): Promise<void> {
   } catch (e) {
     fail(e, "reconcile");
   }
+}
+
+function approvedOrgs(userId: string): string[] {
+  try {
+    return parseBackupOrgs(localStorage.getItem(backupOrgsKey(userId)));
+  } catch {
+    return [];
+  }
+}
+
+function approveOrg(ctx: OpsCtx): void {
+  const list = approvedOrgs(ctx.userId);
+  if (list.includes(ctx.orgId)) return;
+  try {
+    localStorage.setItem(backupOrgsKey(ctx.userId), JSON.stringify([...list, ctx.orgId]));
+  } catch {
+    /* stockage plein : la confirmation sera redemandée */
+  }
+}
+
+/** « Sauvegarder aussi dans cette organisation » : accord explicite, puis première sauvegarde. */
+export async function confirmBackupOrg(): Promise<void> {
+  const c = cfg;
+  if (!c?.ctx) return;
+  approveOrg(c.ctx);
+  set({ phase: "checking" });
+  await reconcile();
 }
 
 /** Aucun élément, dossier ni brouillon local : rien à perdre ni à fusionner. */
@@ -293,9 +333,11 @@ export function flushNow(): Promise<boolean> {
 export async function saveItemToDrive(itemId: string): Promise<{ ok: boolean; reason?: string }> {
   if (!cfg?.ctx) return { ok: false, reason: "not-connected" };
   if (status.phase === "needs-restore") return { ok: false, reason: "needs-restore" };
+  if (status.phase === "confirm-org") return { ok: false, reason: "confirm-org" };
   const env = makeEnv(cfg);
   if (env && !env.store.load().ready) await reconcile();
   if (getSyncStatus().phase === "needs-restore") return { ok: false, reason: "needs-restore" };
+  if (getSyncStatus().phase === "confirm-org") return { ok: false, reason: "confirm-org" };
   const ok = await run("manuel", { only: [itemId], piecesToo: true });
   return ok ? { ok: true } : { ok: false, reason: getSyncStatus().phase === "offline" ? "offline" : "error" };
 }
@@ -313,6 +355,7 @@ export async function restoreFromProbe(
     let summary: RestoreSummary;
     if (probe.kind === "legacy") summary = await restoreLegacy(env, probe, choice);
     else summary = await restoreIncremental(env, probe, choice, onProgress);
+    approveOrg(c.ctx!);
     set({ phase: "idle", probe: undefined, message: undefined });
     window.dispatchEvent(new CustomEvent("elium-workspace-restored"));
     refreshPending();
@@ -353,6 +396,7 @@ export function startFresh(): void {
   const c = cfg;
   const env = c && makeEnv(c);
   if (!c || !env) return;
+  approveOrg(c.ctx!);
   markReady(env, status.probe?.folderId);
   set({ phase: "idle", probe: undefined });
   refreshPending();

@@ -102,3 +102,12 @@ def test_wrong_keyring_password_is_rejected(kdir, monkeypatch):
     monkeypatch.setenv("ELIUM_KEYRING_PASSWORD", "faux")
     with pytest.raises(SystemExit):
         run("keys", "rotate", keyring(kdir)["keys"][0]["kid"])
+
+
+def test_wrong_password_cannot_add_key_to_existing_keyring(kdir, monkeypatch):
+    run("keys", "generate", "identity")
+    before = keyring(kdir)
+    monkeypatch.setenv("ELIUM_KEYRING_PASSWORD", "typo")
+    with pytest.raises(SystemExit):
+        run("keys", "generate", "recipient")
+    assert keyring(kdir) == before

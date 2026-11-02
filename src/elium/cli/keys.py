@@ -36,6 +36,13 @@ def _dir(args: argparse.Namespace) -> Path:
     return ks.keys_dir(getattr(args, "dir", None))
 
 
+def _keyring_password(data: dict, prompt: str = "Mot de passe du trousseau: ") -> str:
+    pw = _password(prompt, confirm=not data["keys"])
+    if data["keys"]:
+        ks.unprotect(data["keys"][0]["enc"], pw)
+    return pw
+
+
 def cmd_keys_list(args: argparse.Namespace) -> None:
     data = ks.load(_dir(args))
     if not data["keys"]:
@@ -52,7 +59,7 @@ def cmd_keys_generate(args: argparse.Namespace) -> None:
     d = _dir(args)
     data = ks.load(d)
     type_ = "identity-ed25519" if args.kind == "identity" else "recipient-p256"
-    entry = ks.generate(data, type_, _password(confirm=not data["keys"]), args.label)
+    entry = ks.generate(data, type_, _keyring_password(data), args.label)
     ks.save(d, data)
     print(f"Clé créée : {entry['kid']} ({type_})")
     print(f"Clé publique : {entry['publicHex']}")
@@ -93,7 +100,7 @@ def cmd_keys_import(args: argparse.Namespace) -> None:
         opened = open_key_bundle(bundle, _password("Mot de passe de la sauvegarde: "))
     except KeyBundleError as e:
         raise ks.KeyringStoreError(str(e)) from e
-    keyring_pw = _password("Mot de passe du trousseau local: ", confirm=not data["keys"])
+    keyring_pw = _keyring_password(data, "Mot de passe du trousseau local: ")
     known = {k["kid"] for k in data["keys"]}
     added = 0
     for k in opened["keys"]:
@@ -113,7 +120,7 @@ def cmd_keys_import(args: argparse.Namespace) -> None:
 def cmd_keys_rotate(args: argparse.Namespace) -> None:
     d = _dir(args)
     data = ks.load(d)
-    new = ks.rotate(data, args.kid, _password())
+    new = ks.rotate(data, args.kid, _keyring_password(data))
     ks.save(d, data)
     print(f"Nouvelle clé : {new['kid']} — l'ancienne est « retirée » (toujours utilisable pour déchiffrer/vérifier).")
     if new.get("succession"):

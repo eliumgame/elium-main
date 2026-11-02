@@ -33,7 +33,7 @@ export const enShell: Record<keyof typeof frShell, string> = {
   "vault.disabled": "Local vault disabled",
   "vault.reset_title": "Reset the local vault?",
   "vault.reset_body":
-    "The vault password cannot be recovered. This deletes the library, the workspace spreadsheets, presentations and PDFs and the signing circuits stored on this computer — your .elium files on disk are not affected.",
+    "The vault password cannot be recovered. This deletes the library, the workspace spreadsheets, presentations and PDFs and the signing circuits stored on this computer — your .elium files on disk are not affected. The E4 Passport is kept encrypted: you can decrypt it with the old password, export a copy or reset it from the module.",
   "vault.reset_confirm": "Reset",
   "vault.reset_done": "Local vault reset",
 

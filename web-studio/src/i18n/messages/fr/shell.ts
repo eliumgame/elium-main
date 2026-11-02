@@ -31,7 +31,7 @@ export const frShell = {
   "vault.disabled": "Coffre local désactivé",
   "vault.reset_title": "Réinitialiser le coffre local ?",
   "vault.reset_body":
-    "Le mot de passe du coffre ne peut pas être récupéré. Cette action supprime la bibliothèque, les classeurs, présentations et PDF de l'espace de travail et les circuits Parapheur stockés sur ce poste — vos fichiers .elium sur le disque ne sont pas affectés.",
+    "Le mot de passe du coffre ne peut pas être récupéré. Cette action supprime la bibliothèque, les classeurs, présentations et PDF de l'espace de travail et les circuits Parapheur stockés sur ce poste — vos fichiers .elium sur le disque ne sont pas affectés. Le Passeport E4 est conservé chiffré : vous pourrez le déchiffrer avec l'ancien mot de passe, en exporter une copie ou le remettre à zéro depuis le module.",
   "vault.reset_confirm": "Réinitialiser",
   "vault.reset_done": "Coffre local réinitialisé",
 

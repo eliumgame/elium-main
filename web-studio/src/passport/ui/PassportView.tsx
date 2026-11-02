@@ -50,6 +50,7 @@ import { ContexteTab, StagesTab } from "./ContexteStagesTabs";
 import { usePassport } from "./usePassport";
 import DriveSyncSection from "./DriveSyncSection";
 import FileSyncSection from "./FileSyncSection";
+import UnreadablePassport from "./UnreadablePassport";
 import "./PassportView.css";
 
 const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -61,7 +62,7 @@ interface Props {
 }
 
 export default function PassportView({ onHome, onOpenDrive, vaultSecret }: Props) {
-  const { data, status, saveStatus, update, replace } = usePassport(vaultSecret);
+  const { data, status, unreadableReason, saveStatus, update, replace, reload } = usePassport(vaultSecret);
   const { prompt, confirm, alert } = useDialogs();
   const [tab, setTab] = useState<TabId>("dashboard");
   const [editing, setEditing] = useState<number | null>(null);
@@ -102,7 +103,7 @@ export default function PassportView({ onHome, onOpenDrive, vaultSecret }: Props
         </div>
       </div>
     );
-  if (status === "locked" || status === "error" || !data)
+  if (status === "locked" || status === "unreadable" || status === "error" || !data)
     return (
       <div className="pp-page">
         <Header onHome={onHome} saveStatus="saved" />
@@ -112,6 +113,8 @@ export default function PassportView({ onHome, onOpenDrive, vaultSecret }: Props
               <Lock size={14} /> Déverrouillez le coffre local (Réglages → Sécurité) puis revenez ici : le passeport est
               chiffré au repos et ne peut pas être lu sans lui.
             </Alert>
+          ) : status === "unreadable" ? (
+            <UnreadablePassport reason={unreadableReason} vaultSecret={vaultSecret} onDone={reload} />
           ) : (
             <Alert tone="danger" title="Impossible de lire le passeport">
               Les données locales n'ont pas pu être chargées. Consultez le journal d'incidents dans les réglages.

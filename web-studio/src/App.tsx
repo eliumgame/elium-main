@@ -435,9 +435,16 @@ export default function App() {
       }))
     )
       return;
-    // Wait for each deletion to actually settle (success/error/blocked by a
-    // lingering connection) instead of firing IDBOpenDBRequest and moving on —
-    // otherwise the UI could claim "reset" while the databases still exist.
+    // Wait for each deletion to actually settle (success/error, or still blocked
+    // by a lingering connection after a grace delay) instead of firing
+    // IDBOpenDBRequest and moving on — otherwise the UI could claim "reset"
+    // while the databases still exist.
+    //
+    // Passeport E4 (`elium-passeport`) : volontairement CONSERVÉ, chiffré sous
+    // l'ancien secret. Il ne bloque plus le coffre (son rechiffrement laisse
+    // intact un enregistrement illisible) et le module propose de le déchiffrer
+    // avec l'ancien mot de passe, d'en exporter la copie chiffrée ou de repartir
+    // à zéro après confirmation — jamais de perte silencieuse du dossier d'examen.
     await Promise.all(
       [
         "elium-drive",
@@ -446,6 +453,7 @@ export default function App() {
         "elium-sheets",
         "elium-slides",
         "elium-pdfs",
+        "elium-pdf-recovery", // instantanés de reprise PDF, chiffrés sous l'ancien secret
         "elium-workspace",
       ].map(
         (name) =>
@@ -453,7 +461,7 @@ export default function App() {
             const req = indexedDB.deleteDatabase(name);
             req.onsuccess = () => resolve();
             req.onerror = () => resolve();
-            req.onblocked = () => resolve();
+            req.onblocked = () => void setTimeout(resolve, 1500); // laisse à l'autre connexion le temps de se fermer
           }),
       ),
     );

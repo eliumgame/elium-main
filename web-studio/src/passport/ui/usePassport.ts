@@ -3,10 +3,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { VaultSecret } from "../../crypto/local-vault";
 import { reportError } from "../../ui/crash-log";
 import { emptyPassport } from "../model";
-import { PassportLockedError, loadPassport, savePassport } from "../store";
+import { PassportLockedError, PassportUnreadableError, loadPassport, savePassport } from "../store";
 import type { PassportData } from "../types";
 
-export type LoadStatus = "loading" | "locked" | "ready" | "error";
+export type LoadStatus = "loading" | "locked" | "unreadable" | "ready" | "error";
 export type SaveStatus = "saved" | "saving" | "error";
 
 const SAVE_DELAY_MS = 600;
@@ -15,6 +15,8 @@ export function usePassport(vaultSecret?: VaultSecret) {
   const [data, setData] = useState<PassportData | null>(null);
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("saved");
+  const [unreadableReason, setUnreadableReason] = useState<PassportUnreadableError["reason"] | null>(null);
+  const [reloadTick, setReloadTick] = useState(0);
   const secretRef = useRef(vaultSecret);
   secretRef.current = vaultSecret;
   const dataRef = useRef<PassportData | null>(null);
@@ -53,7 +55,11 @@ export function usePassport(vaultSecret?: VaultSecret) {
       .catch((e) => {
         if (cancelled) return;
         if (e instanceof PassportLockedError) setStatus("locked");
-        else {
+        else if (e instanceof PassportUnreadableError) {
+          // Données chiffrées illisibles : jamais remplacées par un passeport vide — la vue propose une issue.
+          setUnreadableReason(e.reason);
+          setStatus("unreadable");
+        } else {
           reportError("passeport.load", e);
           setStatus("error");
         }
@@ -61,7 +67,10 @@ export function usePassport(vaultSecret?: VaultSecret) {
     return () => {
       cancelled = true;
     };
-  }, [vaultSecret]);
+  }, [vaultSecret, reloadTick]);
+
+  /** Relit le stockage (après récupération ou remise à zéro depuis l'écran « passeport illisible »). */
+  const reload = useCallback(() => setReloadTick((n) => n + 1), []);
 
   // Vide l'écriture en attente à la fermeture de la vue / de l'onglet.
   useEffect(() => {
@@ -100,5 +109,5 @@ export function usePassport(vaultSecret?: VaultSecret) {
     [flush],
   );
 
-  return { data, status, saveStatus, update, replace, flush };
+  return { data, status, unreadableReason, saveStatus, update, replace, flush, reload };
 }

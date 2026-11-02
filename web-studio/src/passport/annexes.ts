@@ -19,7 +19,7 @@ const STORE = "annexes";
 /** Taille maximale d'une annexe (le passeport reste dans le navigateur : on évite d'y verser des vidéos). */
 export const MAX_ANNEXE_BYTES = 40 * 1024 * 1024;
 
-interface StoredAnnexe {
+export interface StoredAnnexe {
   id: string;
   vaultProtected: boolean;
   bytes?: Uint8Array; // clair — seulement hors coffre
@@ -81,21 +81,36 @@ export async function pruneAnnexes(keep: Set<string>): Promise<void> {
   for (const k of keys) if (!keep.has(String(k))) await deleteAnnexe(String(k));
 }
 
+/**
+ * Rechiffrement d'une annexe (pur). `null` = annexe chiffrée illisible avec `from` (orpheline d'une ancienne
+ * réinitialisation du coffre) : laissée intacte, récupérable avec l'ancien mot de passe depuis le module.
+ */
+export async function reencryptStoredAnnexe(
+  rec: StoredAnnexe,
+  from: VaultSecret | undefined,
+  to: VaultSecret | undefined,
+): Promise<StoredAnnexe | null> {
+  let bytes: Uint8Array;
+  if (rec.vaultProtected) {
+    if (!hasVaultSecret(from)) return null;
+    try {
+      bytes = await openSealedBytes(rec.sealed!, from);
+    } catch {
+      return null;
+    }
+  } else bytes = rec.bytes ?? new Uint8Array();
+  return hasVaultSecret(to)
+    ? { id: rec.id, vaultProtected: true, sealed: await sealBytesAtRest(bytes, to) }
+    : { id: rec.id, vaultProtected: false, bytes };
+}
+
 /** Rechiffrement quand le coffre est activé / changé / désactivé (une transaction : tout ou rien). */
 export async function reencryptAnnexes(from: VaultSecret | undefined, to: VaultSecret | undefined): Promise<void> {
   const all = await tx<StoredAnnexe[]>("readonly", (s) => s.getAll());
   const next: StoredAnnexe[] = [];
   for (const rec of all) {
-    let bytes: Uint8Array;
-    if (rec.vaultProtected) {
-      if (!hasVaultSecret(from)) throw new Error("Mot de passe du coffre requis pour re-chiffrer les annexes.");
-      bytes = await openSealedBytes(rec.sealed!, from);
-    } else bytes = rec.bytes ?? new Uint8Array();
-    next.push(
-      hasVaultSecret(to)
-        ? { id: rec.id, vaultProtected: true, sealed: await sealBytesAtRest(bytes, to) }
-        : { id: rec.id, vaultProtected: false, bytes },
-    );
+    const out = await reencryptStoredAnnexe(rec, from, to);
+    if (out) next.push(out);
   }
   if (next.length === 0) return;
   const db = await openMigrated(PASSPORT_SPEC);
@@ -111,6 +126,15 @@ export async function reencryptAnnexes(from: VaultSecret | undefined, to: VaultS
       reject(t.error ?? new Error("Transaction annulée"));
     };
   });
+}
+
+/** Enregistrements bruts (chiffrés ou non), pour l'export de secours d'un passeport illisible. */
+export const listStoredAnnexes = (): Promise<StoredAnnexe[]> => tx<StoredAnnexe[]>("readonly", (s) => s.getAll());
+
+/** Supprime toutes les annexes de ce poste (repartir à zéro). */
+export async function clearAnnexes(): Promise<void> {
+  await tx("readwrite", (s) => s.clear());
+  markDirty("passeport");
 }
 
 /** Lit un `File` en octets en refusant les fichiers trop gros. */

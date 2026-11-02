@@ -10,6 +10,14 @@ Si le coffre local est actif, tout son contenu (identité, situations, stages) e
 **chiffré au repos**, comme le Parapheur. L'effacement des données du navigateur
 supprime ce passeport local : activez l'une des sauvegardes ci-dessous.
 
+**Coffre réinitialisé ou recréé.** « Réinitialiser le coffre » ne supprime pas le passeport :
+il reste chiffré sous l'ancien mot de passe et ne bloque plus le coffre. Si le module ne
+peut pas le lire avec le coffre actuel, il l'indique et propose trois issues : **réessayer
+avec l'ancien mot de passe** (le passeport et ses annexes sont alors réenregistrés sous le
+coffre actuel), **exporter la copie chiffrée** (fichier JSON brut, lisible seulement avec
+l'ancien mot de passe), ou **repartir à zéro** après confirmation (suppression du passeport
+et des annexes de ce poste). Rien n'est effacé sans cette confirmation.
+
 ### Passeport E4 : sauvegardes automatiques
 
 | Sauvegarde | Où | Détail |

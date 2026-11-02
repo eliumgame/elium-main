@@ -1081,7 +1081,7 @@ def _safe_extract_zip(zf: zipfile.ZipFile, dest: Path) -> None:
     dest_res = dest.resolve()
     for member in zf.namelist():
         target = (dest / member).resolve()
-        if not str(target).startswith(str(dest_res)):
+        if target != dest_res and dest_res not in target.parents:
             raise ValueError(f"Entrée de zip suspecte (zip-slip) : {member}")
     zf.extractall(dest)
 

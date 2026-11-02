@@ -374,7 +374,7 @@ def cmd_doc_sign(args: argparse.Namespace) -> None:
     with open(output, "wb") as f:
         f.write(out)
     sealed = "  · re-scellé" if seal_key else ""
-    print(f"Signature ajoutée ({signer['name']}) → {output}{sealed}")
+    print(f"Signature ajoutée ({signer['name']}) -> {output}{sealed}")
 
 
 def build_parser() -> argparse.ArgumentParser:

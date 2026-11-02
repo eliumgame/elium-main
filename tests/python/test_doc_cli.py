@@ -262,6 +262,18 @@ def test_doc_sign_preserves_access_expiry(tmp_path):
     assert result["seal"]["verdict"] == "valid"
 
 
+def test_doc_sign_succeeds_with_cp1252_stdout(tmp_path):
+    doc = tmp_path / "ascii.elium"
+    doc.write_bytes(write_elium(create_document_model(text_to_doc("Test")), title="Test"))
+    identity = generate_identity()
+    key = tmp_path / "key.hex"
+    key.write_text(identity["privateKeyHex"], encoding="utf-8")
+    output = io.TextIOWrapper(io.BytesIO(), encoding="cp1252", errors="strict")
+    with patch("sys.stdout", output):
+        run("doc-sign", str(doc), "--key", str(key), "--name", "Bob")
+    assert read_elium(doc.read_bytes())["signatures"]
+
+
 def test_doc_open_text_prints_content(tmp_path, capsys):
     src = tmp_path / "o.txt"
     src.write_text("Contenu visible ici", encoding="utf-8")

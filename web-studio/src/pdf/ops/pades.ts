@@ -1716,9 +1716,13 @@ export async function verifyPdfSignatures(
       if (a !== 0 || b <= 0 || c <= b || c + d > bytes.length || bytes[b] !== 0x3c || bytes[c - 1] !== 0x3e)
         throw new Error("Plage d'octets signée incohérente.");
       if (/rsa_sha1/.test(out.subFilter)) throw new Error(`Format de signature non pris en charge (${out.subFilter}).`);
-      const hexText = u8ToBin(bytes.subarray(b + 1, c - 1)).replace(/[^0-9A-Fa-f]/g, "");
+      const hexText = u8ToBin(bytes.subarray(b + 1, c - 1));
+      if (!/^(?:[0-9A-Fa-f]{2})+$/.test(hexText)) throw new Error("Plage d'octets signée incohérente.");
       const der = binToU8(forge.util.hexToBytes(hexText));
-      const cms = raw(readTlv(der));
+      const cmsTlv = readTlv(der);
+      if (der.subarray(cmsTlv.end).some((byte) => byte !== 0))
+        throw new Error("Contenu non signé dans la plage /Contents.");
+      const cms = raw(cmsTlv);
       const sd = signedDataOf(cms);
       const signed = new Uint8Array(b + d);
       signed.set(bytes.subarray(0, b), 0);

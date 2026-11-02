@@ -107,6 +107,23 @@ describe("PAdES-B (sign + verify)", () => {
     expect(res[0]!.valid).toBe(false);
   }, 30000);
 
+  it("rejette du contenu non hexadécimal ou parasite dans le trou /Contents", async () => {
+    const signed = await signPdfBytes(await makePdf(), makeP12("Alice", "pw"), "pw");
+    const source = binToU8Str(signed);
+    const range = /\/ByteRange\s*\[\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*\]/.exec(source)!;
+    const start = Number(range[2]) + 1;
+    const end = Number(range[3]) - 1;
+    const padding = source.lastIndexOf("00000000", end);
+    expect(padding).toBeGreaterThan(start);
+    for (const replacement of ["G", "A"]) {
+      const changed = new Uint8Array(signed);
+      changed[padding] = replacement.charCodeAt(0);
+      const verdict = (await verifyPdfSignatures(changed))[0]!;
+      expect(verdict.valid).toBe(false);
+      expect(verdict.error).toBeTruthy();
+    }
+  }, 30000);
+
   it("rejette un mot de passe PKCS#12 incorrect", async () => {
     const p12 = makeP12("Carol", "bonne");
     const pdf = await makePdf();

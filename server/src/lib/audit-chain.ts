@@ -25,6 +25,12 @@ function stableStringify(v: unknown): string {
   return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify((v as Record<string, unknown>)[k])}`).join(",")}}`;
 }
 
+/** Match JSON/JSONB persistence before sorting: omit undefined properties,
+ * turn array holes into null, and serialize Date/toJSON values identically. */
+function persistedMetadata(value: unknown): unknown {
+  return JSON.parse(JSON.stringify(value ?? {}));
+}
+
 export interface AuditFields {
   orgId: string | null;
   actorUserId: string | null;
@@ -45,7 +51,7 @@ export function auditEntryHash(prevHash: Buffer, f: AuditFields): Buffer {
     f.action,
     f.resourceType,
     f.resourceId ?? "",
-    stableStringify(f.metadata ?? {}),
+    stableStringify(persistedMetadata(f.metadata)),
     f.ip,
     f.createdAt,
   ]);

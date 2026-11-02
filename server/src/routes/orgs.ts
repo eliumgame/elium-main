@@ -475,8 +475,17 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
     const actor = requireUser(req);
     await requireOrgPerm(req, orgId, "org.settings.manage");
 
+    // Identity provisioning has its own owner + fresh-reauth + role-validation
+    // route. Generic settings must neither overwrite nor remove that policy.
+    if (Object.hasOwn(b.settings, "scim")) {
+      throw forbidden("Utilisez la configuration SCIM dédiée pour modifier la politique de provisionnement.");
+    }
+
     const org = await queryOne<{ settings: unknown }>(
-      `UPDATE organizations SET settings = $2, updated_at = now() WHERE id = $1 RETURNING settings`,
+      `UPDATE organizations
+          SET settings = $2::jsonb || CASE WHEN settings ? 'scim'
+            THEN jsonb_build_object('scim', settings->'scim') ELSE '{}'::jsonb END,
+              updated_at = now() WHERE id = $1 RETURNING settings`,
       [orgId, JSON.stringify(b.settings)],
     );
     if (!org) throw notFound();

@@ -3,7 +3,7 @@
  * then tweak them freely; the global (org_id = NULL) copies are the seed.
  * Custom roles are created on top of these.
  */
-import { ALL_PERMISSION_KEYS, NODE_PERMISSION_KEYS, type PermissionKey } from "./permissions.js";
+import { ALL_PERMISSION_KEYS, type PermissionKey } from "./permissions.js";
 
 export interface RoleTemplate {
   key: string;
@@ -16,7 +16,11 @@ export interface RoleTemplate {
 const p = (keys: readonly string[]): string[] => [...keys];
 
 // Editor: full content control + internal sharing + versions (no org admin).
-const EDITOR_PERMS: string[] = [...NODE_PERMISSION_KEYS, "node.share.internal", "node.acl.view"];
+const EDITOR_PERMS: string[] = [
+  "node.view", "node.download", "node.export", "node.print", "node.create", "node.edit",
+  "node.rename", "node.move", "node.copy", "node.delete", "node.restore", "node.comment",
+  "node.version.view", "node.version.restore", "node.share.internal", "node.acl.view", "node.sign.request",
+];
 
 const COMMENTER_PERMS: string[] = ["node.view", "node.download", "node.comment", "node.version.view", "node.acl.view"];
 

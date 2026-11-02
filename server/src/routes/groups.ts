@@ -11,7 +11,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { query, queryOne, withTx } from "../db/pool.js";
 import { authenticate, requireUser, requireOrgPerm, requireMembership } from "../middleware/auth.js";
-import { badRequest, notFound } from "../lib/errors.js";
+import { badRequest, notFound, forbidden } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
 import { kickUser } from "../collab/relay.js";
 
@@ -231,11 +231,21 @@ export default async function groupRoutes(app: FastifyInstance): Promise<void> {
   // --- Add / update a member (upsert) --------------------------------------
   app.post("/:orgId/groups/:groupId/members", async (req) => {
     const { orgId, groupId } = z.object({ orgId: z.string().uuid(), groupId: z.string().uuid() }).parse(req.params);
-    await requireOrgPerm(req, orgId, "group.manage");
+    const ctx = await requireOrgPerm(req, orgId, "group.manage");
     const b = addMemberSchema.parse(req.body);
     const user = requireUser(req);
 
     await loadGroupInOrg(groupId, orgId);
+
+    // Org-level group management alone is not a grant to every group's data.
+    // Only an existing manager (or the org owner) may distribute its key.
+    if (!ctx.isOwner) {
+      const manager = await queryOne<{ is_manager: boolean }>(
+        `SELECT is_manager FROM group_members WHERE group_id = $1 AND user_id = $2`,
+        [groupId, user.id],
+      );
+      if (!manager?.is_manager) throw forbidden("Seul un gestionnaire de cette équipe peut ajouter des membres.");
+    }
 
     // The member must belong to this organization.
     const member = await queryOne(

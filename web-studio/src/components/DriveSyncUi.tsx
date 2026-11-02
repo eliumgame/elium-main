@@ -263,6 +263,9 @@ function RestorePrompt({ ws }: { ws: WorkspaceApi }) {
         r.extras
           ? `Brouillons, versions, polices, passeport… : ${r.extras} enregistrement(s) (${r.extraLabels.join(", ")})`
           : "",
+        r.trustHeld
+          ? `${r.trustHeld} ancre(s) de confiance (identités PDF approuvées, racines C2PA) non reprises : importez-les depuis Réglages › Sauvegarde si vous les reconnaissez`
+          : "",
         ...r.errors.map((e) => `⚠ ${e.title} — ${e.message}`),
       ].filter(Boolean);
       await alert({ title: "Espace de travail restauré", message: lines.join("\n") });

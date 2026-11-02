@@ -27,6 +27,8 @@ export interface ExtraStoreSpec {
   merge: "keyed" | "versions";
   /** Ne restaurer que si le magasin local est vide (passeport : une seule fiche, jamais écrasée en silence). */
   onlyIfEmpty?: boolean;
+  /** Ancres de confiance : jamais restaurées automatiquement depuis le Drive (importation explicite seulement). */
+  trust?: boolean;
 }
 
 export interface ExtraPiece {
@@ -89,7 +91,7 @@ export const EXTRA_PIECES: ExtraPiece[] = [
     open: fromSpec(PDF_IDS_SPEC),
     stores: [
       { name: "marks", merge: "keyed" },
-      { name: "trusted", merge: "keyed" },
+      { name: "trusted", merge: "keyed", trust: true },
     ],
   },
   {

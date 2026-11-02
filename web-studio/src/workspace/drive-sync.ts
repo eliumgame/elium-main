@@ -25,6 +25,13 @@ import {
 } from "./backup";
 import { restoreSnapshot, VaultLockedError, type BackupDeps, type RestoreReport } from "./backup-io";
 import type { ExtraPiece, Records } from "./extras";
+import {
+  TRUST_SETTINGS_KEYS,
+  onlyTrustSettings,
+  splitTrustRecords,
+  trustSettingCount,
+  withoutTrustSettings,
+} from "./sync-guard";
 import type { ContentStoreId, WorkFolder, WorkItem } from "./types";
 
 export const SYNC_FOLDER = "Sauvegarde Elium";
@@ -62,8 +69,14 @@ export interface RemoteEntry {
 }
 
 export interface SyncRemote {
-  findFolder(): Promise<string | null>;
+  /**
+   * Dossier de sauvegarde DU COMPTE (créé par lui, partagé seulement avec lui et son organisation).
+   * `pinned` : identifiant déjà connu, préféré s'il est toujours valide.
+   */
+  findFolder(pinned?: string): Promise<string | null>;
   ensureFolder(): Promise<string>;
+  /** Le dossier retenu est-il toujours sûr (propriétaire, partages) ? Absent : considéré sûr. */
+  checkFolder?(folderId: string): Promise<boolean>;
   list(folderId: string): Promise<RemoteEntry[]>;
   upload(folderId: string, name: string, bytes: Uint8Array): Promise<RemoteEntry>;
   update(nodeId: string, bytes: Uint8Array): Promise<RemoteEntry>;
@@ -193,6 +206,12 @@ export async function syncOnce(
   if (items.length === 0 && Object.keys(state.items).length > 0) {
     state.ready = false;
     env.store.save(state);
+    return null;
+  }
+  // Garde-fou : le dossier retenu doit toujours appartenir au compte et rester privé. Sinon on oublie
+  // tout (liens compris) et on repasse par la détection, qui écarte ce dossier.
+  if (state.folderId && env.remote.checkFolder && !(await env.remote.checkFolder(state.folderId))) {
+    env.store.save(emptyState());
     return null;
   }
   const report: SyncReport = { items: 0, pieces: 0, skippedLocked: 0, failed: [] };
@@ -327,7 +346,7 @@ export interface RemoteProbe {
 }
 
 export async function probeRemote(env: SyncEnv): Promise<RemoteProbe> {
-  const folderId = await env.remote.findFolder();
+  const folderId = await env.remote.findFolder(env.store.load().folderId);
   if (folderId) {
     const entries = await env.remote.list(folderId);
     const idx = entries.find((e) => e.name === INDEX_FILE);
@@ -359,6 +378,8 @@ export function markReady(env: SyncEnv, folderId?: string): void {
 export interface RestoreSummary extends RestoreReport {
   extras: number;
   extraLabels: string[];
+  /** Ancres de confiance présentes dans le Drive mais NON restaurées (importation explicite). */
+  trustHeld: number;
 }
 
 /**
@@ -387,14 +408,18 @@ export async function restoreIncremental(
     settings: {},
     secrets: {},
   };
+  let trustHeld = 0;
   const settingsEntry = probe.entries.find((e) => e.name === SETTINGS_FILE);
   if (settingsEntry) {
     try {
       const raw = JSON.parse(strFromU8(await env.remote.download(settingsEntry))) as Record<string, unknown>;
-      snap.settings = pickKeys(
+      const all = pickKeys(
         Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, typeof v === "string" ? v : null])),
         SYNC_SETTINGS_KEYS,
       );
+      // Les ancres de confiance (racines C2PA) ne reviennent jamais seules : voir importTrustFromDrive.
+      for (const k of TRUST_SETTINGS_KEYS) trustHeld += trustSettingCount(all[k] ?? null);
+      snap.settings = withoutTrustSettings(all);
     } catch {
       /* réglages illisibles : le reste est restauré */
     }
@@ -416,7 +441,12 @@ export async function restoreIncremental(
     const entry = probe.entries.find((e) => e.name === pieceFileName(spec.piece));
     if (!entry) continue;
     try {
-      const n = await env.extras.apply(spec, await env.extras.unpack(await env.remote.download(entry)));
+      const { kept, trustCount } = splitTrustRecords(
+        spec.stores,
+        await env.extras.unpack(await env.remote.download(entry)),
+      );
+      trustHeld += trustCount;
+      const n = await env.extras.apply(spec, kept);
       if (n) {
         extras += n;
         extraLabels.push(spec.label);
@@ -448,5 +478,46 @@ export async function restoreIncremental(
       state.pieces[e.name.slice(1, -EXTRA_SUFFIX.length)] = { node: e.id, sig: "" };
   }
   env.store.save(state);
-  return { ...report, extras, extraLabels };
+  return { ...report, extras, extraLabels, trustHeld };
+}
+
+export interface TrustImport {
+  /** Racines C2PA du Détecteur. */
+  c2pa: number;
+  /** Identités PDF approuvées (ancres de la vérification des signatures). */
+  pdf: number;
+}
+
+/**
+ * Ancres de confiance de la sauvegarde Drive du compte (racines C2PA, identités PDF approuvées) :
+ * jamais restaurées automatiquement. `apply: false` les compte seulement (confirmation préalable).
+ */
+export async function importTrustFromDrive(env: SyncEnv, opts: { apply: boolean }): Promise<TrustImport> {
+  const out: TrustImport = { c2pa: 0, pdf: 0 };
+  const folderId = await env.remote.findFolder(env.store.load().folderId);
+  if (!folderId) return out;
+  const entries = await env.remote.list(folderId);
+  const settingsEntry = entries.find((e) => e.name === SETTINGS_FILE);
+  if (settingsEntry) {
+    const raw = JSON.parse(strFromU8(await env.remote.download(settingsEntry))) as Record<string, unknown>;
+    const trust = onlyTrustSettings(
+      Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, typeof v === "string" ? v : null])),
+    );
+    for (const [k, v] of Object.entries(trust)) {
+      out.c2pa += trustSettingCount(v);
+      if (opts.apply && v != null) env.deps.storage.set(k, v);
+    }
+  }
+  for (const spec of env.extras.pieces) {
+    if (!spec.stores.some((s) => s.trust)) continue;
+    const entry = entries.find((e) => e.name === pieceFileName(spec.piece));
+    if (!entry) continue;
+    const { trust, trustCount } = splitTrustRecords(
+      spec.stores,
+      await env.extras.unpack(await env.remote.download(entry)),
+    );
+    out.pdf += trustCount;
+    if (opts.apply && trustCount) await env.extras.apply(spec, trust);
+  }
+  return out;
 }

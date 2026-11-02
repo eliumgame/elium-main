@@ -1,12 +1,13 @@
 /** Réglages → Sauvegarde : état et pilotage de la sauvegarde incrémentale de l'espace de travail dans le Drive entreprise. */
 import { useEffect, useMemo, useState } from "react";
-import { Cloud, Download, Upload } from "lucide-react";
+import { Cloud, Download, ShieldCheck, Upload } from "lucide-react";
 import { Alert, Button } from "../../ui/components";
 import { readAutoOr, writeAuto } from "../../drive-cloud/named-file";
 import type { OpsCtx } from "../../drive-cloud/ops";
 import { useDrive } from "../../drive-cloud/session";
 import { AUTO_EVENT, WORKSPACE_SLOT } from "../../workspace/drive-backup";
-import { flushNow, recheck, useSyncStatus } from "../../workspace/sync-controller";
+import { driveTrustAnchors, flushNow, recheck, useSyncStatus } from "../../workspace/sync-controller";
+import type { TrustImport } from "../../workspace/drive-sync";
 import { EXTRA_PIECES } from "../../workspace/extras";
 import { OPEN_RESTORE_EVENT } from "../DriveSyncUi";
 import type { WorkspaceSettingsBridge } from "./WorkspaceSection";
@@ -35,6 +36,31 @@ export default function DriveBackupSection({ bridge }: { bridge: WorkspaceSettin
   }, [ctxId]);
 
   const busy = s.phase === "syncing" || s.phase === "checking";
+  // Ancres de confiance : jamais restaurées seules ; importation après décompte et confirmation explicite.
+  const [trust, setTrust] = useState<TrustImport | null>(null);
+  const [trustMsg, setTrustMsg] = useState<{ tone: "info" | "danger"; text: string } | null>(null);
+  const previewTrust = async () => {
+    setTrustMsg(null);
+    try {
+      const r = await driveTrustAnchors(false);
+      if (r.c2pa || r.pdf) setTrust(r);
+      else setTrustMsg({ tone: "info", text: "Aucune ancre de confiance dans votre sauvegarde Drive." });
+    } catch (e) {
+      setTrustMsg({ tone: "danger", text: e instanceof Error ? e.message : String(e) });
+    }
+  };
+  const confirmTrust = async () => {
+    setTrust(null);
+    try {
+      const r = await driveTrustAnchors(true);
+      setTrustMsg({
+        tone: "info",
+        text: `Importé : ${r.pdf} identité(s) PDF approuvée(s), ${r.c2pa} racine(s) C2PA. Rechargez Elium pour les appliquer partout.`,
+      });
+    } catch (e) {
+      setTrustMsg({ tone: "danger", text: e instanceof Error ? e.message : String(e) });
+    }
+  };
   const restore = async () => {
     await recheck();
     window.dispatchEvent(new Event(OPEN_RESTORE_EVENT));
@@ -102,7 +128,26 @@ export default function DriveBackupSection({ bridge }: { bridge: WorkspaceSettin
             <Button size="sm" variant="outline" onClick={() => void restore()} disabled={busy}>
               <Download size={14} /> Restaurer depuis le Drive
             </Button>
+            <Button size="sm" variant="outline" onClick={() => void previewTrust()} disabled={busy}>
+              <ShieldCheck size={14} /> Importer mes ancres de confiance…
+            </Button>
           </div>
+          {trust && (
+            <Alert tone="warning" title="Importer des ancres de confiance ?">
+              Votre sauvegarde Drive contient {trust.pdf} identité(s) PDF approuvée(s) et {trust.c2pa} racine(s) C2PA du
+              Détecteur. Une fois importées, les signatures et provenances qu'elles émettent s'afficheront comme
+              approuvées. Ne confirmez que si vous les avez vous-même approuvées sur un autre appareil.
+              <div className="settings__row">
+                <Button size="sm" onClick={() => void confirmTrust()}>
+                  Importer
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setTrust(null)}>
+                  Annuler
+                </Button>
+              </div>
+            </Alert>
+          )}
+          {trustMsg && <Alert tone={trustMsg.tone}>{trustMsg.text}</Alert>}
           <label className="settings__row">
             <input
               type="checkbox"

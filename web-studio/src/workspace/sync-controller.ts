@@ -7,12 +7,11 @@
 import { useSyncExternalStore } from "react";
 import { localSyncStore, opsRemote } from "../drive-cloud/sync-remote";
 import type { OpsCtx } from "../drive-cloud/ops";
-import { pullNamedFile } from "../drive-cloud/named-file";
 import { reportError } from "../ui/crash-log";
 import { planBackupRestore, type ConflictChoice } from "./backup";
 import { openBackup, restoreSnapshot, VaultLockedError, type BackupDeps } from "./backup-io";
 import {
-  LEGACY_FILE,
+  importTrustFromDrive,
   markReady,
   pendingCount,
   probeRemote,
@@ -21,6 +20,7 @@ import {
   type RemoteProbe,
   type RestoreSummary,
   type SyncEnv,
+  type TrustImport,
 } from "./drive-sync";
 import { EXTRA_PIECES, applyExtra, dumpExtra, packRecords, unpackRecords } from "./extras";
 import { clearDirty, dirtyPieces } from "./sync-dirty";
@@ -174,9 +174,12 @@ export async function reconcile(): Promise<void> {
           `${r.added + r.replaced} élément(s)`,
           r.extras ? `${r.extras} brouillon(s), version(s), police(s) ou fiche(s) annexe(s)` : "",
         ].filter(Boolean);
+        const held = r.trustHeld
+          ? ` ${r.trustHeld} ancre(s) de confiance (identités PDF approuvées, racines C2PA) n'ont pas été reprises : importez-les depuis Réglages › Sauvegarde Drive si vous les reconnaissez.`
+          : "";
         set({
           restored: {
-            summary: `Votre espace a été restauré : ${parts.join(", ")}.`,
+            summary: `Votre espace a été restauré : ${parts.join(", ")}.${held}`,
             reload: r.settingsApplied > 0 || r.extras > 0,
           },
         });
@@ -308,7 +311,7 @@ export async function restoreFromProbe(
   set({ phase: "syncing", message: "Restauration en cours…" });
   try {
     let summary: RestoreSummary;
-    if (probe.kind === "legacy") summary = await restoreLegacy(c, env, choice);
+    if (probe.kind === "legacy") summary = await restoreLegacy(env, probe, choice);
     else summary = await restoreIncremental(env, probe, choice, onProgress);
     set({ phase: "idle", probe: undefined, message: undefined });
     window.dispatchEvent(new CustomEvent("elium-workspace-restored"));
@@ -321,15 +324,28 @@ export async function restoreFromProbe(
   }
 }
 
-async function restoreLegacy(c: Config, env: SyncEnv, choice: ConflictChoice): Promise<RestoreSummary> {
-  const got = await pullNamedFile(c.ctx!, "workspace", LEGACY_FILE);
-  if (!got) throw new Error("L'ancienne sauvegarde n'est plus dans le Drive.");
-  const { snapshot } = await openBackup(got.bytes);
+async function restoreLegacy(env: SyncEnv, probe: RemoteProbe, choice: ConflictChoice): Promise<RestoreSummary> {
+  // Le fichier exact détecté (déposé par le compte lui-même), jamais un homonyme retrouvé par son nom.
+  if (!probe.legacy) throw new Error("L'ancienne sauvegarde n'est plus dans le Drive.");
+  const { snapshot } = await openBackup(await env.remote.download(probe.legacy));
   const local = await env.deps.catalog.load();
   const plan = planBackupRestore(local.items, local.folders, snapshot, choice);
   const report = await restoreSnapshot(env.deps, snapshot, plan, { applySettings: true, applySecrets: false });
   markReady(env);
-  return { ...report, extras: 0, extraLabels: [] };
+  return { ...report, extras: 0, extraLabels: [], trustHeld: 0 };
+}
+
+/**
+ * Ancres de confiance de la sauvegarde Drive (jamais restaurées automatiquement). `apply: false` :
+ * décompte pour la confirmation ; `apply: true` : importation explicite demandée par l'utilisateur.
+ */
+export async function driveTrustAnchors(apply: boolean): Promise<TrustImport> {
+  const c = cfg;
+  const env = c && makeEnv(c);
+  if (!c || !env) throw new Error("Connectez-vous au Drive pour importer vos ancres de confiance.");
+  const r = await importTrustFromDrive(env, { apply });
+  if (apply && (r.c2pa || r.pdf)) window.dispatchEvent(new CustomEvent("elium-workspace-restored"));
+  return r;
 }
 
 /** « Repartir à neuf » : on ne restaure pas ; les éléments du Drive de même nom seront remplacés par les versions locales. */

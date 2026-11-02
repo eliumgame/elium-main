@@ -19,6 +19,7 @@
 
 import type { FormValue } from "../model/types";
 import { coerceValue, type FormField } from "../core/forms/values";
+import { csvSafeCell } from "./export";
 
 /** A value as a data file holds it, before it is matched to a field. */
 export type RawDataValue =
@@ -538,7 +539,10 @@ export function parseTabText(text: string): Map<string, RawDataValue> {
 
 /** CSV for spreadsheets (« Champ;Valeur », one field per row — Excel in French opens it as is). */
 export function toCsv(entries: readonly DataEntry[]): string {
-  const esc = (s: string) => (/[";\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
+  const esc = (value: string) => {
+    const s = csvSafeCell(value);
+    return /[";\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
   const rows = [["Champ", "Valeur"], ...entries.map((e) => [e.name, cellText(e.value)])];
   return `﻿${rows.map((r) => r.map(esc).join(";")).join("\r\n")}\r\n`;
 }

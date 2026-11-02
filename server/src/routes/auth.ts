@@ -60,6 +60,21 @@ import {
 // an unknown email is shape-identical to a real account (real accounts store
 // these same values at registration).
 const DECOY_KDF_PARAMS = { alg: "argon2id", t: 3, m: 262144, p: 4 } as const;
+
+/**
+ * Remet les paramètres KDF d'un vrai compte dans l'ordre CANONIQUE `alg, t, m, p` (celui du
+ * leurre). Postgres ne conserve pas l'ordre des clés d'un JSONB (il les range par longueur :
+ * `{"m","p","t","alg"}`) : renvoyé tel quel, l'ordre trahissait l'existence du compte en une
+ * requête (audit A1). Les clés inconnues éventuelles suivent, triées.
+ */
+export function canonicalKdfParams(raw: unknown): Record<string, unknown> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw as Record<string, unknown>;
+  const src = raw as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const k of ["alg", "t", "m", "p"]) if (k in src) out[k] = src[k];
+  for (const k of Object.keys(src).sort()) if (!(k in out)) out[k] = src[k];
+  return out;
+}
 // Shared verbatim across every /login/verify failure branch (unknown email,
 // expired/reused/decoy challenge, bad signature) so the response text itself
 // can never be used to enumerate which emails have an account — only the
@@ -285,7 +300,7 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
       `SELECT kdf_salt, kdf_params FROM users WHERE email = $1 AND status = 'active'`,
       [email],
     );
-    if (row) return { kdfSalt: row.kdf_salt, kdfParams: row.kdf_params };
+    if (row) return { kdfSalt: row.kdf_salt, kdfParams: canonicalKdfParams(row.kdf_params) };
     // Decoy for an unknown email must be INDISTINGUISHABLE from a real account,
     // or the response shape itself is an enumeration oracle:
     //  - a 16-byte (32 hex) salt, exactly like a real random one — NOT a 32-byte

@@ -197,7 +197,7 @@ def _save_json(path: Path, obj: Any) -> None:
 
 def current_version() -> str:
     """Version applicative de CET exe (source unique : elium.__version__)."""
-    override = os.environ.get("ELIUM_CURRENT_VERSION")  # tests
+    override = None if getattr(sys, "frozen", False) else os.environ.get("ELIUM_CURRENT_VERSION")  # tests
     if override:
         return override
     try:

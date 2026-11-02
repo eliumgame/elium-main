@@ -930,7 +930,7 @@ def forward_to_running_instance(file_path: "str | None") -> bool:
             final = tmp.with_suffix(".open")
             tmp.rename(final)
         except OSError as e:
-            _log_launcher(f"forward_to_running_instance: dépôt impossible ({e})")
+            _log_launcher(f"forward_to_running_instance: dépôt impossible ({type(e).__name__})")
             return False
         # L'instance principale doit consommer le fichier rapidement ; sinon elle
         # est figée : on retire notre dépôt et on démarre normalement.
@@ -953,7 +953,7 @@ def _consume_inbox_once() -> None:
             data = f.read_bytes()
             f.unlink()
         except (OSError, IndexError) as e:
-            _log_launcher(f"inbox: fichier ignoré ({e})")
+            _log_launcher(f"inbox: fichier ignoré ({type(e).__name__})")
             f.unlink(missing_ok=True)
             continue
         QuietHandler.opened_file = (name, data)
@@ -1778,7 +1778,7 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         except FileNotFoundError:
             self.send_error(404, "Fichier introuvable")
         except OSError as e:
-            _log_launcher(f"/__files__/{op}: {e}")
+            _log_launcher(f"/__files__/{op}: {type(e).__name__}")
             self.close_connection = True
             self.send_error(500, "Erreur d'écriture ou de lecture")
 

@@ -66,6 +66,38 @@ interface WsConn {
   on(event: string, cb: (...args: unknown[]) => void): void;
 }
 
+/**
+ * Suit la fermeture d'une socket DÈS l'entrée du gestionnaire (synchrone, avant
+ * tout `await`). Les gestionnaires font plusieurs requêtes d'admission ; si le
+ * client ferme pendant ce temps, l'événement `close` est déjà passé quand on
+ * enregistrait le nettoyage ensuite : le compteur de connexions et la salle
+ * fuyaient pour toujours (jusqu'à « too many connections » permanent).
+ * `closed` dit si la socket est déjà partie ; `onGone` branche le nettoyage
+ * (exécuté immédiatement si elle l'est déjà, une seule fois sinon).
+ */
+function trackSocketClose(socket: WsConn): { readonly closed: boolean; onGone(fn: () => void): void } {
+  let closed = false;
+  let cleanup: (() => void) | null = null;
+  const gone = () => {
+    if (closed) return;
+    closed = true;
+    const fn = cleanup;
+    cleanup = null;
+    fn?.();
+  };
+  socket.on("close", gone);
+  socket.on("error", gone);
+  return {
+    get closed() {
+      return closed;
+    },
+    onGone(fn: () => void) {
+      if (closed) fn();
+      else cleanup = fn;
+    },
+  };
+}
+
 interface Peer {
   socket: WsConn;
   userId: string;
@@ -246,6 +278,7 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
   // --- WebSocket : canal d'événements de l'organisation --------------------
   const orgWsHandler = async (socket: WsConn, req: FastifyRequest) => {
     const orgId = (req.params as { orgId?: string }).orgId ?? "";
+    const life = trackSocketClose(socket); // AVANT tout await
     const claims = await socketClaims(req, `events:${orgId}`);
     if (!claims || !/^[0-9a-fA-F-]{36}$/.test(orgId) || !(await socketUserAllowed(claims))) {
       socket.close(1008, "unauthorized");
@@ -260,6 +293,8 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
       socket.close(1008, "forbidden");
       return;
     }
+    // Le client a pu partir pendant les requêtes d'admission : ne rien enregistrer.
+    if (life.closed) return;
     const open = connectionsByUser.get(claims.sub) ?? 0;
     if (open >= config.maxCollabConnectionsPerUser) {
       socket.close(1013, "too many connections");
@@ -295,8 +330,7 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
       if (n <= 0) connectionsByUser.delete(peer.userId);
       else connectionsByUser.set(peer.userId, n);
     };
-    socket.on("close", cleanup);
-    socket.on("error", cleanup);
+    life.onGone(cleanup);
     // Ce canal est purement descendant : on ignore tout message entrant.
   };
   app.get("/api/events/:orgId", { websocket: true } as never, orgWsHandler as never);
@@ -304,6 +338,7 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
   // --- WebSocket room ------------------------------------------------------
   const wsHandler = async (socket: WsConn, req: FastifyRequest) => {
     const nodeId = (req.params as { nodeId?: string }).nodeId ?? "";
+    const life = trackSocketClose(socket); // AVANT tout await
     const claims = await socketClaims(req, `collab:${nodeId}`);
     if (!claims || !/^[0-9a-fA-F-]{36}$/.test(nodeId) || !(await socketUserAllowed(claims))) {
       socket.close(1008, "unauthorized");
@@ -314,6 +349,8 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
       socket.close(1008, "forbidden");
       return;
     }
+    // Le client a pu partir pendant les requêtes d'admission : ne rien enregistrer.
+    if (life.closed) return;
 
     // Plafond de connexions simultanées par utilisateur (anti-épuisement).
     const open = connectionsByUser.get(claims.sub) ?? 0;
@@ -478,8 +515,7 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
       if (n <= 0) connectionsByUser.delete(peer.userId);
       else connectionsByUser.set(peer.userId, n);
     };
-    socket.on("close", cleanup);
-    socket.on("error", cleanup);
+    life.onGone(cleanup);
   };
 
   // Options/handler cast: @fastify/websocket handler typing varies across

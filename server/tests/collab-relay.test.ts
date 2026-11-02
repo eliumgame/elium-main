@@ -150,3 +150,71 @@ describe("relais collab : refus explicites et accusés de réception", () => {
     s.close();
   });
 });
+
+describe("relais collab : fermeture pendant l'admission (pas de fuite du compteur)", () => {
+  it("salle de document : un client parti pendant les await ne consomme pas de place", async () => {
+    const n = config.maxCollabConnectionsPerUser + 2;
+    for (let i = 0; i < n; i++) {
+      let release!: () => void;
+      const gate = new Promise<void>((r) => (release = r));
+      mResolve.mockImplementationOnce((async () => {
+        await gate;
+        return {
+          nodeId: NODE,
+          orgId: ORG,
+          ownerUserId: USER,
+          kind: "file",
+          trashed: false,
+          isOwner: false,
+          permissions: new Set(["node.view", "node.edit"]),
+          accessible: true,
+        };
+      }) as never);
+      const s = new FakeSocket();
+      const pending = handlers["GET /api/collab/:nodeId"]!(s, { params: { nodeId: NODE }, query: { ticket: "t" } });
+      await flush();
+      s.close(1001, "going away"); // le client part pendant resolveNodeAccess
+      release();
+      await pending;
+      expect(s.sent).toEqual([]); // jamais admis
+    }
+    // Le compteur n'a pas fui : une connexion normale passe encore.
+    const ok = await openRoom(true);
+    expect(ok.closed).toBeNull();
+    expect(ok.sent[0]).toMatchObject({ type: "ready" });
+    ok.close();
+  });
+
+  it("canal d'événements : même garantie", async () => {
+    const n = config.maxCollabConnectionsPerUser + 2;
+    for (let i = 0; i < n; i++) {
+      let release!: () => void;
+      const gate = new Promise<void>((r) => (release = r));
+      mQueryOne.mockImplementation((async (sql: string) => {
+        if (/FROM users/.test(sql)) return { status: "active", token_epoch: new Date(0).toISOString() };
+        if (/FROM memberships/.test(sql)) {
+          await gate;
+          return { ok: 1 };
+        }
+        return null;
+      }) as never);
+      const s = new FakeSocket();
+      const pending = handlers["GET /api/events/:orgId"]!(s, { params: { orgId: ORG }, query: { ticket: "t" } });
+      await flush();
+      s.close(1001, "going away");
+      release();
+      await pending;
+      expect(s.sent).toEqual([]);
+    }
+    mQueryOne.mockImplementation((async (sql: string) => {
+      if (/FROM users/.test(sql)) return { status: "active", token_epoch: new Date(0).toISOString() };
+      if (/FROM memberships/.test(sql)) return { ok: 1 };
+      return null;
+    }) as never);
+    const s = new FakeSocket();
+    await handlers["GET /api/events/:orgId"]!(s, { params: { orgId: ORG }, query: { ticket: "t" } });
+    expect(s.closed).toBeNull();
+    expect(s.sent[0]).toMatchObject({ type: "ready" });
+    s.close();
+  });
+});

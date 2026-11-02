@@ -110,4 +110,17 @@ describe("récupération depuis le secret maître", () => {
     expect(again.restored).toHaveLength(0);
     expect((await store.getAll()).length).toBe(count);
   }, 60000);
+
+  it("refuse un autre secret maître sans modifier le trousseau", async () => {
+    const f = await fixture();
+    const store = createMemoryStore();
+    await restoreFromMaster(store, f.master, "ancien");
+    const before = await getMasterRecord(store);
+    const wrong = crypto.getRandomValues(new Uint8Array(32));
+    await expect(restoreFromMaster(store, wrong, "nouveau")).rejects.toThrow(/ne correspondent pas/);
+    expect(await getMasterRecord(store)).toEqual(before);
+    const session = new KeyringSession({ idleMinutes: 0 });
+    await session.unlockWithMaster(await store.getAll(), wrong);
+    expect(session.getPrivate(f.ed.entry.id)).toBeUndefined();
+  }, 60000);
 });

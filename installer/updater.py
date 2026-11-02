@@ -1469,7 +1469,9 @@ def run_pending_handoff() -> None:
         if exe is None:
             return
     if not _may_handoff(_exe_version_of(exe)):
-        return
+        exe = _restore_last_good()
+        if exe is None or not _may_handoff(_exe_version_of(exe)):
+            return
     try:
         _log(f"handoff: relance vers {exe.name}")
         # S603 : chemin issu de notre propre répertoire de données, binaire revérifié (signature + sha256).

@@ -206,11 +206,15 @@ export class KeyringSession {
   private async deriveInto(e: KeyEntry): Promise<boolean> {
     if (!this.master || e.derivationIndex === undefined) return false;
     if (e.type === "identity-ed25519") {
-      this.privates.set(e.id, (await deriveEd25519(this.master, e.derivationIndex)).privateKeyHex);
+      const key = await deriveEd25519(this.master, e.derivationIndex);
+      if (key.publicKeyHex.toLowerCase() !== e.publicHex.toLowerCase()) return false;
+      this.privates.set(e.id, key.privateKeyHex);
       return true;
     }
     if (e.type === "recipient-p256") {
-      this.privates.set(e.id, (await deriveP256(this.master, e.derivationIndex)).privateHex);
+      const key = await deriveP256(this.master, e.derivationIndex);
+      if (key.publicHex.toLowerCase() !== e.publicHex.toLowerCase()) return false;
+      this.privates.set(e.id, key.privateHex);
       return true;
     }
     return false;

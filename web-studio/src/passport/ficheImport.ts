@@ -4,6 +4,7 @@
  * reversé dans une fiche de situation. L'import ne devine jamais en silence : il liste les rubriques trouvées et celles qui
  * manquent, et les cases à cocher illisibles sont signalées.
  */
+import { convertCheckboxXml } from "./checkboxXml";
 import { MOIS, newSituation } from "./model";
 import type { Condition, Holder, Modalite, Nature, Situation } from "./types";
 
@@ -401,7 +402,6 @@ export function parseFicheText(raw: string, sourceName = "fiche"): ImportedFiche
   return { sourceName, number, situation: s, holder, report };
 }
 
-/** Lit un fichier (docx, pdf, elium, txt, md) et en fait une fiche. */
 /** Au-delà, la fiche .docx n'est pas décompressée pour la conversion des cases (le lecteur applique ses propres plafonds). */
 const MAX_CHECKBOX_SCAN_BYTES = 40 * 1024 * 1024;
 /** Taille maximale de word/document.xml examiné pour les cases. */
@@ -425,37 +425,8 @@ export async function withReadableCheckboxes(file: File): Promise<File> {
     if (!doc) return file;
     const probe = strFromU8(doc);
     if (!probe.includes("<w14:checkbox") && !probe.includes("<w:checkBox>") && !probe.includes("<w:sym")) return file;
-    const run = (c: boolean) => `<w:r><w:t>${c ? "☒" : "☐"}</w:t></w:r>`;
-    const on = (v: string | undefined) => v === undefined || /^(1|true|on)$/i.test(v);
-    let x = probe;
-    const before = x;
-    // 1. contrôles de contenu « case à cocher »
-    if (x.includes("<w14:checkbox"))
-      x = x.replace(/<w:sdt>(?:(?!<w:sdt>)[\s\S])*?<\/w:sdt>/g, (m) => {
-        if (!m.includes("<w14:checkbox")) return m;
-        const v = /<w14:checked(?=[\s/>])[^>]*w14:val="([^"]*)"/.exec(m)?.[1];
-        return run(v !== undefined && on(v));
-      });
-    // 2. champs de formulaire hérités (FORMCHECKBOX)
-    if (x.includes("<w:checkBox>"))
-      x = x.replace(
-        /<w:r(?:\s[^>]*)?>(?:(?!<\/w:r>)[\s\S])*?<w:ffData>(?:(?!<\/w:ffData>)[\s\S])*?<w:checkBox>[\s\S]*?<\/w:ffData>[\s\S]*?<\/w:r>/g,
-        (m) => {
-          const cb = /<w:checkBox>([\s\S]*?)<\/w:checkBox>/.exec(m)?.[1] ?? "";
-          const chk = /<w:checked(?=[\s/>])(?:[^>]*w:val="([^"]*)")?[^>]*\/>/.exec(cb);
-          const def = /<w:default(?=[\s/>])[^>]*w:val="([^"]*)"/.exec(cb)?.[1];
-          return run(chk ? on(chk[1]) : def !== undefined && on(def));
-        },
-      );
-    // 3. symboles Wingdings
-    if (x.includes("<w:sym"))
-      x = x.replace(/<w:sym(?=\s)[^>]*w:char="([0-9A-Fa-f]{4})"[^>]*\/>/g, (_m, ch: string) => {
-        const c = ch.toUpperCase();
-        if (["F0FE", "F0FD", "F0FC", "F078", "F0FB"].includes(c)) return "<w:t>☒</w:t>";
-        if (["F0A8", "F06F", "F0A3", "F071"].includes(c)) return "<w:t>☐</w:t>";
-        return _m;
-      });
-    if (x === before) return file;
+    const x = convertCheckboxXml(probe); // parcours linéaire (voir checkboxXml.ts)
+    if (x === probe) return file;
     // 2. Des cases ont été converties : on relit tout le paquet et on le recompresse par tranches.
     const files = await unzipCooperative(bytes);
     files["word/document.xml"] = strToU8(x);
@@ -465,6 +436,7 @@ export async function withReadableCheckboxes(file: File): Promise<File> {
   }
 }
 
+/** Lit un fichier (docx, pdf, elium, txt, md) et en fait une fiche. */
 export async function importFicheFile(file: File): Promise<ImportedFiche> {
   const name = file.name;
   const ext = name.toLowerCase().split(".").pop() ?? "";

@@ -425,7 +425,7 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
     const userId = mfa.sub;
     // Vérifié AVANT le facteur pour ne pas consommer un pas TOTP / code de secours pour rien (SRV-09).
     const row = await loadMfaLoginUser(userId, mfa.iat);
-    if (!(await verifySecondFactor(userId, b.code))) {
+    if (!(await verifySecondFactor(userId, b.code, req.ip))) {
       await audit(null, userId, "auth.login.mfa_failed", "user", userId, {}, req.ip);
       throw unauthorized("Code de vérification invalide.");
     }
@@ -570,7 +570,7 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
     async (req) => {
       const b = z.object({ code: z.string().min(4).max(16) }).parse(req.body);
       const user = requireUser(req);
-      if (!(await verifySecondFactor(user.id, b.code))) throw unauthorized("Code de vérification invalide.");
+      if (!(await verifySecondFactor(user.id, b.code, req.ip))) throw unauthorized("Code de vérification invalide.");
       await query(
         `UPDATE users
           SET mfa_enabled = false, mfa_secret_enc = NULL, mfa_secret_nonce = NULL,
@@ -591,7 +591,7 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
     async (req) => {
       const b = z.object({ code: z.string().min(4).max(16) }).parse(req.body);
       const user = requireUser(req);
-      if (!(await verifySecondFactor(user.id, b.code))) throw unauthorized("Code de vérification invalide.");
+      if (!(await verifySecondFactor(user.id, b.code, req.ip))) throw unauthorized("Code de vérification invalide.");
       const backupCodes = generateBackupCodes(10);
       await query(`DELETE FROM mfa_backup_codes WHERE user_id = $1`, [user.id]);
       for (const c of backupCodes) {
@@ -768,7 +768,7 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
       if (b.webauthn && webauthn) {
         secondOk = await verifyAuthentication(user.id, b.webauthn as never);
       } else if (b.code && row.mfa_enabled) {
-        secondOk = await verifySecondFactor(user.id, b.code);
+        secondOk = await verifySecondFactor(user.id, b.code, req.ip);
       } else {
         throw new ApiError(403, "mfa_code_required", "Saisissez aussi un code de vérification.", {
           methods: { totp: row.mfa_enabled, webauthn },

@@ -133,6 +133,7 @@ describe("anti-lockout MFA : secret indéchiffrable (TOKEN_SECRET tourné)", () 
 
   function mockMfaUser(opts: { backupCodeAccepted: boolean; pubHex: string }) {
     mockedQueryOne.mockImplementation(async (sql: string) => {
+      if (sql.includes("mfa_failed_count")) return { count: 1, locked: false } as never;
       if (sql.includes("mfa_secret_enc")) {
         return { mfa_secret_enc: badEnc, mfa_secret_nonce: badNonce } as never;
       }
@@ -389,6 +390,7 @@ describe("SRV-10 / SRV-09 : mfaToken d'une connexion SSO et token_epoch", () => 
   function mock(opts: { ssoSubject?: string | null; tokenEpoch?: string; backupOk?: boolean; pubHex: string }) {
     const bound: unknown[][] = [];
     mockedQueryOne.mockImplementation((async (sql: string, params?: unknown[]) => {
+      if (sql.includes("mfa_failed_count")) return { count: 1, locked: false } as never;
       if (sql.includes("mfa_secret_enc")) return { mfa_secret_enc: badEnc, mfa_secret_nonce: badNonce };
       if (sql.includes("UPDATE mfa_backup_codes")) return opts.backupOk === false ? null : { id: "bc1" };
       if (sql.includes("UPDATE users SET sso_subject")) {

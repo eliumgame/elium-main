@@ -51,6 +51,7 @@ Mot de passe à usage unique de type RFC 6238, avec enrôlement par QR code.
 - Le paquet de clés n'est livré qu'**après** le second facteur : `/login/verify` renvoie un jeton court, `/login/mfa` livre le paquet.
 - Dix **codes de secours** à usage unique, stockés sous forme d'empreinte. Ils sont régénérables avec un second facteur valide.
 - Désactiver le TOTP exige un second facteur valide.
+- **Verrouillage par compte** : après 5 codes incorrects d'affilée (connexion, ré-authentification, gestion de la 2FA), le second facteur du compte est bloqué 15 minutes, quels que soient l'adresse IP et le jeton de connexion utilisés (réponse 429 `mfa_locked`, entrée d'audit `auth.mfa.locked`). Un code juste remet le compteur à zéro.
 
 > Changer `TOKEN_SECRET` rend les secrets TOTP illisibles. Les codes de secours restent utilisables : c'est la seule porte de sortie, puis un nouvel enrôlement.
 

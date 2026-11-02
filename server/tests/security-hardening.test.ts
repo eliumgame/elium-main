@@ -154,6 +154,7 @@ describe("SRV-09 : anti-rejeu TOTP", () => {
     const code = totpNow(secret);
     let lastStep: number | null = null;
     mQueryOne.mockImplementation((async (sql: string, params: unknown[]) => {
+      if (sql.includes("mfa_failed_count")) return { count: 1, locked: false } as never;
       if (sql.includes("mfa_secret_enc")) return { mfa_secret_enc: enc.ct, mfa_secret_nonce: enc.nonce };
       if (sql.includes("SET mfa_last_step")) {
         const step = params[1] as number;

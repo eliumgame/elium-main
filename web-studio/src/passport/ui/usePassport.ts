@@ -23,19 +23,22 @@ export function usePassport(vaultSecret?: VaultSecret) {
   const dirty = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const flush = useCallback(async () => {
+  /** Enregistre l'écriture en attente ; renvoie l'erreur éventuelle (déjà signalée) au lieu de la lever. */
+  const flush = useCallback(async (): Promise<unknown> => {
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
     const d = dataRef.current;
-    if (!d || !dirty.current) return;
+    if (!d || !dirty.current) return null;
     dirty.current = false;
     try {
       await savePassport(d, secretRef.current);
       setSaveStatus(dirty.current ? "saving" : "saved");
+      return null;
     } catch (e) {
       dirty.current = true;
       setSaveStatus("error");
       reportError("passeport.save", e);
+      return e;
     }
   }, []);
 
@@ -97,14 +100,18 @@ export function usePassport(vaultSecret?: VaultSecret) {
     [flush],
   );
 
-  /** Remplace tout le passeport (import, réinitialisation) et enregistre aussitôt. */
+  /**
+   * Remplace tout le passeport (import, réinitialisation) et enregistre aussitôt. LÈVE si l'enregistrement échoue :
+   * l'appelant ne doit pas enchaîner d'opération destructive (purge des annexes) sur un remplacement non enregistré.
+   */
   const replace = useCallback(
     async (next: PassportData) => {
       dataRef.current = { ...next, updatedAt: new Date().toISOString() };
       dirty.current = true;
       setData(dataRef.current);
       setSaveStatus("saving");
-      await flush();
+      const err = await flush();
+      if (err) throw err instanceof Error ? err : new Error(String(err));
     },
     [flush],
   );

@@ -197,13 +197,13 @@ export default function PassportView({ onHome, onOpenDrive, vaultSecret }: Props
       situations: next.situations.map((s) => ({ ...s, annexes: keepByNumber.get(s.id) ?? [] })),
       dossierE51: { ...next.dossierE51, productions: data.dossierE51.productions },
     };
-    await replace(merged);
+    await replace(merged); // lève si l'enregistrement échoue : pas de purge des annexes dans ce cas
     await pruneAnnexes(
       new Set([
         ...merged.situations.flatMap((s) => s.annexes.map((a) => a.id)),
         ...merged.dossierE51.productions.map((a) => a.id),
       ]),
-    ).catch(() => undefined);
+    ).catch((e: unknown) => reportError("passeport.adopt.annexes", e));
   };
 
   const addAnnexes = (sid: number, files: File[]) =>
@@ -425,10 +425,14 @@ export default function PassportView({ onHome, onOpenDrive, vaultSecret }: Props
       danger: true,
     });
     if (!ok) return;
-    await replace(emptyPassport());
-    await pruneAnnexes(new Set()).catch(() => undefined);
-    setEditing(null);
-    setNotice("Passeport réinitialisé.");
+    // replace lève si l'enregistrement échoue : les annexes ne sont alors PAS purgées (le passeport enregistré
+    // y fait toujours référence).
+    await guard("reset", async () => {
+      await replace(emptyPassport());
+      await pruneAnnexes(new Set()).catch((e: unknown) => reportError("passeport.reset.annexes", e));
+      setEditing(null);
+      setNotice("Passeport réinitialisé.");
+    });
   };
 
   const progress = dossierProgress(dossierChecklist(data));

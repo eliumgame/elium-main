@@ -4,12 +4,13 @@ Point de départ demandé : `68d913f`. Le checkout partagé a avancé pendant l'
 
 **Légende :** « corrigé » indique un changement réalisé dans cette reprise ; « déjà corrigé » indique un changement vérifié dans l'historique ; « reste » indique un constat non clos par cet audit. Les constats initiaux « partially » ou « unverified » restent à confirmer avant d'en déduire une vulnérabilité exploitable. Les points redondants sont conservés pour assurer la traçabilité des cinq lots.
 
-**Bilan : 2 corrigés dans cette reprise, 25 déjà corrigés, 47 restant à traiter ou à confirmer sur 74.**
+**Bilan : 4 corrigés dans cette reprise, 25 déjà corrigés, 45 restant à traiter ou à confirmer sur 74.**
 
 ## Corrections réalisées dans cette reprise
 
 - `f73010b` — historique des refresh tokens limité à 20, recherche de réemploi avec index GIN, expiration absolue des sessions à 90 jours. Vérification : 18 tests `auth-routes` et `npm run build` serveur.
 - `2e75a5a` — SCIM ne peut plus suspendre le propriétaire par PATCH ou DELETE. Vérification : 9 tests `scim-deprovision-kick`/`scim` et `npm run build` serveur.
+- `1b65da1` — migration des rôles système « Éditeur » déjà clonés dans les organisations : retrait des permissions de lien externe et de gestion des partages/ACL. Vérification : 17 tests `migrate`/`roles` et `npm run build` serveur ; migration SQL non exécutée sur une base réelle pendant cet audit.
 
 ## Comparaison des rotations historiques
 
@@ -39,7 +40,7 @@ Point de départ demandé : `68d913f`. Le checkout partagé a avancé pendant l'
 | ID | État | Constat | Preuve de correction / suite |
 |---|---|---|---|
 | A2-01 | déjà corrigé | PATCH /orgs/:orgId/settings permet de réécrire settings.scim : contournement de la garde propriétaire + ré-authentification, et attribution du rôle « owner » par annuaire | `cd2a33e` |
-| A2-02 | reste | Le rôle système « Éditeur » (rôle par défaut des membres) détient toutes les permissions de nœud : liens externes, gestion des ACL, révocation, rotation | Modèle réduit par `cd2a33e`, rôles déjà enregistrés en base à vérifier/migrer |
+| A2-02 | corrigé | Le rôle système « Éditeur » (rôle par défaut des membres) détient toutes les permissions de nœud : liens externes, gestion des ACL, révocation, rotation | Modèle `cd2a33e`, migration des rôles existants `1b65da1` |
 | A2-03 | déjà corrigé | Destruction irréversible des clés et de l'historique : l'upsert de partage écrase la part du propriétaire et de l'organisation, et la réécriture de version supprime l'ancien blob sans condition | `c024fc4` |
 | A2-04 | reste | Les liens externes survivent au retrait, à la suspension ou à la déprovision SCIM de leur créateur | à traiter (confirmed, medium) |
 | A2-05 | corrigé | SCIM peut suspendre le propriétaire de l'organisation, qui ne peut plus rien rétablir (pas même régénérer le jeton SCIM) | `2e75a5a` |
@@ -59,7 +60,7 @@ Point de départ demandé : `68d913f`. Le checkout partagé a avancé pendant l'
 | A2-19 | déjà corrigé | Le journal collab (collab_updates) échappe au quota d'organisation, au quota personnel et au garde-fou disque | `c320461` |
 | A2-20 | reste | La signature anonyme par lien ne repose que sur le jeton du chemin, journalisé en clair : son seul détenteur peut remplacer le contenu courant et clôturer la partie | à traiter (partially, low) |
 | A2-21 | reste | Signature multi-parties non ordonnée (le défaut) : chaque retour écrase le contenu courant sans version de base, d'où des signatures absentes du fichier « terminé » | à traiter (confirmed, medium) |
-| A2-22 | reste | Le rôle « Éditeur » porte toutes les permissions de nœud (node.acl.manage, node.share.link/manage, node.sign.request), contrairement à la doc : tout éditeur peut compacter (effacer) le journal collab ou faire tourner la clé | Même réserve que A2-02 : modèle réduit, rôles persistés à vérifier/migrer |
+| A2-22 | corrigé | Le rôle « Éditeur » porte toutes les permissions de nœud (node.acl.manage, node.share.link/manage, node.sign.request), contrairement à la doc : tout éditeur peut compacter (effacer) le journal collab ou faire tourner la clé | Modèle `cd2a33e`, migration `1b65da1` ; `node.sign.request` reste volontairement accordée |
 | A2-23 | reste | Les liens publics (lecture et signature) restent actifs sur un nœud mis à la corbeille | à traiter (unverified, low) |
 | A2-24 | reste | La route publique de signature contourne le quota personnel et le contrôle disque post-envoi appliqués par PUT content | à traiter (unverified, low) |
 | A2-25 | reste | Le relais TSA public sert de proxy POST anonyme vers n'importe quel hôte ou port public et renvoie la réponse | à traiter (unverified, low) |

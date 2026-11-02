@@ -76,6 +76,7 @@ import {
   type SortKey,
   type ViewMode,
 } from "../browser-model";
+import { moveWithKeyShares } from "../move";
 import ShareDialog from "./ShareDialog";
 import SignRequestDialog from "./SignRequestDialog";
 import CollabDocEditor from "./CollabDocEditor";
@@ -594,15 +595,28 @@ export default function DriveBrowser() {
     }
   };
 
-  /** Move by drag & drop. The server re-fans the key shares for the new parent. */
+  /**
+   * Move by drag & drop. The server DROPS the subtree's inherited key shares on a move (it cannot
+   * wrap keys); `moveWithKeyShares` re-wraps them client-side for the new parent's principals.
+   */
   const moveTo = async (targetId: string | null, dragged: DriveEntry[]) => {
     const payload = movePayload(dragged, targetId);
-    if (!payload.length) return;
+    if (!payload.length || !ctx) return;
     try {
       setBusyLabel(payload.length === 1 ? "Déplacement…" : `Déplacement de ${payload.length} éléments…`);
-      for (const p of payload) await d.api.patchNode(p.id, { parentId: p.parentId });
+      let failed = 0;
+      for (const p of payload) {
+        const entry = dragged.find((e) => e.id === p.id);
+        if (!entry) continue;
+        failed += (await moveWithKeyShares(ctx, entry, p.parentId)).failed;
+      }
       setSelection([]);
       await reload();
+      if (failed)
+        await dialogs.alert({
+          title: "Déplacement effectué, accès à vérifier",
+          message: `${failed} part(s) de clé n'ont pas pu être recréées pour des collaborateurs du nouvel emplacement (droits insuffisants ou réseau). Repartagez l'élément si certains ne peuvent plus l'ouvrir.`,
+        });
     } catch (e) {
       await fail("Déplacement impossible", e);
     } finally {

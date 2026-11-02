@@ -1351,12 +1351,44 @@ function fullName(d: PDFDict): string {
 }
 
 /** What changed between the signed revision and the final file. */
-function diffRevisions(rev: PDFDocument, fin: PDFDocument): { kind: ChangeKind; label: string; field?: string }[] {
+export function diffRevisions(
+  rev: PDFDocument,
+  fin: PDFDocument,
+): { kind: ChangeKind; label: string; field?: string }[] {
   const out: { kind: ChangeKind; label: string; field?: string }[] = [];
   const add = (kind: ChangeKind, label: string, field?: string) => {
     if (!out.some((c) => c.kind === kind && c.label === label)) out.push({ kind, label, field });
   };
   if (rev.getPageCount() !== fin.getPageCount()) add("disallowed", "Pages ajoutées ou supprimées");
+  if (String(rev.context.trailerInfo.Root) !== String(fin.context.trailerInfo.Root))
+    add("disallowed", "Catalogue du document remplacé");
+
+  // Establish ownership from the SIGNED revision. A later DSS/form reference
+  // cannot turn an existing page resource into harmless validation data.
+  const protectedRefs = new Map<string, PDFRef>();
+  const seen = new Set<PDFObject>();
+  const pending: PDFObject[] = rev.getPages().map((page) => page.ref);
+  while (pending.length) {
+    const value = pending.pop()!;
+    if (seen.has(value)) continue;
+    seen.add(value);
+    if (value instanceof PDFRef) {
+      protectedRefs.set(value.toString(), value);
+      const resolved = rev.context.lookup(value);
+      if (resolved) pending.push(resolved);
+    } else if (value instanceof PDFStream) {
+      pending.push(value.dict);
+    } else if (value instanceof PDFDict) {
+      for (const [key, child] of value.entries()) {
+        if (key.asString() !== "/Annots") pending.push(child);
+      }
+    } else if (value instanceof PDFArray) {
+      for (let i = 0; i < value.size(); i++) pending.push(value.get(i));
+    }
+  }
+  for (const ref of protectedRefs.values()) {
+    if (!fin.context.lookup(ref)) add("disallowed", "Objet de page supprimé");
+  }
 
   // Objects owned by annotations (appearances, pop-ups) and by the DSS count with them.
   const owner = new Map<string, ChangeKind>();
@@ -1449,6 +1481,10 @@ function diffRevisions(rev: PDFDocument, fin: PDFDocument): { kind: ChangeKind; 
         dictWithout(old, new Set(["/Annots"])) !== dictWithout(obj, new Set(["/Annots"]))
       )
         add("disallowed", "Contenu d'une page modifié");
+      continue;
+    }
+    if (protectedRefs.has(k)) {
+      add("disallowed", "Ressource du contenu signé modifiée");
       continue;
     }
     const d =

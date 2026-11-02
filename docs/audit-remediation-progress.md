@@ -3,6 +3,20 @@
 Base auditée : `a88de3b`. Corrections intégrées localement jusqu'à `85e1867`.
 Ce fichier suit l'avancement ; il ne certifie pas la clôture des 151 constats.
 
+## Compléments intégrés après la reprise
+
+- `a073c4e` : second facteur frais pour changement de mot de passe et
+  ré-authentification pour suppression du compte ; client adapté. 25 tests passent.
+- `5caefd2` : sauvegarde des révocations, récupération des entrées sans clé privée,
+  conservation du statut révoqué et fusion de l'index entre appareils. Un index
+  distant illisible bloque l'écriture. 57 tests ciblés passent, typage validé.
+- PDF : première protection contre remplacement du catalogue et reclassement
+  des ressources signées via DSS/formulaires. Les références de contenu sont
+  établies depuis la révision signée. 3 régressions dédiées et 45 tests existants
+  passent ; typage validé. Ceci ne clôt PAS toute la vérification PAdES : divergence
+  des parseurs/xref, autres objets reclassifiés et validations de signatures
+  doivent encore être traités.
+
 ## Intégré
 
 - Passeport E4 : import des cases Word, récupération du coffre orphelin,

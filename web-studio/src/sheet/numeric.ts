@@ -33,9 +33,15 @@ const FR_NUMBER = /^[+-]?(?:\d+|[1-9]\d{0,2}(?:[   ]\d{3})+)(?:,\d+)?$/;
 export function parseCellNumber(raw: string): number | null {
   const t = raw.trim();
   if (t === "") return null;
-  const n = Number(t);
-  if (!Number.isNaN(n)) return n;
+  if (/^[+-]?0\d/.test(t) || /^[+-]?\d{16,}$/.test(t)) return null;
+  const n = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(t) ? Number(t) : NaN;
+  if (Number.isFinite(n)) return n;
   if (!FR_NUMBER.test(t)) return null;
   const v = Number(t.replace(/[   ]/g, "").replace(",", "."));
-  return Number.isNaN(v) ? null : v;
+  return Number.isFinite(v) ? v : null;
+}
+
+/** Preserve imported text through evaluation and XLSX export. */
+export function literalCell(text: string): string {
+  return text.startsWith("=") || text.startsWith("'") || parseCellNumber(text) !== null ? "'" + text : text;
 }

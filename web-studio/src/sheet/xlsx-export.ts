@@ -265,15 +265,17 @@ function clip(s: string, max: number): string {
  */
 function cellXml(key: string, raw: string, s: number, literal = false): string {
   const sAttr = s ? ` s="${s}"` : "";
-  const text = xmlSafeText(raw);
+  const quoted = raw.startsWith("'");
+  const text = xmlSafeText(quoted ? raw.slice(1) : raw);
+  literal ||= quoted;
   if (!literal && text.startsWith("=") && text.length <= MAX_FORMULA) {
     return `<c r="${key}"${sAttr}><f>${xe(formulaForFile(text.slice(1)))}</f></c>`;
   }
-  if (isNumeric(text)) {
+  if (!literal && isNumeric(text) && parseCellNumber(text) !== null) {
     return `<c r="${key}"${sAttr}><v>${xe(text.trim())}</v></c>`;
   }
   // Saisie française (« 12,5 », « 1 234,5 ») : écrite comme un vrai nombre.
-  const fr = /,/.test(text) ? parseCellNumber(text) : null;
+  const fr = !literal && /,/.test(text) ? parseCellNumber(text) : null;
   if (fr !== null) return `<c r="${key}"${sAttr}><v>${fr}</v></c>`;
   return `<c r="${key}"${sAttr} t="inlineStr"><is><t xml:space="preserve">${xe(clip(text, MAX_CELL_TEXT))}</t></is></c>`;
 }

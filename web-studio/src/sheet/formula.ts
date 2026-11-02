@@ -1205,6 +1205,37 @@ export function truthy(v: CellValue | undefined): boolean {
   return v.length > 0 && v.toUpperCase() !== "FALSE";
 }
 
+/** Wildcard matching without regular-expression backtracking. */
+function wildcardMatch(value: string, pattern: string): boolean {
+  const text = value.toLowerCase();
+  const tokens: { c: string; wildcard: boolean }[] = [];
+  for (let i = 0; i < pattern.length; i++) {
+    let c = pattern[i].toLowerCase();
+    const escaped = c === "~" && i + 1 < pattern.length;
+    if (escaped) c = pattern[++i].toLowerCase();
+    tokens.push({ c, wildcard: !escaped && (c === "*" || c === "?") });
+  }
+  let i = 0,
+    j = 0,
+    star = -1,
+    retry = 0;
+  while (i < text.length) {
+    const t = tokens[j];
+    if (t?.wildcard && t.c === "*") {
+      star = j++;
+      retry = i;
+    } else if (t && ((t.wildcard && t.c === "?") || t.c === text[i])) {
+      i++;
+      j++;
+    } else if (star >= 0) {
+      j = star + 1;
+      i = ++retry;
+    } else return false;
+  }
+  while (tokens[j]?.wildcard && tokens[j].c === "*") j++;
+  return j === tokens.length;
+}
+
 /** Excel-style criterion: ">5", "<=3", "<>x", or a plain value (equality). */
 function matchCriterion(value: CellValue, crit: CellValue): boolean {
   if (isError(value)) return false;
@@ -1215,8 +1246,10 @@ function matchCriterion(value: CellValue, crit: CellValue): boolean {
   const tn = Number(target);
   const vn = typeof value === "number" ? value : Number(value);
   const bothNum = target !== "" && !Number.isNaN(tn) && !Number.isNaN(vn);
-  if (op === "=") return bothNum ? vn === tn : String(value) === target;
-  if (op === "<>") return bothNum ? vn !== tn : String(value) !== target;
+  if (op === "=" || op === "<>") {
+    const matches = bothNum ? vn === tn : wildcardMatch(String(value), target);
+    return op === "=" ? matches : !matches;
+  }
   if (!bothNum) return false;
   if (op === "<") return vn < tn;
   if (op === ">") return vn > tn;
@@ -1633,7 +1666,8 @@ function applyFunction(name: string, args: CellValue[][], shapes: (RangeShape | 
     case "MOD": {
       const b = n0(args, 1);
       if (b === 0) throw new FormulaError("#DIV/0");
-      return n0(args, 0) % b;
+      const r = n0(args, 0) % b;
+      return r === 0 ? 0 : Math.sign(r) === Math.sign(b) ? r : r + b;
     }
     case "INT":
       return Math.floor(n0(args));
@@ -1648,23 +1682,20 @@ function applyFunction(name: string, args: CellValue[][], shapes: (RangeShape | 
       if (sig === 0) throw new FormulaError("#DIV/0");
       return Math.floor(n0(args) / sig) * sig;
     }
-    case "ROUND": {
-      const x = n0(args, 0);
-      const d = args[1] ? n0(args, 1) : 0;
-      const f = Math.pow(10, d);
-      return Math.round(x * f) / f;
-    }
-    case "ROUNDUP": {
-      const x = n0(args, 0);
-      const d = args[1] ? n0(args, 1) : 0;
-      const f = Math.pow(10, d);
-      return (Math.ceil(Math.abs(x) * f) / f) * (x < 0 ? -1 : 1);
-    }
+    case "ROUND":
+    case "ROUNDUP":
     case "ROUNDDOWN": {
       const x = n0(args, 0);
-      const d = args[1] ? n0(args, 1) : 0;
-      const f = Math.pow(10, d);
-      return Math.trunc(x * f) / f;
+      const d = Math.trunc(args[1] ? n0(args, 1) : 0);
+      const shift = (v: number, places: number) => {
+        const [mantissa, exponent = "0"] = String(v).split("e");
+        return Number(mantissa + "e" + (Number(exponent) + places));
+      };
+      const scaled = shift(Math.abs(x), d);
+      if (!Number.isFinite(scaled)) return x;
+      const rounded =
+        name === "ROUND" ? Math.round(scaled) : name === "ROUNDUP" ? Math.ceil(scaled) : Math.floor(scaled);
+      return (x < 0 ? -1 : 1) * shift(rounded, -d);
     }
     // --- logique ---
     case "IF": {
@@ -1736,7 +1767,22 @@ function applyFunction(name: string, args: CellValue[][], shapes: (RangeShape | 
     case "TODAY":
       return todaySerial();
     case "NOW":
-      return (Date.now() - DATE_EPOCH) / 86400000;
+      return (() => {
+        const d = new Date();
+        return (
+          (Date.UTC(
+            d.getFullYear(),
+            d.getMonth(),
+            d.getDate(),
+            d.getHours(),
+            d.getMinutes(),
+            d.getSeconds(),
+            d.getMilliseconds(),
+          ) -
+            DATE_EPOCH) /
+          86400000
+        );
+      })();
     case "YEAR":
       return serialDate(n0(args)).getUTCFullYear();
     case "MONTH":
@@ -2111,6 +2157,7 @@ export function createCalc(
   }
 
   function evalRaw(raw: string, ctx: string | null, ref: string): CellValue {
+    if (raw[0] === "'") return raw.slice(1);
     if (raw[0] === "=") {
       try {
         const resolve: Resolve = ((r: string, sheet: string | null) => {

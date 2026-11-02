@@ -8,8 +8,8 @@ const nf = (opts: Intl.NumberFormatOptions) => new Intl.NumberFormat("fr-FR", op
 const EPOCH = Date.UTC(1899, 11, 30); // Excel/Sheets serial-date epoch
 
 function serialToDate(serial: number): string {
-  const d = new Date(EPOCH + Math.round(serial) * 86400000);
-  return Number.isNaN(d.getTime()) ? String(serial) : d.toLocaleDateString("fr-FR");
+  const d = new Date(EPOCH + Math.floor(serial) * 86400000);
+  return Number.isNaN(d.getTime()) ? String(serial) : d.toLocaleDateString("fr-FR", { timeZone: "UTC" });
 }
 
 function serialToDateTime(serial: number): string {
@@ -17,7 +17,7 @@ function serialToDateTime(serial: number): string {
   const d = new Date(EPOCH + Math.round(serial * 86400000));
   return Number.isNaN(d.getTime())
     ? String(serial)
-    : d.toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" });
+    : d.toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short", timeZone: "UTC" });
 }
 
 function formatNumber(n: number, fmt: NumFmt): string {

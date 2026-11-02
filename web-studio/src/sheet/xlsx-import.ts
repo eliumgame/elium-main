@@ -1,3 +1,4 @@
+import { literalCell } from "./numeric";
 /**
  * XLSX (SpreadsheetML) importer — no new dependency. Unzips with fflate
  * (already used by the DOCX module) and parses the XML with the browser
@@ -1000,16 +1001,16 @@ function parseSheet(doc: Document | null, shared: string[], name: string, ps: Pa
       // Inline strings carry their text in <is><t> and have NO <v> element —
       // must be handled before the <v> guard below (else they'd be dropped).
       const txt = textOf(c);
-      if (txt) sh.cells[upref] = txt;
+      if (txt) sh.cells[upref] = literalCell(txt);
       continue;
     }
     const v = c.getElementsByTagName("v")[0];
     if (!v || v.textContent == null) continue;
     if (t === "s") {
       const idx = parseInt(v.textContent, 10);
-      sh.cells[upref] = shared[idx] ?? "";
+      sh.cells[upref] = literalCell(shared[idx] ?? "");
     } else if (t === "str") {
-      sh.cells[upref] = textOf(c);
+      sh.cells[upref] = literalCell(textOf(c));
     } else if (t === "b") {
       sh.cells[upref] = v.textContent.trim() === "1" ? "TRUE" : "FALSE";
     } else if (t === "e") {

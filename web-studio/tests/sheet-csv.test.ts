@@ -20,6 +20,6 @@ describe("csv parser", () => {
     const wb = csvToWorkbook("x,y\n1,2");
     expect(wb.sheets[0].cells.A1).toBe("x");
     expect(wb.sheets[0].cells.B1).toBe("y");
-    expect(wb.sheets[0].cells.B2).toBe("2");
+    expect(wb.sheets[0].cells.B2).toBe("'2");
   });
 });

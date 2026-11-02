@@ -1,3 +1,4 @@
+import { literalCell } from "./numeric";
 /**
  * Lecteur XLSX en flux, sans DOM : tourne dans un Web Worker (voir
  * xlsx-import.worker.ts) comme en ligne de commande ou en test.
@@ -14,7 +15,7 @@
  * renvoyées telles quelles : l'appelant les lit avec le DOMParser, c'est
  * négligeable. Le flux ne s'occupe que de ce qui peut être énorme.
  */
-import { Inflate, inflateSync } from "fflate";
+import { Inflate } from "fflate";
 import { decodeOoxmlEscapes, stripXlfnPrefixes } from "./xlsx-text";
 import { rewriteRefs } from "./formula";
 
@@ -161,7 +162,7 @@ function entryData(b: Uint8Array, ent: ZipEntry): Uint8Array {
   return b.subarray(start, start + ent.csize);
 }
 
-const IN_STEP = 64 * 1024;
+const IN_STEP = 1024; // Bounds the expansion allocated by each Inflate.push.
 
 /** Décompresse une entrée par blocs ; `onChunk` renvoie false pour s'arrêter net. */
 function streamEntry(
@@ -259,15 +260,23 @@ function readSharedStrings(bytes: Uint8Array, ent: ZipEntry | undefined, onConsu
   if (!ent) return out;
   const dec = new TextDecoder();
   let buf = "";
+  let expanded = 0;
+  const add = (text: string) => {
+    if (out.length >= 1_000_000) throw new Error("Trop de chaînes partagées XLSX.");
+    out.push(text);
+  };
   streamEntry(
     bytes,
     ent,
     (chunk) => {
+      expanded += chunk.length;
+      if (expanded > 64 * 1024 * 1024) throw new Error("Chaînes partagées XLSX trop volumineuses.");
       buf += dec.decode(chunk, { stream: true });
       let p = 0;
       for (;;) {
         const i = buf.indexOf("<si", p);
         if (i < 0) break;
+        if (i + 3 >= buf.length) break;
         const c = buf.charCodeAt(i + 3);
         if (c !== 62 && c !== 32 && c !== 47) {
           p = i + 3;
@@ -276,13 +285,13 @@ function readSharedStrings(bytes: Uint8Array, ent: ZipEntry | undefined, onConsu
         const te = buf.indexOf(">", i);
         if (te < 0) break;
         if (buf.charCodeAt(te - 1) === 47) {
-          out.push("");
+          add("");
           p = te + 1;
           continue;
         }
         const end = buf.indexOf("</si>", te);
         if (end < 0) break;
-        out.push(textOfSi(buf.slice(te + 1, end)));
+        add(textOfSi(buf.slice(te + 1, end)));
         p = end + 5;
       }
       buf = p ? buf.slice(p) : buf;
@@ -518,7 +527,7 @@ class SheetReader {
       if (val === null) {
         if (t === "inlineStr") {
           const txt = textOfSi(inner);
-          if (txt) val = txt;
+          if (txt) val = literalCell(txt);
         } else {
           const vi = inner.indexOf("<v");
           const vch = vi >= 0 ? inner.charCodeAt(vi + 2) : 0;
@@ -526,8 +535,8 @@ class SheetReader {
             const vte = inner.indexOf(">", vi);
             const ve = inner.indexOf("</v>", vte);
             const raw = ve >= 0 ? inner.slice(vte + 1, ve) : "";
-            if (t === "s") val = this.shared[parseInt(raw, 10)] ?? "";
-            else if (t === "str") val = decodeOoxmlEscapes(decodeEntities(raw));
+            if (t === "s") val = literalCell(this.shared[parseInt(raw, 10)] ?? "");
+            else if (t === "str") val = literalCell(decodeOoxmlEscapes(decodeEntities(raw)));
             else if (t === "b") val = raw.trim() === "1" ? "TRUE" : "FALSE";
             else if (t === "e") val = decodeEntities(raw).trim();
             else {
@@ -598,11 +607,32 @@ export function runStreamImport(bytes: Uint8Array, opts: StreamOptions, emit: (m
   const sstEntry = dir.find((e) => /^xl\/sharedstrings\.xml$/i.test(e.name));
 
   const zip: Record<string, Uint8Array> = {};
+  let total = 0;
   for (const e of dir) {
     if (e.name.endsWith("/") || e === sstEntry || sheetEntries.includes(e) || SKIP_PART.test(e.name)) continue;
-    if (e.usize > MAX_SMALL_PART) continue;
-    const data = entryData(bytes, e);
-    zip[e.name] = e.method === 0 ? data.slice() : inflateSync(data);
+    if (
+      !Number.isSafeInteger(e.usize) ||
+      e.usize < 0 ||
+      e.usize > MAX_SMALL_PART ||
+      total + e.usize > 128 * 1024 * 1024
+    )
+      throw new Error("Parties XLSX trop volumineuses.");
+    const out = new Uint8Array(e.usize);
+    let written = 0;
+    streamEntry(
+      bytes,
+      e,
+      (chunk) => {
+        if (written + chunk.length > out.length) throw new Error("Taille décompressée XLSX incorrecte.");
+        out.set(chunk, written);
+        written += chunk.length;
+        return true;
+      },
+      () => {},
+    );
+    if (written !== out.length) throw new Error("Taille décompressée XLSX incorrecte.");
+    total += written;
+    zip[e.name] = out;
   }
   emit({
     type: "meta",

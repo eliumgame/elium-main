@@ -1,3 +1,4 @@
+import { literalCell } from "./numeric";
 /** CSV parsing — RFC-4180-ish (quoted fields, "" escapes, , and newlines). */
 import { indexToCol } from "./formula";
 import type { Workbook } from "./model";
@@ -99,7 +100,7 @@ export function csvToWorkbook(text: string): Workbook {
   rows.forEach((r, ri) =>
     r.forEach((val, ci) => {
       if (val !== "") {
-        cells[indexToCol(ci) + (ri + 1)] = val;
+        cells[indexToCol(ci) + (ri + 1)] = literalCell(val);
         maxCol = Math.max(maxCol, ci);
       }
     }),
@@ -118,7 +119,7 @@ export async function csvToWorkbookAsync(text: string): Promise<Workbook> {
     for (let ci = 0; ci < r.length; ci++) {
       const val = r[ci]!;
       if (val !== "") {
-        cells[indexToCol(ci) + (ri + 1)] = val;
+        cells[indexToCol(ci) + (ri + 1)] = literalCell(val);
         if (ci > maxCol) maxCol = ci;
       }
     }

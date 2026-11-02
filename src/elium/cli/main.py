@@ -25,7 +25,7 @@ from elium.format.package import (
     read_elium,
     write_elium,
 )
-from elium.format.profiles import PROFILES, VALID_PROFILES
+from elium.format.profiles import PROFILES, VALID_PROFILES, profile_expects_seal
 from elium.format.proof import create_proof, verify_proof
 
 
@@ -160,8 +160,11 @@ def cmd_doc_open(args: argparse.Namespace) -> None:
     print(f"Format       : elium v{m['formatVersion']}")
     print(f"Chiffré      : {m['protection']['encrypted']}  ·  Verrouillé : {m['protection']['locked']}")
     integ = result["integrity"]
+    missing_seal = profile_expects_seal(m["profile"]) and result["seal"]["verdict"] == "unsealed"
     intact = "non vérifié" if integ["unchecked"] else ("intact" if integ["contentIntact"] else "ALTÉRÉ")
     print(f"Intégrité    : {intact}")
+    if missing_seal:
+        print("Promesse     : NON VÉRIFIABLE (profil exigeant un sceau, absent)")
     tampered = integ.get("resourcesTampered") or []
     if tampered:
         print(f"Ressources   : {len(tampered)} ALTÉRÉE(S) — voir « elium doc-verify » pour le détail")
@@ -210,24 +213,36 @@ def cmd_doc_verify(args: argparse.Namespace) -> None:
     _doc_id = (result.get("manifest") or {}).get("docId")
     if not result["signatures"]:
         print("Signatures           : aucune")
-    for s in result["signatures"]:
-        verdict = verify_proof(s, model, trusted_key_hex=args.trusted, doc_id=_doc_id)
+    signature_verdicts = [(s, verify_proof(s, model, doc_id=_doc_id)) for s in result["signatures"]]
+    for s, verdict in signature_verdicts:
         who = s.get("signer", {}).get("name") or s.get("kind")
         print(f"Signature [{who}]   : {verdict}")
 
+    bad = (not integ["unchecked"] and not integ["contentIntact"] or bool(tampered)
+           or not jv["valid"] or seal.get("verdict") == "broken"
+           or any(v in ("invalid", "modified") for _, v in signature_verdicts))
+    warning = (integ["unchecked"] or
+               profile_expects_seal(result["manifest"]["profile"]) and seal.get("verdict") == "unsealed"
+               or seal.get("verdict") == "unknown_key"
+               or any(v == "unknown_key" for _, v in signature_verdicts))
+    overall = "altered" if bad else "warning" if warning else "ok"
+    print("Verdict global        :", {"altered": "ALTÉRÉ", "warning": "NON VÉRIFIABLE / AVERTISSEMENT", "ok": "OK"}[overall])
     report = {
+        "overall": overall,
         "integrity": integ,
         "journal": jv,
         "seal": seal,
         "signatures": [
-            {"id": s["id"], "verdict": verify_proof(s, model, trusted_key_hex=args.trusted, doc_id=_doc_id)}
-            for s in result["signatures"]
+            {"id": s["id"], "verdict": verdict}
+            for s, verdict in signature_verdicts
         ],
     }
     if args.report:
         with open(args.report, "w", encoding="utf-8") as f:
             json.dump(report, f, ensure_ascii=False, indent=2)
         print(f"Rapport de preuve écrit : {args.report}")
+    if overall != "ok":
+        raise SystemExit(1 if bad else 2)
 
 
 def cmd_doc_sign(args: argparse.Namespace) -> None:

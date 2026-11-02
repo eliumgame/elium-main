@@ -40,3 +40,8 @@ PROFILES: dict[str, ProfileDef] = {
 }
 
 VALID_PROFILES = tuple(PROFILES.keys())
+
+
+def profile_expects_seal(profile: str) -> bool:
+    definition = PROFILES[profile]
+    return definition["locked"] or definition["tracking"] or definition["signatures_expected"]

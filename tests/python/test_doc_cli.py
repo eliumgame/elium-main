@@ -194,7 +194,9 @@ def test_doc_verify_and_open_warn_on_tampered_resource(tmp_path, capsys):
     doc.write_bytes(tampered_blob)
 
     capsys.readouterr()
-    run("doc-verify", str(doc))
+    with pytest.raises(SystemExit) as exc:
+        run("doc-verify", str(doc))
+    assert exc.value.code == 1
     verify_out = capsys.readouterr().out
     assert "ALTÉRÉE" in verify_out
     assert res_id in verify_out
@@ -217,13 +219,16 @@ def test_doc_verify_reports_valid_signature(tmp_path, capsys):
 
     capsys.readouterr()
     report = tmp_path / "report.json"
-    run("doc-verify", str(doc), "--report", str(report))
+    with pytest.raises(SystemExit) as exc:
+        run("doc-verify", str(doc), "--report", str(report))
+    assert exc.value.code == 2  # signed profile without a seal is not verifiable
     out = capsys.readouterr().out
     assert "VALIDE" in out  # journal + signature lines
 
     r = json.loads(report.read_text(encoding="utf-8"))
     assert r["journal"]["valid"] is True
     assert r["signatures"][0]["verdict"] == "valid"
+    assert r["overall"] == "warning"
 
 
 def test_doc_sign_reseal_covers_enriched_journal(tmp_path):

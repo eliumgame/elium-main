@@ -143,6 +143,10 @@ def _pending_file() -> Path:
     return _bin_root() / "pending.json"
 
 
+def _last_good_file() -> Path:
+    return _bin_root() / "last-good.json"
+
+
 def _log_file() -> Path:
     return data_dir() / "update.log"
 
@@ -197,7 +201,8 @@ def _save_json(path: Path, obj: Any) -> None:
 
 def current_version() -> str:
     """Version applicative de CET exe (source unique : elium.__version__)."""
-    override = None if getattr(sys, "frozen", False) else os.environ.get("ELIUM_CURRENT_VERSION")  # tests
+    override = (None if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
+                else os.environ.get("ELIUM_CURRENT_VERSION"))  # tests
     if override:
         return override
     try:
@@ -1214,6 +1219,11 @@ def active_web_dir() -> str | None:
     if not is_newer(version, current_version()):
         return None  # l'exe embarque déjà un web au moins aussi récent
     candidate = _web_root() / version
+    manifest = _load_signed_manifest(candidate)
+    if manifest is None or (BUILD_CODE_HASH != _CODE_HASH_PLACEHOLDER
+                            and manifest.get("codeHash") != BUILD_CODE_HASH):
+        _log(f"overlay web {version} : codeHash incompatible avec le lanceur — ignoré")
+        return None
     if (candidate / "index.html").is_file():
         return str(candidate)
     return None
@@ -1270,7 +1280,14 @@ def _prune_old_exe(keep_count: int = 2) -> None:
         exes = sorted(_bin_root().glob("Elium-*.exe"), key=lambda p: _version_tuple(_exe_version_of(p)), reverse=True)
     except OSError:
         return
-    for old in exes[keep_count:]:
+    good = _load_json(_last_good_file(), {})
+    good_version = good.get("version") if isinstance(good, dict) else None
+    keep = set(exes[:keep_count])
+    if good_version:
+        keep.add(_bin_root() / f"Elium-{good_version}.exe")
+    for old in exes:
+        if old in keep:
+            continue
         _safe_unlink(old)
         _remove_sidecar(old.with_suffix(""))
         _log(f"prune: ancien lanceur {old.name} supprimé")
@@ -1296,6 +1313,11 @@ def _verified_pending_exe() -> Path | None:
         return None  # rien de plus récent que nous
     if _is_quarantined(version):
         return None
+    return _verified_exe(version)
+
+
+def _verified_exe(version: str) -> Path | None:
+    """Revérifie un exe et son manifeste signé avant tout handoff."""
     exe = _bin_root() / f"Elium-{version}.exe"
     if not exe.is_file():
         _log(f"pending exe: {exe.name} introuvable")
@@ -1313,6 +1335,18 @@ def _verified_pending_exe() -> Path | None:
     return exe
 
 
+def _restore_last_good() -> Path | None:
+    """Rétablit le dernier lanceur démarré avec succès, après vérification complète."""
+    good = _load_json(_last_good_file(), {})
+    version = good.get("version") if isinstance(good, dict) else None
+    if not version or not is_newer(version, current_version()) or _is_quarantined(version):
+        return None
+    exe = _verified_exe(version)
+    if exe is not None:
+        _save_json(_pending_file(), {"version": version})
+    return exe
+
+
 def _boot_state(version: str) -> dict[str, Any]:
     st = _load_json(_boot_state_file(), None)
     if not isinstance(st, dict) or st.get("version") != version:
@@ -1321,14 +1355,17 @@ def _boot_state(version: str) -> dict[str, Any]:
 
 
 def _fallback_to_base(version: str, reason: str) -> None:
-    """Abandonne l'exe `version` (plantages répétés) : on reste sur la version embarquée."""
-    _log(f"handoff: {version} abandonnée ({reason}) — retour à la version embarquée {current_version()}")
+    """Abandonne l'exe fautif et tente le dernier lanceur sain signé."""
     _quarantine(version)
     _safe_unlink(_pending_file())
     exe = _bin_root() / f"Elium-{version}.exe"
     _safe_unlink(exe)
     _remove_sidecar(exe.with_suffix(""))
+    recovered = _restore_last_good()
+    target = _exe_version_of(recovered) if recovered else current_version()
+    _log(f"handoff: {version} abandonnée ({reason}) — retour à {target}")
     _save_json(_fallback_file(), {"version": version, "reason": reason, "base": current_version(),
+                                  "restored": target,
                                   "at": time.strftime("%Y-%m-%d %H:%M:%S")})
 
 
@@ -1356,6 +1393,8 @@ def mark_boot_ok() -> None:
     # remis en main) enregistre son « boot ok » ; la base n'écrase jamais l'état d'un autre.
     if isinstance(st, dict) and st.get("version") == version and not (st.get("ok") and not st.get("attempts")):
         _save_json(_boot_state_file(), {"version": version, "attempts": 0, "ok": True})
+        if _verified_exe(version) is not None:
+            _save_json(_last_good_file(), {"version": version})
     _prune_old_exe(keep_count=2)
 
 
@@ -1426,7 +1465,9 @@ def run_pending_handoff() -> None:
         return
     exe = _verified_pending_exe()
     if exe is None:
-        return
+        exe = _restore_last_good()
+        if exe is None:
+            return
     if not _may_handoff(_exe_version_of(exe)):
         return
     try:
@@ -1972,6 +2013,7 @@ def undo_last_update() -> dict[str, Any]:
     """
     _safe_unlink(_pointer_file())
     _safe_unlink(_pending_file())
+    _safe_unlink(_last_good_file())
     try:
         for child in _bin_root().glob("Elium-*.exe"):
             _safe_unlink(child)

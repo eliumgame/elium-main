@@ -451,6 +451,8 @@ export async function readEliumPackage(blob: Uint8Array, opts: WriteOptions = {}
   }
 
   assertManifestCoherence(manifest);
+  if (typeof manifest.integrity?.contentHash !== "string" || !/^[0-9a-f]{64}$/i.test(manifest.integrity.contentHash))
+    throw new EliumPackageError("Empreinte de contenu absente ou invalide dans le manifeste.");
   const contentEntry = manifest.protection.contentEntry;
   const contentBytes = entries[contentEntry];
   if (!contentBytes) throw new EliumPackageError("Contenu du document manquant.");

@@ -24,6 +24,7 @@ describe("CORE-04 cohérence manifeste/profil", () => {
       (m) => (m.protection.locked = true),
       (m) => (m.protection.contentEntry = "content/document.elium"),
       (m) => delete m.protection,
+      (m) => (m.integrity.contentHash = null),
     ];
     for (const mutate of mutations) {
       const m = structuredClone(man);

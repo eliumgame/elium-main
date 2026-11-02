@@ -12,7 +12,8 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { query, queryOne, withTx } from "../db/pool.js";
 import { authenticate, requireUser, requireNodePerm } from "../middleware/auth.js";
-import { notFound, badRequest, tooLarge, conflict } from "../lib/errors.js";
+import { notFound, badRequest, tooLarge, conflict, insufficientStorage } from "../lib/errors.js";
+import { assertUserQuota } from "../lib/site-settings.js";
 import { storage } from "../storage/adapter.js";
 import { audit } from "../lib/audit.js";
 import { config } from "../config.js";
@@ -92,22 +93,30 @@ export default async function versionRoutes(app: FastifyInstance): Promise<void>
     await assertDiskSpace(Number(req.headers["content-length"]) || 0);
     const store = storage();
     const newRef = store.newKey();
+    let size: number;
     try {
-      await store.putStream(newRef, body, config.maxBlobBytes);
+      size = await store.putStream(newRef, body, config.maxBlobBytes);
     } catch (err) {
       await store.delete(newRef).catch(() => {});
       if (err instanceof Error && err.message === "payload_too_large") throw tooLarge();
       throw err;
     }
+    // Re-contrôle sur la taille RÉELLE (un corps chunked n'annonce pas de Content-Length).
+    try {
+      await assertDiskSpace(size);
+    } catch (err) {
+      await store.delete(newRef).catch(() => {});
+      throw err;
+    }
 
     const oldRef = await withTx(async (c) => {
       const { rows: nrows } = await c.query(
-        `SELECT key_epoch, current_version_id FROM nodes WHERE id = $1 FOR UPDATE`,
+        `SELECT key_epoch, current_version_id, owner_user_id FROM nodes WHERE id = $1 FOR UPDATE`,
         [id],
       );
       if (!nrows[0]) throw notFound();
       const { rows: old } = await c.query(
-        `SELECT content_ref, key_epoch FROM node_versions WHERE id = $1 AND node_id = $2 FOR UPDATE`,
+        `SELECT content_ref, key_epoch, size_bytes FROM node_versions WHERE id = $1 AND node_id = $2 FOR UPDATE`,
         [versionId, id],
       );
       if (!old[0]) throw notFound("Version introuvable.");
@@ -119,17 +128,38 @@ export default async function versionRoutes(app: FastifyInstance): Promise<void>
       if (Number(old[0].key_epoch ?? 1) >= Number(nrows[0].key_epoch ?? 1)) {
         throw conflict("Cette version est déjà chiffrée sous la clé courante : réécriture refusée hors rotation.");
       }
+      // Quota : la version compte désormais pour sa NOUVELLE taille. Seul le
+      // surcoût (delta positif) est contrôlé, sous le même verrou consultatif
+      // d'organisation que PUT /nodes/:id/content (sinon N petites versions
+      // réécrites en blobs géants contournaient quotas d'organisation et personnel).
+      const delta = size - Number(old[0].size_bytes ?? 0);
+      if (delta > 0) {
+        await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [access.orgId]);
+        const { rows: q } = await c.query(
+          `SELECT o.storage_quota_bytes AS quota,
+                  COALESCE((SELECT SUM(v.size_bytes) FROM node_versions v
+                             JOIN nodes n2 ON n2.id = v.node_id WHERE n2.org_id = o.id), 0) AS used
+             FROM organizations o WHERE o.id = $1`,
+          [access.orgId],
+        );
+        const quota = q[0]?.quota as number | string | null | undefined;
+        const used = Number(q[0]?.used ?? 0);
+        if (quota != null && used + delta > Number(quota)) {
+          throw insufficientStorage(`Quota atteint : ${used + delta} octets requis pour ${Number(quota)} alloués.`);
+        }
+        if (nrows[0].owner_user_id) await assertUserQuota(access.orgId, nrows[0].owner_user_id as string, delta);
+      }
       await c.query(
-        `UPDATE node_versions SET content_ref = $3, content_nonce = $4, key_epoch = $5
+        `UPDATE node_versions SET content_ref = $3, content_nonce = $4, key_epoch = $5, size_bytes = $6
           WHERE id = $1 AND node_id = $2`,
-        [versionId, id, newRef, Buffer.from(nonceHex, "hex"), nrows[0].key_epoch],
+        [versionId, id, newRef, Buffer.from(nonceHex, "hex"), nrows[0].key_epoch, size],
       );
       // Keep the node's current-content pointer coherent when this version IS
       // the current one.
       if (nrows[0].current_version_id === versionId) {
         await c.query(
-          `UPDATE nodes SET content_ref = $2, content_nonce = $3, modified_at = now(), modified_by = $4 WHERE id = $1`,
-          [id, newRef, Buffer.from(nonceHex, "hex"), user.id],
+          `UPDATE nodes SET content_ref = $2, content_nonce = $3, size_bytes = $5, modified_at = now(), modified_by = $4 WHERE id = $1`,
+          [id, newRef, Buffer.from(nonceHex, "hex"), user.id, size],
         );
       }
       return old[0].content_ref as string | null;

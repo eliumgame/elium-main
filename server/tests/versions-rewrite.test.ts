@@ -50,11 +50,13 @@ const mWithTx = vi.mocked(withTx);
 
 type Row = Record<string, unknown>;
 /** withTx simulé : chaque requête est dispatchée par motif SQL ; les SQL sont enregistrés. */
+const calls: { sql: string; params: unknown[] }[] = [];
 function tx(map: Array<[RegExp, Row[]]>, sink: string[]) {
   mWithTx.mockImplementation((async (fn: (c: unknown) => unknown) =>
     fn({
-      query: async (sql: string) => {
+      query: async (sql: string, params: unknown[] = []) => {
         sink.push(sql);
+        calls.push({ sql, params });
         for (const [re, rows] of map) if (re.test(sql)) return { rows, rowCount: rows.length };
         return { rows: [], rowCount: 0 };
       },
@@ -86,6 +88,7 @@ const put = (app: FastifyInstance) =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  calls.length = 0;
   store.putStream.mockResolvedValue(5);
 });
 
@@ -123,6 +126,49 @@ describe("PUT /api/nodes/:id/versions/:versionId/content — garde d'époque", (
     expect(res.statusCode).toBe(200);
     expect(sqls.some((s) => /UPDATE node_versions/.test(s))).toBe(true);
     expect(store.delete).toHaveBeenCalledWith("blob-old");
+    await app.close();
+  });
+});
+
+describe("PUT /api/nodes/:id/versions/:versionId/content — taille et quota", () => {
+  it("met à jour size_bytes (version ET nœud courant) avec la taille réelle écrite", async () => {
+    store.putStream.mockResolvedValueOnce(5);
+    tx(
+      [
+        [/FROM nodes WHERE id = \$1 FOR UPDATE/, [{ key_epoch: 3, current_version_id: VERSION, owner_user_id: USER }]],
+        [/FROM node_versions WHERE id = \$1/, [{ content_ref: "blob-old", key_epoch: 2, size_bytes: 5 }]],
+      ],
+      [],
+    );
+    const app = await makeApp();
+    const res = await put(app);
+    expect(res.statusCode).toBe(200);
+    const v = calls.find((c) => /UPDATE node_versions/.test(c.sql))!;
+    expect(v.sql).toMatch(/size_bytes = \$6/);
+    expect(v.params[5]).toBe(5);
+    const n = calls.find((c) => /UPDATE nodes SET/.test(c.sql))!;
+    expect(n.sql).toMatch(/size_bytes = \$5/);
+    expect(n.params[4]).toBe(5);
+    await app.close();
+  });
+
+  it("507 quand la nouvelle taille fait dépasser le quota d'organisation : nouveau blob supprimé, historique intact", async () => {
+    store.putStream.mockResolvedValueOnce(1000);
+    tx(
+      [
+        [/FROM nodes WHERE id = \$1 FOR UPDATE/, [{ key_epoch: 3, current_version_id: "other", owner_user_id: USER }]],
+        [/FROM node_versions WHERE id = \$1/, [{ content_ref: "blob-old", key_epoch: 2, size_bytes: 1 }]],
+        [/FROM organizations o/, [{ quota: 500, used: 10 }]],
+      ],
+      [],
+    );
+    const app = await makeApp();
+    const res = await put(app);
+    expect(res.statusCode).toBe(507);
+    expect(calls.some((c) => /pg_advisory_xact_lock/.test(c.sql))).toBe(true);
+    expect(calls.some((c) => /UPDATE node_versions/.test(c.sql))).toBe(false);
+    expect(store.delete).toHaveBeenCalledWith("blob-new");
+    expect(store.delete).not.toHaveBeenCalledWith("blob-old");
     await app.close();
   });
 });

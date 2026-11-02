@@ -151,6 +151,12 @@ export const config = {
   // Connexions WS collab simultanées par utilisateur (anti-épuisement). Large
   // pour un usage réel (onglets/appareils/documents multiples).
   maxCollabConnectionsPerUser: num("MAX_COLLAB_CONNECTIONS_PER_USER", 40),
+  // Volume d'updates collab qu'un utilisateur peut faire persister par minute
+  // (toutes connexions de l'instance confondues). Le plafond en messages ne
+  // borne pas les OCTETS : sans ceci, 40 sockets × 300 msg/s × 512 Kio
+  // gonflaient Postgres de plusieurs Go par minute. Une saisie humaine, même
+  // un gros collage, reste très loin de 64 Mio/min.
+  maxCollabBytesPerUserPerMinute: num("MAX_COLLAB_BYTES_PER_USER_PER_MINUTE", 64 * 1024 * 1024),
   // Transition CLIENT-10 : accepter encore le JWT d'accès en `?token=` sur les WebSockets (anciens clients).
   // Mettre WS_ALLOW_QUERY_TOKEN=false une fois tous les clients passés au ticket `?ticket=` (POST /api/ws-ticket).
   wsAllowQueryToken: env("WS_ALLOW_QUERY_TOKEN", "true") !== "false",

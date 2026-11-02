@@ -79,6 +79,8 @@ Retirer un accès **change la clé du nœud**. Un destinataire retiré ne peut d
 
 Chaque organisation a un **quota de stockage** (vide = illimité). Une nouvelle version compte pour sa taille, car les versions précédentes sont conservées. Au-delà, l'API répond **507**. Le quota se règle dans l'interface d'administration ou par `PATCH /api/orgs/:id/quota` (permission `storage.quota.manage`).
 
+Le **journal de co-édition** (mises à jour chiffrées en attente de compactage) compte aussi : quand le quota est atteint, ou quand le disque passe sous la marge de sécurité, le relais refuse la mise à jour avec une erreur explicite. Un plafond de débit en octets par utilisateur (`MAX_COLLAB_BYTES_PER_USER_PER_MINUTE`, 64 Mio par minute par défaut) empêche de saturer la base. La réécriture d'une version pendant une rotation de clé est comptée à sa nouvelle taille.
+
 > L'option `--quota-gb` de `install.sh` est **obsolète** : elle est ignorée avec un avertissement.
 
 ### Versions et corbeille
@@ -97,6 +99,7 @@ Un double-clic sur un PDF l'ouvre dans l'éditeur PDF, après déchiffrement dan
 La co-édition utilise des CRDT **Yjs** pour Documents, Tableur et Présentations : curseurs colorés, présence, fusion au caractère près. Les éditeurs collaboratifs partagent leur code avec les éditeurs locaux.
 
 - Les mises à jour sont chiffrées **dans le navigateur** avant de partir. Le relais ne fait que les distribuer et les stocker.
+- Chaque mise à jour persistée est **acquittée** (`ack` avec son numéro de séquence). Une mise à jour refusée n'est jamais perdue en silence : l'émetteur reçoit une erreur (`update_too_large`, `quota_exceeded`, `disk_full`, `rate_limited_bytes`, `read_only`, `invalid_update`, `persist_failed`). Une trame plus grande que la limite du serveur WebSocket ferme la connexion avec le code **1009**.
 - Un nouvel arrivant rattrape l'historique, ensuite compacté sous la clé courante.
 - Les accès sont contrôlés à la connexion et après chaque changement de droits.
 - Avec Redis, plusieurs instances de l'API partagent la salle : un pair révoqué est éjecté même s'il est connecté à une autre instance. Sans Redis, l'API fonctionne seule, en mémoire.

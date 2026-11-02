@@ -37,11 +37,13 @@ vi.mock("../src/rbac/engine.js", () => ({ resolveNodeAccess: vi.fn() }));
 vi.mock("../src/lib/audit.js", () => ({ audit: vi.fn(async () => {}) }));
 vi.mock("../src/lib/site-settings.js", () => ({ mfaEnrollmentRequired: vi.fn(async () => false) }));
 vi.mock("../src/collab/backplane.js", () => ({ initBackplane: vi.fn(), publishRelay: vi.fn() }));
+vi.mock("../src/lib/disk.js", () => ({ assertDiskSpace: vi.fn(async () => {}) }));
 
 import { queryOne } from "../src/db/pool.js";
 import { resolveNodeAccess } from "../src/rbac/engine.js";
 import { config } from "../src/config.js";
-import { registerCollab } from "../src/collab/relay.js";
+import { registerCollab, resetCollabStorageGuardsForTests } from "../src/collab/relay.js";
+import { assertDiskSpace } from "../src/lib/disk.js";
 
 const mQueryOne = vi.mocked(queryOne);
 const mResolve = vi.mocked(resolveNodeAccess);
@@ -96,6 +98,7 @@ beforeEach(async () => {
     if (/INSERT INTO collab_updates/.test(sql)) return { id: 42 };
     return null;
   }) as never);
+  resetCollabStorageGuardsForTests();
   if (!handlers["GET /api/collab/:nodeId"]) await registerCollab(fakeApp as never);
 });
 
@@ -215,6 +218,50 @@ describe("relais collab : fermeture pendant l'admission (pas de fuite du compteu
     await handlers["GET /api/events/:orgId"]!(s, { params: { orgId: ORG }, query: { ticket: "t" } });
     expect(s.closed).toBeNull();
     expect(s.sent[0]).toMatchObject({ type: "ready" });
+    s.close();
+  });
+});
+
+describe("relais collab : garde-fous de stockage du journal", () => {
+  const send = (s: FakeSocket, ct = "abcd") =>
+    s.emit("message", JSON.stringify({ type: "update", ciphertext: ct, nonce: NONCE }));
+
+  it("quota d'organisation (versions + journal collab) atteint : quota_exceeded, rien n'est inséré", async () => {
+    const s = await openRoom(true);
+    const sqls: string[] = [];
+    mQueryOne.mockImplementation((async (sql: string) => {
+      sqls.push(sql);
+      if (/FROM organizations o/.test(sql)) return { quota: 100, used: 99 };
+      return null;
+    }) as never);
+    send(s, "aabbcc"); // 3 octets > 1 restant
+    await flush();
+    expect(s.sent.find((m) => m.type === "error")).toMatchObject({ code: "quota_exceeded", nonce: NONCE });
+    expect(sqls.find((q) => /FROM organizations o/.test(q))).toMatch(/collab_updates/);
+    expect(sqls.some((q) => /INSERT INTO collab_updates/.test(q))).toBe(false);
+    s.close();
+  });
+
+  it("disque sous la marge : disk_full", async () => {
+    vi.mocked(assertDiskSpace).mockRejectedValueOnce(new Error("507"));
+    const s = await openRoom(true);
+    send(s);
+    await flush();
+    expect(s.sent.find((m) => m.type === "error")).toMatchObject({ code: "disk_full" });
+    s.close();
+  });
+
+  it("budget d'octets par utilisateur et par minute : rate_limited_bytes", async () => {
+    const s = await openRoom(true);
+    const big = "ab".repeat(config.maxCollabMessageBytes);
+    const max = Math.floor(config.maxCollabBytesPerUserPerMinute / config.maxCollabMessageBytes);
+    for (let i = 0; i <= max; i++) {
+      send(s, big);
+      await flush();
+    }
+    const codes = s.sent.filter((m) => m.type === "error").map((m) => m.code);
+    expect(codes).toContain("rate_limited_bytes");
+    expect(s.sent.filter((m) => m.type === "ack").length).toBe(max);
     s.close();
   });
 });

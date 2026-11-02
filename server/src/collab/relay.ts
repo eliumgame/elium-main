@@ -16,6 +16,7 @@ import { badRequest } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
 import { config } from "../config.js";
 import { mfaEnrollmentRequired } from "../lib/site-settings.js";
+import { assertDiskSpace } from "../lib/disk.js";
 
 /** Revalidation à l'ouverture d'une WebSocket : compte actif, jeton non révoqué (token_epoch), 2FA imposée satisfaite. */
 async function socketUserAllowed(claims: { sub: string; iat: number }): Promise<boolean> {
@@ -101,6 +102,7 @@ function trackSocketClose(socket: WsConn): { readonly closed: boolean; onGone(fn
 interface Peer {
   socket: WsConn;
   userId: string;
+  orgId: string;
   canWrite: boolean;
   // Fenêtre glissante 1 s pour le plafond de débit par connexion (anti-flood).
   msgCount: number;
@@ -114,6 +116,78 @@ const rooms = new Map<string, Set<Peer>>();
 // ouvrir un nombre illimité de sockets (épuisement mémoire/connexions DB) ; la
 // borne est large pour un usage réel (onglets/appareils/documents multiples).
 const connectionsByUser = new Map<string, number>();
+
+// --- Garde-fous de STOCKAGE du journal collab (collab_updates) --------------
+// Le journal grossit à chaque update persisté ; il échappait au quota
+// d'organisation, au garde-fou disque et à tout plafond en octets. Trois
+// contrôles, tous en mémoire ou mis en cache pour ne pas ajouter une requête
+// lourde par message :
+//  1. budget d'octets par utilisateur sur une fenêtre glissante d'une minute ;
+//  2. espace disque (même marge que les blobs), re-mesuré au plus toutes les 5 s ;
+//  3. quota de l'organisation : versions + journal collab, usage mis en cache 30 s
+//     et incrémenté localement à chaque insertion.
+const collabBytesByUser = new Map<string, { windowStart: number; bytes: number }>();
+
+function consumeCollabBytes(userId: string, bytes: number, now = Date.now()): boolean {
+  let w = collabBytesByUser.get(userId);
+  if (!w || now - w.windowStart >= 60_000) {
+    w = { windowStart: now, bytes: 0 };
+    collabBytesByUser.set(userId, w);
+  }
+  if (w.bytes + bytes > config.maxCollabBytesPerUserPerMinute) return false;
+  w.bytes += bytes;
+  return true;
+}
+
+const DISK_RECHECK_MS = 5_000;
+let collabDisk = { at: 0, ok: true };
+
+async function collabDiskAllows(bytes: number): Promise<boolean> {
+  const now = Date.now();
+  if (now - collabDisk.at < DISK_RECHECK_MS) return collabDisk.ok;
+  let ok = true;
+  try {
+    await assertDiskSpace(bytes);
+  } catch {
+    ok = false;
+  }
+  collabDisk = { at: now, ok };
+  return ok;
+}
+
+const ORG_USAGE_TTL_MS = 30_000;
+const orgUsageCache = new Map<string, { at: number; quota: number | null; used: number }>();
+
+async function collabQuotaAllows(orgId: string, bytes: number): Promise<boolean> {
+  const now = Date.now();
+  let u = orgUsageCache.get(orgId);
+  if (!u || now - u.at >= ORG_USAGE_TTL_MS) {
+    const row = await queryOne<{ quota: string | number | null; used: string | number | null }>(
+      `SELECT o.storage_quota_bytes AS quota,
+              COALESCE((SELECT SUM(v.size_bytes) FROM node_versions v
+                         JOIN nodes n ON n.id = v.node_id WHERE n.org_id = o.id), 0)
+            + COALESCE((SELECT SUM(octet_length(cu.update_ciphertext)) FROM collab_updates cu
+                         JOIN nodes n ON n.id = cu.node_id WHERE n.org_id = o.id), 0) AS used
+         FROM organizations o WHERE o.id = $1`,
+      [orgId],
+    );
+    u = { at: now, quota: row?.quota == null ? null : Number(row.quota), used: Number(row?.used ?? 0) };
+    orgUsageCache.set(orgId, u);
+  }
+  return u.quota == null || u.used + bytes <= u.quota;
+}
+
+function recordCollabBytes(orgId: string, bytes: number): void {
+  const u = orgUsageCache.get(orgId);
+  if (u) u.used += bytes;
+}
+
+/** Réinitialise les compteurs en mémoire (tests). */
+export function resetCollabStorageGuardsForTests(): void {
+  collabBytesByUser.clear();
+  orgUsageCache.clear();
+  collabDisk = { at: 0, ok: true };
+}
 
 /**
  * Force every peer out of a room (key rotation / revocation). Survivors
@@ -363,6 +437,7 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
     const peer: Peer = {
       socket,
       userId: claims.sub,
+      orgId: access.orgId,
       canWrite: access.permissions.has("node.edit"),
       msgCount: 0,
       windowStart: Date.now(),
@@ -458,12 +533,32 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
             reject("invalid_update", nonce);
             return;
           }
+          // Garde-fous de stockage (voir plus haut) : refus EXPLICITE, jamais silencieux.
+          const bytes = ct.length / 2;
+          if (!consumeCollabBytes(peer.userId, bytes)) {
+            reject("rate_limited_bytes", nonce);
+            return;
+          }
+          try {
+            if (!(await collabDiskAllows(bytes))) {
+              reject("disk_full", nonce);
+              return;
+            }
+            if (!(await collabQuotaAllows(peer.orgId, bytes))) {
+              reject("quota_exceeded", nonce);
+              return;
+            }
+          } catch {
+            reject("persist_failed", nonce);
+            return;
+          }
           try {
             const inserted = await queryOne<{ id: number }>(
               `INSERT INTO collab_updates (node_id, update_ciphertext, update_nonce, author_user_id)
                VALUES ($1, $2, $3, $4) RETURNING id`,
               [nodeId, Buffer.from(ct, "hex"), Buffer.from(nonce, "hex"), peer.userId],
             );
+            recordCollabBytes(peer.orgId, bytes);
             const upd = {
               type: "update",
               seq: inserted?.id ?? null,

@@ -39,6 +39,10 @@ const MAX_CIPHERTEXT_HEX = config.maxCollabMessageBytes * 2;
 // Le champ awareness (présence) est ré-émis à tous les pairs : on le borne aussi
 // pour éviter une amplification, avec une marge confortable pour un curseur/état.
 const MAX_AWARENESS_CHARS = 64 * 1024;
+// Corps JSON de la compaction (rotation de clé) : l'instantané COMPLET du document, chiffré, en hex
+// (×2). Le plafond JSON global (1 Mio par défaut) le limitait à ~512 Kio : une présentation avec
+// images échouait en 413 APRÈS la bascule de clé. On autorise ici jusqu'à 64 Mio d'instantané.
+const COMPACT_BODY_LIMIT = Math.max(config.maxJsonBytes, 2 * 64 * 1024 * 1024 + 64 * 1024);
 
 /**
  * Ferme la socket exactement quand expire le jeton d'accès qui l'a admise,
@@ -621,7 +625,7 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
   // Replaces the whole update log with ONE snapshot encrypted under the NEW
   // node key, then kicks the room so every peer reconnects and re-fetches its
   // wrapped key. The snapshot is opaque ciphertext like any other update.
-  app.post("/api/collab/:nodeId/compact", { preHandler: authenticate }, async (req: FastifyRequest) => {
+  app.post("/api/collab/:nodeId/compact", { preHandler: authenticate, bodyLimit: COMPACT_BODY_LIMIT }, async (req: FastifyRequest) => {
     const nodeId = (req.params as { nodeId: string }).nodeId;
     const user = requireUser(req);
     const access = await requireNodePerm(req, nodeId, "node.acl.manage");

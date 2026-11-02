@@ -94,7 +94,60 @@ export class EncryptedCollabChannel {
       const more = page.hasMore ?? page.updates.length >= COLLAB_PAGE_FALLBACK;
       if (!more || this.lastSeq === before) break; // finie, ou aucun progrès (garde anti-boucle)
     }
-    if (batch.length) this.handlers.onBacklog?.(batch);
+    if (batch.length) this.deliver(() => this.handlers.onBacklog?.(batch));
+  }
+
+  /**
+   * Remet des mises à jour à l'éditeur SANS laisser une exception remonter : un état forgé par un co-auteur
+   * (codec CRDT qui lève dans un observateur) ne doit jamais empêcher l'ouverture du socket ni bloquer
+   * le rattrapage — le document reste ouvrable et réparable.
+   */
+  private deliver(fn: () => void): void {
+    try {
+      fn();
+    } catch (e) {
+      console.warn("[collab] mise à jour distante ignorée par l'éditeur :", e);
+    }
+  }
+
+  /**
+   * Clés de repli (fente « clé précédente » du nœud) : après une rotation dont la compaction a échoué, le
+   * journal contient encore des entrées sous l'ancienne clé — on les lit au lieu de les sauter (sinon le
+   * document s'ouvre vide). Chargées paresseusement, une fois par clé courante.
+   */
+  private fallbackFor: Uint8Array | null = null;
+  private fallbackKeys: Promise<Uint8Array[]> | null = null;
+  private loadFallbackKeys(): Promise<Uint8Array[]> {
+    if (this.fallbackKeys && this.fallbackFor === this.nodeKey) return this.fallbackKeys;
+    const current = this.nodeKey;
+    this.fallbackFor = current;
+    this.fallbackKeys = (async () => {
+      if (typeof this.api.getNode !== "function") return [];
+      try {
+        const { node } = await this.api.getNode(this.nodeId);
+        if (!node?.prevKeyWrapped || !node.prevKeyNonce) return [];
+        return [await decryptContent(current, node.prevKeyNonce, fromHex(node.prevKeyWrapped))];
+      } catch {
+        return [];
+      }
+    })();
+    return this.fallbackKeys;
+  }
+
+  /** Déchiffre avec la clé courante, puis avec la clé précédente du nœud. */
+  private async decryptAny(nonce: string, ct: Uint8Array): Promise<Uint8Array> {
+    try {
+      return await decryptContent(this.nodeKey, nonce, ct);
+    } catch (e) {
+      for (const k of await this.loadFallbackKeys()) {
+        try {
+          return await decryptContent(k, nonce, ct);
+        } catch {
+          /* clé suivante */
+        }
+      }
+      throw e;
+    }
   }
 
   private async replayPage(
@@ -106,11 +159,11 @@ export class EncryptedCollabChannel {
     for (const u of updates) {
       this.lastSeq = Math.max(this.lastSeq, u.seq);
       try {
-        const plain = await decryptContent(this.nodeKey, u.nonce, fromHex(u.ciphertext));
+        const plain = await this.decryptAny(u.nonce, fromHex(u.ciphertext));
         if (this.handlers.onBacklog) batch.push(plain);
-        else this.handlers.onRemoteUpdate?.(plain, u.author, u.seq);
+        else this.deliver(() => this.handlers.onRemoteUpdate?.(plain, u.author, u.seq));
       } catch {
-        /* skip an update we cannot decrypt (should not happen with the right key) */
+        /* illisible avec la clé courante ET la précédente : ignorée (jamais bloquante) */
       }
       // Journal de milliers d'entrées : rendre la main au navigateur entre deux tranches de ~40 ms.
       if (performance.now() - sliceStart > 40) {
@@ -214,8 +267,8 @@ export class EncryptedCollabChannel {
     } else if (msg.type === "update" && msg.ciphertext && msg.nonce) {
       if (typeof msg.seq === "number") this.lastSeq = Math.max(this.lastSeq, msg.seq);
       try {
-        const plain = await decryptContent(this.nodeKey, msg.nonce, fromHex(msg.ciphertext));
-        this.handlers.onRemoteUpdate?.(plain, msg.author ?? null, msg.seq ?? null);
+        const plain = await this.decryptAny(msg.nonce, fromHex(msg.ciphertext));
+        this.deliver(() => this.handlers.onRemoteUpdate?.(plain, msg.author ?? null, msg.seq ?? null));
       } catch {
         /* ignore undecryptable */
       }
@@ -224,7 +277,8 @@ export class EncryptedCollabChannel {
         const raw = msg.payload as { c?: string; n?: string } | undefined;
         if (raw?.c && raw?.n) {
           const plain = await decryptContent(this.nodeKey, raw.n, fromHex(raw.c));
-          this.handlers.onAwareness?.(JSON.parse(new TextDecoder().decode(plain)), msg.from ?? "");
+          const parsed = JSON.parse(new TextDecoder().decode(plain)) as unknown;
+          this.deliver(() => this.handlers.onAwareness?.(parsed, msg.from ?? ""));
         }
       } catch {
         /* ignore */

@@ -373,9 +373,31 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
           return;
         }
         const text = String(raw);
+        // Une mise à jour refusée n'est JAMAIS abandonnée en silence : l'émetteur
+        // reçoit une erreur explicite (avec le nonce de la mise à jour quand il
+        // est connu) pour la découper, la refuser à l'utilisateur ou la renvoyer.
+        // Sans ça, le contenu restait visible localement mais n'était ni persisté
+        // ni reçu par les pairs, et disparaissait au rechargement.
+        const reject = (code: string, nonce?: string) => {
+          try {
+            socket.send(
+              JSON.stringify({
+                type: "error",
+                code,
+                ...(nonce ? { nonce } : {}),
+                ...(code === "update_too_large" ? { maxBytes: config.maxCollabMessageBytes } : {}),
+              }),
+            );
+          } catch {
+            /* déjà fermé */
+          }
+        };
         // Garde de taille défensive (le maxPayload du serveur WS borne déjà le
         // frame ; ceci reste une double sécurité côté application).
-        if (text.length > MAX_CIPHERTEXT_HEX + 4096) return;
+        if (text.length > MAX_CIPHERTEXT_HEX + 4096) {
+          reject("update_too_large");
+          return;
+        }
         let msg: { type?: string; ciphertext?: string; nonce?: string; payload?: unknown };
         try {
           msg = JSON.parse(text) as typeof msg;
@@ -383,12 +405,22 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
           return;
         }
         if (msg.type === "update") {
-          if (!peer.canWrite) return;
-          const ct = msg.ciphertext ?? "";
-          const nonce = msg.nonce ?? "";
+          const ct = typeof msg.ciphertext === "string" ? msg.ciphertext : "";
+          const rawNonce = typeof msg.nonce === "string" ? msg.nonce : "";
+          const nonce = /^[0-9a-f]{24}$/i.test(rawNonce) ? rawNonce : "";
+          if (!peer.canWrite) {
+            reject("read_only", nonce);
+            return;
+          }
           // Rejeter un ciphertext hors-bornes (anti-DoS mémoire/base) ou mal formé.
-          if (ct.length > MAX_CIPHERTEXT_HEX) return;
-          if (!/^[0-9a-f]+$/i.test(ct) || !/^[0-9a-f]{24}$/i.test(nonce)) return;
+          if (ct.length > MAX_CIPHERTEXT_HEX) {
+            reject("update_too_large", nonce);
+            return;
+          }
+          if (!/^[0-9a-f]+$/i.test(ct) || !nonce) {
+            reject("invalid_update", nonce);
+            return;
+          }
           try {
             const inserted = await queryOne<{ id: number }>(
               `INSERT INTO collab_updates (node_id, update_ciphertext, update_nonce, author_user_id)
@@ -404,8 +436,16 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
             };
             broadcast(nodeId, peer, upd);
             publishRelay({ k: "bcast", nodeId, message: upd });
+            // Accusé de réception à l'émetteur : la mise à jour est durable
+            // (persistée) — le client peut cesser de la garder pour renvoi.
+            try {
+              socket.send(JSON.stringify({ type: "ack", nonce, seq: upd.seq }));
+            } catch {
+              /* déjà fermé */
+            }
           } catch {
-            /* transient DB error — the client can re-sync via backlog */
+            // Erreur base transitoire : l'émetteur DOIT le savoir pour renvoyer.
+            reject("persist_failed", nonce);
           }
         } else if (msg.type === "awareness") {
           // La présence est ré-émise à tous les pairs : borner pour éviter une

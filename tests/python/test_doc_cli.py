@@ -268,6 +268,18 @@ def test_doc_create_encrypted_roundtrip(tmp_path):
     assert result["manifest"]["protection"]["encrypted"] is True
 
 
+def test_doc_open_and_verify_accept_keyfile(tmp_path, capsys):
+    doc = tmp_path / "keyfile.elium"
+    key = tmp_path / "keyfile.bin"
+    key.write_bytes(b"keyfile test secret")
+    model = create_document_model(text_to_doc("Secret"))
+    doc.write_bytes(write_elium(model, profile="encrypted", title="Test", keyfile=key.read_bytes()))
+    run("doc-open", str(doc), "--keyfile", str(key), "--text")
+    assert "Secret" in capsys.readouterr().out
+    run("doc-verify", str(doc), "--keyfile", str(key))
+    assert "Verdict global        : OK" in capsys.readouterr().out
+
+
 def test_doc_sign_binds_doc_id_in_proof(tmp_path):
     """CORE-09 : doc-sign lie la preuve au docId ; doc-verify le contrôle."""
     model = create_document_model(text_to_doc("Contrat"))

@@ -41,6 +41,14 @@ def _recipient_key(args: argparse.Namespace) -> str | None:
     return raw
 
 
+def _keyfile(args: argparse.Namespace) -> bytes | None:
+    path = getattr(args, "keyfile", None)
+    if path:
+        with open(path, "rb") as f:
+            return f.read()
+    return None
+
+
 # --- Legacy v3 container -------------------------------------------------
 
 def cmd_create(args: argparse.Namespace) -> None:
@@ -147,11 +155,12 @@ def cmd_doc_open(args: argparse.Namespace) -> None:
         blob = f.read()
     password = args.password
     rkey = _recipient_key(args)
+    keyfile = _keyfile(args)
     try:
-        result = read_elium(blob, password=password, recipient_private_hex=rkey)
+        result = read_elium(blob, password=password, keyfile=keyfile, recipient_private_hex=rkey)
     except EliumPasswordRequired:
         password = getpass.getpass("Mot de passe du document: ")
-        result = read_elium(blob, password=password, recipient_private_hex=rkey)
+        result = read_elium(blob, password=password, keyfile=keyfile, recipient_private_hex=rkey)
 
     m = result["manifest"]
     jv = verify_journal(result["journal"])
@@ -186,11 +195,12 @@ def cmd_doc_verify(args: argparse.Namespace) -> None:
         blob = f.read()
     password = args.password
     rkey = _recipient_key(args)
+    keyfile = _keyfile(args)
     try:
-        result = read_elium(blob, password=password, recipient_private_hex=rkey, trusted_key_hex=args.trusted)
+        result = read_elium(blob, password=password, keyfile=keyfile, recipient_private_hex=rkey, trusted_key_hex=args.trusted)
     except EliumPasswordRequired:
         password = getpass.getpass("Mot de passe du document: ")
-        result = read_elium(blob, password=password, recipient_private_hex=rkey, trusted_key_hex=args.trusted)
+        result = read_elium(blob, password=password, keyfile=keyfile, recipient_private_hex=rkey, trusted_key_hex=args.trusted)
 
     model = result["document"]
     integ = result["integrity"]
@@ -250,10 +260,7 @@ def cmd_doc_sign(args: argparse.Namespace) -> None:
         blob = f.read()
     password = args.password
     rkey = _recipient_key(args)
-    keyfile = None
-    if getattr(args, "keyfile", None):
-        with open(args.keyfile, "rb") as f:
-            keyfile = f.read()
+    keyfile = _keyfile(args)
     try:
         result = read_elium(blob, password=password, keyfile=keyfile, recipient_private_hex=rkey)
     except EliumPasswordRequired:
@@ -412,6 +419,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("doc-open", help="Ouvrir et résumer un document .elium (v4)")
     p.add_argument("file")
     p.add_argument("--password")
+    p.add_argument("--keyfile", help="Fichier-clé du document")
     p.add_argument("--recipient-key", dest="recipient_key", metavar="PRIVHEX",
                    help="[DÉPRÉCIÉ] Clé privée P-256 (hex) en clair en argument ; préférez --recipient-kid")
     p.add_argument("--recipient-kid", dest="recipient_kid", metavar="KID",
@@ -439,6 +447,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("doc-verify", help="Vérifier intégrité, journal et signatures d'un .elium (v4)")
     p.add_argument("file")
     p.add_argument("--password")
+    p.add_argument("--keyfile", help="Fichier-clé du document")
     p.add_argument("--recipient-key", dest="recipient_key", metavar="PRIVHEX",
                    help="[DÉPRÉCIÉ] Clé privée P-256 (hex) en clair en argument ; préférez --recipient-kid")
     p.add_argument("--recipient-kid", dest="recipient_kid", metavar="KID",

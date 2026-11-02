@@ -75,3 +75,12 @@ def test_record_signature_added_actor_and_data():
 def test_record_profile_locked():
     j = record_profile(create_journal("tracked", "T"), "locked")
     assert _types(j)[-2:] == ["protection.enabled", "document.locked"]
+
+
+def test_malformed_journal_returns_broken_verdict():
+    for journal in ([], {"events": [{}]}, {"events": [{"seq": True}]},
+                    {"events": [{"seq": 0, "prevHash": "0" * 64,
+                                  "type": "x", "at": "now", "actor": True}]}):
+        verdict = verify_journal(journal)
+        assert verdict["valid"] is False
+        assert verdict["brokenAt"] == 0

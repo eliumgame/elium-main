@@ -48,12 +48,21 @@ def append_event(
 
 def verify_journal(journal: Journal) -> dict[str, Any]:
     prev = ZERO_HASH
-    events = journal.get("events", [])
+    if not isinstance(journal, dict) or not isinstance(journal.get("events"), list):
+        return {"valid": False, "brokenAt": 0, "count": 0}
+    events = journal["events"]
     for i, e in enumerate(events):
-        if e.get("seq") != i or e.get("prevHash") != prev:
+        if (not isinstance(e, dict) or type(e.get("seq")) is not int or e["seq"] != i
+                or e.get("prevHash") != prev or not isinstance(e.get("type"), str)
+                or not isinstance(e.get("at"), str)
+                or any(k in e and not isinstance(e[k], dict) for k in ("actor", "data"))):
             return {"valid": False, "brokenAt": i, "count": len(events)}
         payload = _payload(e["seq"], e["type"], e["at"], e.get("actor"), e.get("data"))
-        if sha256_hex(prev + canonical_json(payload)) != e.get("hash"):
+        try:
+            expected = sha256_hex(prev + canonical_json(payload))
+        except (TypeError, ValueError):
+            return {"valid": False, "brokenAt": i, "count": len(events)}
+        if expected != e.get("hash"):
             return {"valid": False, "brokenAt": i, "count": len(events)}
         prev = e["hash"]
     return {"valid": True, "brokenAt": None, "count": len(events)}

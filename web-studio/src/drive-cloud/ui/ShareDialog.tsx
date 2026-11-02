@@ -8,7 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import { X, Share2, Link2, Trash2, Copy, UserPlus, Users2, PenLine } from "lucide-react";
 import { useDrive } from "../session";
 import { shareWithUser, shareWithGroup, createShareLink, type DriveEntry, type OpsCtx } from "../ops";
-import { revokeShareWithRotation } from "../rotate";
+import { revokeShareWithRotation, rotationSummary } from "../rotate";
 import { ApiError } from "../api";
 import { useDialogA11y } from "./useDialogA11y";
 
@@ -140,11 +140,7 @@ export default function ShareDialog({ ctx, entry, onClose }: { ctx: OpsCtx; entr
       const stats = await revokeShareWithRotation(ctx, entry, row.id, (label) =>
         setRotating(`Rotation des clés : ${label}`),
       );
-      setInfo(
-        `Accès retiré. Clés régénérées sur ${stats.rotated} élément${stats.rotated > 1 ? "s" : ""}` +
-          (stats.revokedLinks ? ` — ${stats.revokedLinks} lien(s) externe(s) révoqué(s), à recréer si besoin.` : ".") +
-          (stats.skipped ? ` ${stats.skipped} élément(s) non déchiffrable(s) par vous ont conservé leur clé.` : ""),
-      );
+      setInfo(rotationSummary(stats));
       await reload();
     } catch (e2) {
       setErr(e2 instanceof Error ? e2.message : "Révocation impossible.");

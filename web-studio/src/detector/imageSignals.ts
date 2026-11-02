@@ -698,7 +698,7 @@ function c2paVerifiedFindings(image: ImageModel, r: C2paReport): Finding[] {
     );
     return out;
   }
-  if (r.status !== "valid_trusted" && r.status !== "valid_untrusted") return out;
+  if ((r.status !== "valid_trusted" && r.status !== "valid_untrusted") || r.bindingValid !== true) return out;
   const trusted = r.status === "valid_trusted";
   if (r.declaresAi) {
     out.push(

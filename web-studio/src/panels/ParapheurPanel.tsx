@@ -138,9 +138,29 @@ export default function ParapheurPanel({ studio }: { studio: Studio }) {
     });
   };
 
-  const overall = workflowStatus(parties);
-  const nextPendingIdx = parties.findIndex((p) => p.status === "pending");
-  const pendingCount = parties.filter((p) => p.status === "pending").length;
+  const verifiedSignature = (party: Party) => {
+    const matches = studio.file.signatures.filter((s) => s.id === party.signatureId);
+    const signature = matches.length === 1 ? matches[0] : undefined;
+    if (
+      party.status !== "signed" ||
+      !signature?.proof ||
+      studio.verdicts[signature.id] !== "valid" ||
+      signature.signer.name !== party.name ||
+      (party.publicKeyHex && party.publicKeyHex !== signature.proof.publicKeyHex) ||
+      parties.filter((p) => p.signatureId === signature.id).length !== 1
+    )
+      return undefined;
+    return signature;
+  };
+  const overall = workflowStatus(
+    parties.map((p) => (p.status === "signed" && !verifiedSignature(p) ? { ...p, status: "pending" } : p)),
+  );
+  const nextPendingIdx = parties.findIndex(
+    (p) => p.status === "pending" || (p.status === "signed" && !verifiedSignature(p)),
+  );
+  const pendingCount = parties.filter(
+    (p) => p.status === "pending" || (p.status === "signed" && !verifiedSignature(p)),
+  ).length;
   const someSigned = parties.some((p) => p.status === "signed");
 
   return (
@@ -171,11 +191,12 @@ export default function ParapheurPanel({ studio }: { studio: Studio }) {
         <ol className="party-list">
           {parties.map((p, i) => {
             const isNext = i === nextPendingIdx;
-            const verdict = p.signatureId ? studio.verdicts[p.signatureId] : undefined;
-            const attributedTo = p.signatureId ? studio.attributions[p.signatureId] : undefined;
+            const signature = verifiedSignature(p);
+            const verdict = signature ? studio.verdicts[signature.id] : undefined;
+            const attributedTo = signature ? studio.attributions[signature.id] : undefined;
             const tagClass =
               p.status === "signed"
-                ? verdict === "modified" || verdict === "invalid"
+                ? !signature
                   ? "invalid"
                   : "valid"
                 : p.status === "rejected"
@@ -185,7 +206,7 @@ export default function ParapheurPanel({ studio }: { studio: Studio }) {
               p.status === "signed"
                 ? verdict
                   ? verdictLabel(verdict)
-                  : "Signé"
+                  : "Signature introuvable / non vérifiée"
                 : p.status === "rejected"
                   ? "Refusé"
                   : "En attente";
@@ -196,15 +217,15 @@ export default function ParapheurPanel({ studio }: { studio: Studio }) {
                   <div className="party-item__info">
                     <div className="party-item__name">{p.name}</div>
                     {p.role && <div className="party-item__role">{p.role}</div>}
-                    {p.status === "signed" && (
+                    {signature && (
                       <div className="party-item__proof">
                         {attributedTo ? (
                           <>
                             <UserCheck size={12} /> {attributedTo} (clé de confiance)
                           </>
-                        ) : p.publicKeyHex ? (
+                        ) : signature.proof ? (
                           <>
-                            <ShieldCheck size={12} /> {fingerprintWords(p.publicKeyHex)}
+                            <ShieldCheck size={12} /> {fingerprintWords(signature.proof.publicKeyHex)}
                           </>
                         ) : null}
                       </div>

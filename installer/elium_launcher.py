@@ -150,15 +150,8 @@ def _boot_grant(path: str, cookie_header: Optional[str], port: int) -> "tuple[bo
 
 
 def _is_authorized_open_request(token: Optional[str], sec_fetch_site: Optional[str]) -> bool:
-    """GET /__open__ : jeton de session valide, ou requête same-origin du navigateur.
-
-    Limite assumée : un processus local qui lit index.html obtient aussi le jeton ;
-    ce contrôle ne protège que contre les pages web tierces (déjà bloquées par la
-    SOP) et contre un simple `curl /__open__` sans contexte.
-    """
-    if token and secrets.compare_digest(token.encode("utf-8"), _SESSION_TOKEN.encode("utf-8")):
-        return True
-    return (sec_fetch_site or "").strip().lower() == "same-origin"
+    """Le jeton issu du ticket de démarrage est obligatoire, même en boucle locale."""
+    return bool(token) and secrets.compare_digest(token.encode("utf-8"), _SESSION_TOKEN.encode("utf-8"))
 
 
 def _is_authorized_state_request(
@@ -1146,7 +1139,7 @@ def _log_launcher(message: str) -> None:
 def get_web_dir() -> Path:
     """Retourne le chemin du dossier web-studio buildé."""
     # Surcharge explicite (tests de fumée, CI) : sert ce dossier au lieu du web embarqué.
-    override = os.environ.get("ELIUM_WEB_DIR")
+    override = None if getattr(sys, "frozen", False) else os.environ.get("ELIUM_WEB_DIR")
     if override and Path(override).is_dir():
         return Path(override)
     # 1) Bundle PyInstaller onefile/onedir : le Web Studio est embarqué sous _MEIPASS/web
@@ -1461,20 +1454,20 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             self.send_error(403, "Hôte non autorisé")
             return
         if clean in ("/__open__", "/__open_seq__"):
+            # The browser fetches these routes without a custom header. Its
+            # HttpOnly cookie was issued only after the one-use boot ticket.
+            if not (
+                _cookie_is_valid(self.headers.get("Cookie"), self.server.server_address[1])
+                or _is_authorized_open_request(self.headers.get("X-Elium-Token"), None)
+            ):
+                self.send_error(403, "Requête non autorisée")
+                return
             if clean == "/__open_seq__":
                 self._serve_bytes(
                     json.dumps({"seq": QuietHandler.open_seq}).encode("utf-8"),
                     "application/json; charset=utf-8",
                 )
             else:
-                # Le contenu d'un document : réservé à la page de CE serveur (jeton de
-                # session, ou en-tête Sec-Fetch-Site: same-origin que le navigateur pose
-                # lui-même et qu'une page tierce ne peut pas forger).
-                if not _is_authorized_open_request(
-                    self.headers.get("X-Elium-Token"), self.headers.get("Sec-Fetch-Site")
-                ):
-                    self.send_error(403, "Requête non autorisée")
-                    return
                 self._serve_opened_file()
             return
         if clean == "/__update__":

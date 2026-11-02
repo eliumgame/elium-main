@@ -75,8 +75,10 @@ export function parseJumbf(buf: Uint8Array): JumbfNode[] {
 
 const ascii4 = (b: Uint8Array, at: number) => String.fromCharCode(b[at]!, b[at + 1]!, b[at + 2]!, b[at + 3]!);
 
-function fromJpeg(bytes: Uint8Array): Uint8Array | undefined {
-  const frags = new Map<number, { z: number; data: Uint8Array }[]>();
+type StoreRange = { start: number; length: number };
+
+function fromJpeg(bytes: Uint8Array, ranges: StoreRange[]): Uint8Array | undefined {
+  const frags = new Map<number, { z: number; data: Uint8Array; start: number; length: number }[]>();
   let i = 2;
   while (i + 3 < bytes.length) {
     if (bytes[i] !== 0xff) {
@@ -99,7 +101,7 @@ function fromJpeg(bytes: Uint8Array): Uint8Array | undefined {
         const en = (d[2]! << 8) | d[3]!;
         const z = ((d[4]! << 24) | (d[5]! << 16) | (d[6]! << 8) | d[7]!) >>> 0;
         const list = frags.get(en) ?? [];
-        list.push({ z, data: d.subarray(8) });
+        list.push({ z, data: d.subarray(8), start: j - 1, length: len + 2 });
         frags.set(en, list);
       }
     }
@@ -111,7 +113,10 @@ function fromJpeg(bytes: Uint8Array): Uint8Array | undefined {
     // Les fragments suivants répètent LBox/TBox (8 octets) du premier.
     const parts = list.map((f, k) => (k === 0 ? f.data : f.data.subarray(8)));
     const first = parts[0]!;
-    if (first.length >= 8 && ascii4(first, 4) === "jumb") return concat(parts);
+    if (first.length >= 8 && ascii4(first, 4) === "jumb") {
+      ranges.push(...list.map(({ start, length }) => ({ start, length })));
+      return concat(parts);
+    }
   }
   return undefined;
 }
@@ -126,27 +131,33 @@ function concat(parts: Uint8Array[]): Uint8Array {
   return out;
 }
 
-function fromPng(bytes: Uint8Array): Uint8Array | undefined {
+function fromPng(bytes: Uint8Array, ranges: StoreRange[]): Uint8Array | undefined {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let at = 8;
   while (at + 12 <= bytes.length) {
     const len = view.getUint32(at);
     const type = ascii4(bytes, at + 4);
     if (at + 12 + len > bytes.length) break;
-    if (type === "caBX") return bytes.subarray(at + 8, at + 8 + len);
+    if (type === "caBX") {
+      ranges.push({ start: at, length: 12 + len });
+      return bytes.subarray(at + 8, at + 8 + len);
+    }
     at += 12 + len;
   }
   return undefined;
 }
 
-function fromWebp(bytes: Uint8Array): Uint8Array | undefined {
+function fromWebp(bytes: Uint8Array, ranges: StoreRange[]): Uint8Array | undefined {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let at = 12;
   while (at + 8 <= bytes.length) {
     const type = ascii4(bytes, at);
     const len = view.getUint32(at + 4, true);
     if (at + 8 + len > bytes.length) break;
-    if (type === "C2PA") return bytes.subarray(at + 8, at + 8 + len);
+    if (type === "C2PA") {
+      ranges.push({ start: at, length: 8 + len + (len & 1) });
+      return bytes.subarray(at + 8, at + 8 + len);
+    }
     at += 8 + len + (len & 1);
   }
   return undefined;
@@ -185,20 +196,22 @@ export interface ExtractedStore {
   container: ContainerKind;
   /** Octets JUMBF du magasin de manifestes. */
   store: Uint8Array;
+  ranges: StoreRange[];
 }
 
 export function extractManifestStore(bytes: Uint8Array): ExtractedStore | undefined {
   const container = detectContainer(bytes);
   if (!container) return undefined;
+  const ranges: StoreRange[] = [];
   const store =
     container === "jpeg"
-      ? fromJpeg(bytes)
+      ? fromJpeg(bytes, ranges)
       : container === "png"
-        ? fromPng(bytes)
+        ? fromPng(bytes, ranges)
         : container === "webp"
-          ? fromWebp(bytes)
+          ? fromWebp(bytes, ranges)
           : fromMp4(bytes);
-  return store ? { container, store } : undefined;
+  return store ? { container, store, ranges } : undefined;
 }
 
 // ---- Construction (tests et outils) ----------------------------------------

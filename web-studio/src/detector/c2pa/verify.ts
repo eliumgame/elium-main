@@ -342,10 +342,6 @@ export async function verifyC2pa(bytes: Uint8Array, opts: VerifyC2paOptions = {}
     return report;
   }
 
-  const { actions, sources } = collectActions(active);
-  report.actions = actions;
-  report.digitalSourceTypes = sources;
-  report.declaresAi = sources.some((s) => AI_SOURCE_RE.test(s));
   const gen = mapGet(active.claim, "claim_generator") ?? mapGet(active.claim, "claim_generator_info");
   report.claimGenerator =
     typeof gen === "string"
@@ -362,14 +358,20 @@ export async function verifyC2pa(bytes: Uint8Array, opts: VerifyC2paOptions = {}
   // 1. Hachages des assertions référencées par le claim.
   const refs = (mapGet(active.claim, "assertions") ?? mapGet(active.claim, "created_assertions")) as
     CborValue[] | undefined;
+  const verifiedAssertions: Assertion[] = [];
   if (Array.isArray(refs)) {
     let ok = true;
     for (const ref of refs) {
       const url = mapGet(ref, "url");
       const hash = asBytes(mapGet(ref, "hash"));
-      if (typeof url !== "string" || !hash) continue;
+      if (typeof url !== "string" || !hash) {
+        ok = false;
+        invalid.push("Référence d’assertion invalide.");
+        continue;
+      }
       const label = url.split("/").pop() ?? "";
-      const target = active.assertions.find((a) => a.label === label);
+      const targets = active.assertions.filter((a) => a.label === label);
+      const target = targets.length === 1 && url === `self#jumbf=c2pa.assertions/${label}` ? targets[0] : undefined;
       if (!target) {
         ok = false;
         invalid.push(`Assertion référencée introuvable : ${label}.`);
@@ -380,16 +382,24 @@ export async function verifyC2pa(bytes: Uint8Array, opts: VerifyC2paOptions = {}
         if (!eq(await hashBytes(alg, target.node.payload), hash)) {
           ok = false;
           invalid.push(`Le contenu de l'assertion « ${baseLabel(label)} » ne correspond plus à son empreinte.`);
+        } else {
+          verifiedAssertions.push(target);
         }
       } catch (e) {
+        ok = false;
         report.warnings.push(e instanceof Error ? e.message : "hachage d'assertion impossible");
       }
     }
     report.assertionsValid = ok;
   }
 
+  const { actions, sources } = collectActions({ ...active, assertions: verifiedAssertions });
+  report.actions = actions;
+  report.digitalSourceTypes = sources;
+  report.declaresAi = sources.some((s) => AI_SOURCE_RE.test(s));
+
   // 2. Liaison forte au contenu.
-  const hardBinding = active.assertions.find((a) => baseLabel(a.label) === "c2pa.hash.data");
+  const hardBinding = verifiedAssertions.find((a) => baseLabel(a.label) === "c2pa.hash.data");
   if (hardBinding) {
     try {
       const rawEx = mapGet(hardBinding.data, "exclusions");
@@ -397,7 +407,24 @@ export async function verifyC2pa(bytes: Uint8Array, opts: VerifyC2paOptions = {}
         start: asNumber(mapGet(e, "start")) ?? -1,
         length: asNumber(mapGet(e, "length")) ?? -1,
       }));
-      if (ex.some((e) => e.start < 0 || e.length < 0)) throw new Error("exclusions invalides");
+      if (
+        ex.some(
+          (e) => !Number.isSafeInteger(e.start) || !Number.isSafeInteger(e.length) || e.start < 0 || e.length <= 0,
+        )
+      )
+        throw new Error("exclusions invalides");
+      // Adjacent APP11 fragments may share one exclusion, never image bytes.
+      const merge = (ranges: { start: number; length: number }[]) => {
+        const out: { start: number; length: number }[] = [];
+        for (const range of [...ranges].sort((a, b) => a.start - b.start)) {
+          const last = out[out.length - 1];
+          if (last && last.start + last.length === range.start) last.length += range.length;
+          else out.push({ ...range });
+        }
+        return out;
+      };
+      if (!extracted.ranges.length || JSON.stringify(merge(ex)) !== JSON.stringify(merge(extracted.ranges)))
+        throw new Error("exclusions différentes des segments du magasin de manifestes");
       const alg = (mapGet(hardBinding.data, "alg") as string | undefined) ?? claimAlg;
       const expected = asBytes(mapGet(hardBinding.data, "hash"));
       if (!expected) throw new Error("empreinte absente");
@@ -477,7 +504,12 @@ export async function verifyC2pa(bytes: Uint8Array, opts: VerifyC2paOptions = {}
   if (invalid.length) {
     report.status = "invalid";
     report.problems.push(...invalid);
-  } else if (report.signatureValid && report.chainValid) {
+  } else if (
+    report.signatureValid &&
+    report.chainValid &&
+    report.bindingValid === true &&
+    report.assertionsValid === true
+  ) {
     report.status = report.trustedAnchor ? "valid_trusted" : "valid_untrusted";
   } else {
     report.status = "unverified";

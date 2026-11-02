@@ -853,10 +853,10 @@ def test_remembered_port_busy_falls_back_without_overwriting_it(isolated_config)
 # /__open__ : authentification + purge après lecture
 # --------------------------------------------------------------------------- #
 
-def test_open_request_needs_token_or_same_origin():
+def test_open_request_needs_token():
     ok = elium_launcher._is_authorized_open_request
     assert ok(elium_launcher._SESSION_TOKEN, None)
-    assert ok(None, "same-origin")
+    assert not ok(None, "same-origin")
     assert not ok(None, None)
     assert not ok("mauvais", "cross-site")
     assert not ok(None, "same-site")

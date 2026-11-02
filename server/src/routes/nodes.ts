@@ -528,6 +528,17 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
       if (b.expectedEpoch !== undefined && cur[0].key_epoch !== b.expectedEpoch) {
         throw conflict("La clé du nœud a déjà tourné (époque obsolète) — rechargez puis réessayez.");
       }
+      // La part de recouvrement d'organisation ne doit pas disparaître lors d'une
+      // rotation : sans elle, le nœud devient irrécupérable par l'organisation
+      // (le serveur ne peut pas vérifier l'enveloppe, mais il peut au moins
+      // exiger sa présence quand elle existait).
+      const { rows: orgShare } = await c.query(
+        `SELECT 1 FROM node_keys WHERE node_id = $1 AND principal_type = 'org' LIMIT 1`,
+        [id],
+      );
+      if (orgShare.length && !b.keyShares.some((s) => s.principalType === "org" && s.principalId === access.orgId)) {
+        throw badRequest("La rotation doit conserver la part de recouvrement de l'organisation.");
+      }
       await c.query(`DELETE FROM node_keys WHERE node_id = $1`, [id]);
       // Batched equivalent of a per-share INSERT loop: one multi-row INSERT via
       // UNNEST instead of `keyShares.length` round trips. Same rows/values as

@@ -219,16 +219,20 @@ describe("POST /api/nodes/:id/shares", () => {
     wrappedKey: { recipients: [], content: "ab" },
   };
 
-  it("grants (upserts) an internal share and returns the shareId", async () => {
+  it("grants a NEW internal share with node.share.internal only and returns the shareId", async () => {
     mQueryOne
       .mockResolvedValueOnce({ id: ROLE }) // validateRole
-      .mockResolvedValueOnce({ id: SHARE }); // INSERT ... RETURNING id
+      .mockResolvedValueOnce(null) // pas de part existante
+      .mockResolvedValueOnce({ id: SHARE }); // INSERT ... ON CONFLICT DO NOTHING RETURNING id
     const app = await makeApp();
     const res = await app.inject({ method: "POST", url: `/api/nodes/${NODE}/shares`, payload });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ shareId: SHARE });
     expect(mRequireNodePerm).toHaveBeenCalledWith(expect.anything(), NODE, "node.share.internal");
-    expect(mRequireNodePerm).toHaveBeenCalledWith(expect.anything(), NODE, "node.acl.manage");
+    expect(mRequireNodePerm).not.toHaveBeenCalledWith(expect.anything(), NODE, "node.acl.manage");
+    expect(String(mQueryOne.mock.calls[2]![0])).toMatch(
+      /ON CONFLICT \(node_id, principal_type, principal_id\) DO NOTHING/,
+    );
     expect(mAudit).toHaveBeenCalledWith(
       ORG,
       USER,
@@ -243,7 +247,7 @@ describe("POST /api/nodes/:id/shares", () => {
   });
 
   it("accepts an optional inheritedFrom (fanned-out deep share marker)", async () => {
-    mQueryOne.mockResolvedValueOnce({ id: ROLE }).mockResolvedValueOnce({ id: SHARE });
+    mQueryOne.mockResolvedValueOnce({ id: ROLE }).mockResolvedValueOnce(null).mockResolvedValueOnce({ id: SHARE });
     const app = await makeApp();
     const res = await app.inject({
       method: "POST",
@@ -251,6 +255,80 @@ describe("POST /api/nodes/:id/shares", () => {
       payload: { ...payload, inheritedFrom: FOLDER },
     });
     expect(res.statusCode).toBe(200);
+    await app.close();
+  });
+
+  it("409 : never overwrites the node OWNER's existing key share (opaque envelope)", async () => {
+    mQueryOne.mockResolvedValueOnce({ id: ROLE }).mockResolvedValueOnce({ id: SHARE });
+    const app = await makeApp();
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/nodes/${NODE}/shares`,
+      payload: { ...payload, principalId: OWNER },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(mQueryOne).toHaveBeenCalledTimes(2); // aucun UPDATE/INSERT
+    expect(mKickRoom).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it("409 : never overwrites the ORG recovery key share", async () => {
+    mQueryOne.mockResolvedValueOnce({ id: ROLE }).mockResolvedValueOnce({ id: SHARE });
+    const app = await makeApp();
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/nodes/${NODE}/shares`,
+      payload: { ...payload, principalType: "org", principalId: ORG },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(mQueryOne).toHaveBeenCalledTimes(2);
+    await app.close();
+  });
+
+  it("replacing ANOTHER principal's existing share requires acl.manage + share.manage and is guarded in SQL", async () => {
+    mQueryOne
+      .mockResolvedValueOnce({ id: ROLE })
+      .mockResolvedValueOnce({ id: SHARE }) // part existante
+      .mockResolvedValueOnce({ id: SHARE }); // UPDATE ... RETURNING id
+    const app = await makeApp();
+    const res = await app.inject({ method: "POST", url: `/api/nodes/${NODE}/shares`, payload });
+    expect(res.statusCode).toBe(200);
+    expect(mRequireNodePerm).toHaveBeenCalledWith(expect.anything(), NODE, "node.acl.manage");
+    expect(mRequireNodePerm).toHaveBeenCalledWith(expect.anything(), NODE, "node.share.manage");
+    const sql = String(mQueryOne.mock.calls[2]![0]);
+    expect(sql).toMatch(/UPDATE node_keys/);
+    expect(sql).toMatch(/principal_type <> 'org'/);
+    expect(sql).toMatch(/owner_user_id/);
+    await app.close();
+  });
+
+  it("403 when replacing an existing share without node.share.manage", async () => {
+    mQueryOne.mockResolvedValueOnce({ id: ROLE }).mockResolvedValueOnce({ id: SHARE });
+    mRequireNodePerm.mockImplementation(async (_req, _id, perm) => {
+      if (perm === "node.share.manage") throw new ApiError(403, "forbidden", "Accès refusé.");
+      return {
+        nodeId: NODE,
+        orgId: ORG,
+        ownerUserId: OWNER,
+        kind: "file",
+        trashed: false,
+        isOwner: false,
+        permissions: new Set<string>(),
+        accessible: true,
+      } as never;
+    });
+    const app = await makeApp();
+    const res = await app.inject({ method: "POST", url: `/api/nodes/${NODE}/shares`, payload });
+    expect(res.statusCode).toBe(403);
+    expect(mQueryOne).toHaveBeenCalledTimes(2);
+    await app.close();
+  });
+
+  it("409 when a concurrent grant created the row first (INSERT DO NOTHING)", async () => {
+    mQueryOne.mockResolvedValueOnce({ id: ROLE }).mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+    const app = await makeApp();
+    const res = await app.inject({ method: "POST", url: `/api/nodes/${NODE}/shares`, payload });
+    expect(res.statusCode).toBe(409);
     await app.close();
   });
 
@@ -366,7 +444,10 @@ describe("DELETE /api/nodes/:id/shares/:shareId", () => {
     mQueryOne.mockResolvedValueOnce({ principal_type: "group", principal_id: "group-1" });
     const sqls: string[] = [];
     mWithTx.mockImplementation(
-      txDispatch([[/DELETE FROM node_keys nk/, { rows: [{ node_id: CHILD }, { node_id: "grandchild" }] }]], sqls) as never,
+      txDispatch(
+        [[/DELETE FROM node_keys nk/, { rows: [{ node_id: CHILD }, { node_id: "grandchild" }] }]],
+        sqls,
+      ) as never,
     );
     const app = await makeApp();
     const res = await app.inject({ method: "DELETE", url: `/api/nodes/${FOLDER}/shares/${SHARE}?deep=true` });
@@ -435,7 +516,15 @@ describe("POST /api/nodes/:id/links", () => {
     expect(body.linkId).toBe(LINK);
     expect(typeof body.token).toBe("string");
     expect(body.token.length).toBeGreaterThan(20);
-    expect(mAudit).toHaveBeenCalledWith(ORG, USER, "node.link.create", "file", NODE, { linkId: LINK }, expect.any(String));
+    expect(mAudit).toHaveBeenCalledWith(
+      ORG,
+      USER,
+      "node.link.create",
+      "file",
+      NODE,
+      { linkId: LINK },
+      expect.any(String),
+    );
     await app.close();
   });
 
@@ -662,7 +751,14 @@ describe("GET /api/links/:token (public resolution)", () => {
     expect(body.wrappedKey).toEqual({ c: "wrapped" });
     expect(body.hasPassword).toBe(false);
     expect(body.roleKey).toBe("viewer");
-    expect(body.node).toMatchObject({ id: NODE, kind: "file", nameEncrypted: "aa", nameNonce: "bb", hasContent: true, sizeBytes: 42 });
+    expect(body.node).toMatchObject({
+      id: NODE,
+      kind: "file",
+      nameEncrypted: "aa",
+      nameNonce: "bb",
+      hasContent: true,
+      sizeBytes: 42,
+    });
     await app.close();
   });
 
@@ -723,7 +819,10 @@ describe("GET /api/links/:token/content (public streaming)", () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers["content-type"]).toBe("application/octet-stream");
     expect(res.headers["x-content-nonce"]).toBe(Buffer.from("cc", "hex").toString("hex"));
-    expect(mQueryOne).toHaveBeenCalledWith(expect.stringMatching(/UPDATE share_links SET download_count[\s\S]*RETURNING/), [LINK]);
+    expect(mQueryOne).toHaveBeenCalledWith(
+      expect.stringMatching(/UPDATE share_links SET download_count[\s\S]*RETURNING/),
+      [LINK],
+    );
     expect(storageMock.getStream).toHaveBeenCalledWith("blob-key-1");
     await app.close();
   });

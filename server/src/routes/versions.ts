@@ -12,7 +12,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { query, queryOne, withTx } from "../db/pool.js";
 import { authenticate, requireUser, requireNodePerm } from "../middleware/auth.js";
-import { notFound, badRequest, tooLarge } from "../lib/errors.js";
+import { notFound, badRequest, tooLarge, conflict } from "../lib/errors.js";
 import { storage } from "../storage/adapter.js";
 import { audit } from "../lib/audit.js";
 import { config } from "../config.js";
@@ -76,8 +76,9 @@ export default async function versionRoutes(app: FastifyInstance): Promise<void>
   // After a CEK rotation, every historical blob is still ciphertext under the
   // OLD key. The rotating client downloads each version, re-encrypts it under
   // the new CEK and swaps the blob here — same version number, no new version
-  // row. Gated on `node.acl.manage` (the rotation permission), and the version
-  // row is stamped with the node's CURRENT key epoch.
+  // row. Gated on `node.acl.manage` (the rotation permission), only accepted
+  // while the version is still on an OLDER key epoch than the node (409
+  // otherwise), and the version row is stamped with the node's CURRENT epoch.
   app.put("/nodes/:id/versions/:versionId/content", async (req, reply) => {
     const { id, versionId } = versionParams.parse(req.params);
     const access = await requireNodePerm(req, id, "node.acl.manage");
@@ -106,10 +107,18 @@ export default async function versionRoutes(app: FastifyInstance): Promise<void>
       );
       if (!nrows[0]) throw notFound();
       const { rows: old } = await c.query(
-        `SELECT content_ref FROM node_versions WHERE id = $1 AND node_id = $2 FOR UPDATE`,
+        `SELECT content_ref, key_epoch FROM node_versions WHERE id = $1 AND node_id = $2 FOR UPDATE`,
         [versionId, id],
       );
       if (!old[0]) throw notFound("Version introuvable.");
+      // Réécriture RÉSERVÉE à une rotation en cours : seule une version encore
+      // chiffrée sous une époque ANTÉRIEURE à celle du nœud peut être remplacée.
+      // Sans ce garde, un détenteur de node.acl.manage pouvait écraser (et faire
+      // supprimer du stockage) n'importe quelle version historique — y compris
+      // celles qui servent justement à annuler un vandalisme.
+      if (Number(old[0].key_epoch ?? 1) >= Number(nrows[0].key_epoch ?? 1)) {
+        throw conflict("Cette version est déjà chiffrée sous la clé courante : réécriture refusée hors rotation.");
+      }
       await c.query(
         `UPDATE node_versions SET content_ref = $3, content_nonce = $4, key_epoch = $5
           WHERE id = $1 AND node_id = $2`,

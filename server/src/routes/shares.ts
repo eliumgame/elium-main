@@ -187,24 +187,58 @@ export default async function shareRoutes(app: FastifyInstance): Promise<void> {
     const b = createShareSchema.parse(req.body);
     const user = requireUser(req);
 
-    // Both crypto-grant (share.internal) and authorization (acl.manage) needed.
+    // Accorder un NOUVEL accès interne = `node.share.internal` (plafonné par
+    // validateRole : on ne confère jamais plus que ce qu'on détient sur le nœud).
     const access = await requireNodePerm(req, id, "node.share.internal");
-    await requireNodePerm(req, id, "node.acl.manage");
-
     await validateRole(b.roleId, access.orgId, access.permissions);
 
-    const row = await queryOne<{ id: string }>(
-      `INSERT INTO node_keys (node_id, principal_type, principal_id, role_id, wrapped_key, granted_by, inherited_from)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
-       ON CONFLICT (node_id, principal_type, principal_id)
-       DO UPDATE SET role_id = EXCLUDED.role_id,
-                     wrapped_key = EXCLUDED.wrapped_key,
-                     granted_by = EXCLUDED.granted_by,
-                     inherited_from = EXCLUDED.inherited_from
-       RETURNING id`,
-      [id, b.principalType, b.principalId, b.roleId, JSON.stringify(b.wrappedKey), user.id, b.inheritedFrom ?? null],
+    // Une part de clé EXISTANTE n'est jamais écrasée à l'aveugle : l'enveloppe
+    // est opaque pour le serveur, donc la remplacer par une enveloppe bidon
+    // détruirait l'accès cryptographique de son titulaire sans retour possible.
+    //  - la part du PROPRIÉTAIRE du nœud et la part de recouvrement d'ORGANISATION
+    //    ne se remplacent jamais par cette route (seule la rotation, qui exige
+    //    la CEK courante et les deux droits de gestion, les réécrit) ;
+    //  - toute autre part existante (changement de rôle + ré-emballage) exige en
+    //    plus `node.acl.manage` ET `node.share.manage` — c'est l'équivalent d'un
+    //    retrait suivi d'un nouvel accès.
+    const existing = await queryOne<{ id: string }>(
+      `SELECT id FROM node_keys WHERE node_id = $1 AND principal_type = $2 AND principal_id = $3`,
+      [id, b.principalType, b.principalId],
     );
-    if (!row) throw badRequest("Partage impossible.");
+    const isProtected =
+      b.principalType === "org" || (b.principalType === "user" && b.principalId === access.ownerUserId);
+    if (existing && isProtected) {
+      throw conflict(
+        b.principalType === "org"
+          ? "La part de recouvrement de l'organisation ne peut pas être remplacée par un partage."
+          : "La part de clé du propriétaire du nœud ne peut pas être remplacée par un partage.",
+      );
+    }
+
+    let row: { id: string } | null;
+    if (existing) {
+      await requireNodePerm(req, id, "node.acl.manage");
+      await requireNodePerm(req, id, "node.share.manage");
+      row = await queryOne<{ id: string }>(
+        `UPDATE node_keys
+            SET role_id = $3, wrapped_key = $4, granted_by = $5, inherited_from = $6
+          WHERE id = $2 AND node_id = $1
+            AND principal_type <> 'org'
+            AND NOT (principal_type = 'user' AND principal_id = (SELECT owner_user_id FROM nodes WHERE id = $1))
+          RETURNING id`,
+        [id, existing.id, b.roleId, JSON.stringify(b.wrappedKey), user.id, b.inheritedFrom ?? null],
+      );
+    } else {
+      // ON CONFLICT DO NOTHING : une part créée en parallèle n'est pas écrasée.
+      row = await queryOne<{ id: string }>(
+        `INSERT INTO node_keys (node_id, principal_type, principal_id, role_id, wrapped_key, granted_by, inherited_from)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
+         ON CONFLICT (node_id, principal_type, principal_id) DO NOTHING
+         RETURNING id`,
+        [id, b.principalType, b.principalId, b.roleId, JSON.stringify(b.wrappedKey), user.id, b.inheritedFrom ?? null],
+      );
+    }
+    if (!row) throw conflict("Ce partage a été modifié entre-temps — rechargez puis réessayez.");
 
     // Un upsert peut aussi RÉDUIRE le rôle d'un partage déjà existant : un pair
     // déjà admis sur ce nœud doit revalider ses droits plutôt que de garder ceux

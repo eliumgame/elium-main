@@ -31,7 +31,7 @@ async function sweepEphemeralTables(app: FastifyInstance): Promise<void> {
     // révoquées pour l'auditabilité, puis on nettoie).
     [
       "sessions",
-      `DELETE FROM sessions WHERE expires_at < now() OR (revoked_at IS NOT NULL AND revoked_at < now() - interval '7 days')`,
+      `DELETE FROM sessions WHERE expires_at < now() OR created_at < now() - interval '90 days' OR (revoked_at IS NOT NULL AND revoked_at < now() - interval '7 days')`,
     ],
     // Invitations expirées non consommées.
     ["invites", `DELETE FROM invites WHERE expires_at < now() AND accepted_at IS NULL`],

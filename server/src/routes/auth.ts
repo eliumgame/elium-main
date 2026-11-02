@@ -467,24 +467,28 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
     const updated = await queryOne<{ id: string; user_id: string }>(
       `UPDATE sessions
           SET refresh_token_hash = $1,
-              superseded_refresh_token_hashes = array_append(superseded_refresh_token_hashes, $2),
+              superseded_refresh_token_hashes =
+                (array_append(superseded_refresh_token_hashes, $2))[
+                  greatest(1, cardinality(superseded_refresh_token_hashes) - 18):
+                ],
               expires_at = $3, last_seen_at = now()
         WHERE refresh_token_hash = $2 AND revoked_at IS NULL AND expires_at > now()
+          AND created_at > now() - interval '90 days'
         RETURNING id, user_id`,
       [rotated.hash, h, rotated.expiresAt],
     );
     if (!updated) {
       // Le hash présenté ne correspond à aucune session active : soit un jeton
       // simplement inconnu/expiré/révoqué, soit le réemploi d'un jeton DÉJÀ tourné
-      // par un rafraîchissement précédent — PAS FORCÉMENT le tout dernier : garder
-      // tout l'historique (pas seulement l'immédiat précédent) détecte aussi un
-      // rejeu différé de plusieurs sauts (T0 rejoué après T0→T1→T2). Dans ce
+      // par un rafraîchissement précédent — PAS FORCÉMENT le tout dernier : les
+      // 20 derniers hachages détectent aussi un rejeu différé de plusieurs sauts.
+      // Dans ce
       // second cas, la session entière est révoquée : rejouer un jeton déjà
       // remplacé ne doit profiter à personne, légitime ou non — on force une
       // reconnexion.
       const reused = await queryOne<{ id: string; user_id: string }>(
         `UPDATE sessions SET revoked_at = now()
-          WHERE $1 = ANY(superseded_refresh_token_hashes) AND revoked_at IS NULL
+          WHERE superseded_refresh_token_hashes @> ARRAY[$1::text] AND revoked_at IS NULL
         RETURNING id, user_id`,
         [h],
       );

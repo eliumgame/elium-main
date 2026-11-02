@@ -227,7 +227,7 @@ describe("POST /api/auth/refresh : rotation atomique + détection de réemploi",
     mockedQueryOne.mockImplementation(async (sql: string) => {
       if (
         sql.includes("SET refresh_token_hash = $1,") &&
-        sql.includes("superseded_refresh_token_hashes = array_append")
+        sql.includes("array_append(superseded_refresh_token_hashes, $2)")
       ) {
         return { id: SESSION_ID, user_id: USER_ID } as never;
       }
@@ -264,11 +264,11 @@ describe("POST /api/auth/refresh : rotation atomique + détection de réemploi",
       // La rotation (CAS sur le hash courant) ne trouve rien : ce hash n'est plus le courant.
       if (
         sql.includes("SET refresh_token_hash = $1,") &&
-        sql.includes("superseded_refresh_token_hashes = array_append")
+        sql.includes("array_append(superseded_refresh_token_hashes, $2)")
       )
         return null as never;
       // Mais il correspond au hash juste remplacé — réemploi détecté, la session est révoquée.
-      if (sql.includes("SET revoked_at = now()") && sql.includes("ANY(superseded_refresh_token_hashes)")) {
+      if (sql.includes("SET revoked_at = now()") && sql.includes("superseded_refresh_token_hashes @>")) {
         return { id: SESSION_ID, user_id: USER_ID } as never;
       }
       return null;
@@ -287,7 +287,7 @@ describe("POST /api/auth/refresh : rotation atomique + détection de réemploi",
     mockedQueryOne.mockImplementation(async (sql: string) => {
       if (
         sql.includes("SET refresh_token_hash = $1,") &&
-        sql.includes("superseded_refresh_token_hashes = array_append")
+        sql.includes("array_append(superseded_refresh_token_hashes, $2)")
       ) {
         return { id: SESSION_ID, user_id: USER_ID } as never;
       }
@@ -316,11 +316,11 @@ describe("POST /api/auth/refresh : rotation atomique + détection de réemploi",
     mockedQueryOne.mockImplementation(async (sql: string) => {
       if (
         sql.includes("SET refresh_token_hash = $1,") &&
-        sql.includes("superseded_refresh_token_hashes = array_append")
+        sql.includes("array_append(superseded_refresh_token_hashes, $2)")
       ) {
         return null as never; // T0 n'est plus le hash courant
       }
-      if (sql.includes("SET revoked_at = now()") && sql.includes("ANY(superseded_refresh_token_hashes)")) {
+      if (sql.includes("SET revoked_at = now()") && sql.includes("superseded_refresh_token_hashes @>")) {
         return { id: SESSION_ID, user_id: USER_ID } as never; // trouvé dans l'historique, pas seulement le précédent immédiat
       }
       return null;

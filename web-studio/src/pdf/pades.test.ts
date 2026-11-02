@@ -93,6 +93,34 @@ describe("PAdES-B (sign + verify)", () => {
     expect(res[0]!.valid).toBe(false);
   }, 30000);
 
+  it("une feuille approuvée ne peut pas émettre un autre signataire", async () => {
+    const parentKeys = forge.pki.rsa.generateKeyPair(2048);
+    const parent = forge.pki.createCertificate();
+    parent.publicKey = parentKeys.publicKey;
+    parent.serialNumber = "10";
+    parent.validity.notBefore = new Date(Date.UTC(2020, 0, 1));
+    parent.validity.notAfter = new Date(Date.UTC(2035, 0, 1));
+    parent.setSubject([{ name: "commonName", value: "Parent approuvé" }]);
+    parent.setIssuer(parent.subject.attributes);
+    parent.setExtensions([{ name: "basicConstraints", cA: false }, { name: "keyUsage", digitalSignature: true }]);
+    parent.sign(parentKeys.privateKey, forge.md.sha256.create());
+    const leafKeys = forge.pki.rsa.generateKeyPair(2048);
+    const leaf = forge.pki.createCertificate();
+    leaf.publicKey = leafKeys.publicKey;
+    leaf.serialNumber = "11";
+    leaf.validity.notBefore = parent.validity.notBefore;
+    leaf.validity.notAfter = parent.validity.notAfter;
+    leaf.setSubject([{ name: "commonName", value: "Identité usurpée" }]);
+    leaf.setIssuer(parent.subject.attributes);
+    leaf.sign(parentKeys.privateKey, forge.md.sha256.create());
+    const p12 = binToU8(forge.asn1.toDer(forge.pkcs12.toPkcs12Asn1(leafKeys.privateKey, [leaf, parent], "pw")).getBytes());
+    const signed = await signPdfBytes(await makePdf(), p12, "pw");
+    const parentDer = binToU8(forge.asn1.toDer(forge.pki.certificateToAsn1(parent)).getBytes());
+    const verdict = (await verifyPdfSignatures(signed, { trusted: [parentDer] }))[0]!;
+    expect(verdict.trust).not.toBe("trusted");
+    expect(verdict.chainVerified).toBe(false);
+  }, 30000);
+
   it("détecte une altération du document (signature invalide)", async () => {
     const p12 = makeP12("Bob Test", "pw");
     const pdf = await makePdf();

@@ -1312,6 +1312,9 @@ async function buildChain(
     const candidates = [...trusted, ...pool].filter((c) => bytesEqual(c.subject, cur.issuer));
     let next: Certificate | undefined;
     for (const c of candidates) {
+      const subordinateCAs = chain.filter((member) => member.isCA && !selfIssued(member)).length;
+      if (!c.isCA || c.keyCertSign === false ||
+          (c.pathLenConstraint !== undefined && subordinateCAs > c.pathLenConstraint)) continue;
       if (await verifyRaw(c, cur.sigAlgDer, undefined, cur.signature, cur.tbs)) {
         next = c;
         break;

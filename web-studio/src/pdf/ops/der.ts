@@ -258,6 +258,8 @@ export interface Certificate {
   sigAlgDer: Uint8Array;
   signature: Uint8Array;
   isCA: boolean;
+  keyCertSign?: boolean;
+  pathLenConstraint?: number;
   subjectKeyId?: Uint8Array;
 }
 
@@ -308,6 +310,8 @@ export function parseCertificate(der: Uint8Array): Certificate {
   const issuer = nameEntries(issuerT);
   const text = (e: [string, string][]) => e.map(([o, v]) => `${NAME_LABELS[o] ?? o}=${v}`).join(", ");
   let isCA = false;
+  let keyCertSign: boolean | undefined;
+  let pathLenConstraint: number | undefined;
   let subjectKeyId: Uint8Array | undefined;
   for (const t of tbs.slice(i)) {
     if (t.tag !== 0xa3) continue;
@@ -315,7 +319,18 @@ export function parseCertificate(der: Uint8Array): Certificate {
       const parts = children(ext);
       const id = oidOf(parts[0]!);
       const value = readTlv(content(parts[parts.length - 1]!));
-      if (id === OID.basicConstraints) isCA = children(value)[0]?.tag === 0x01 && content(children(value)[0]!)[0] !== 0;
+      if (id === OID.basicConstraints) {
+        const constraints = children(value);
+        isCA = constraints[0]?.tag === 0x01 && content(constraints[0]!)[0] !== 0;
+        const length = constraints.find((part) => part.tag === 0x02);
+        if (length) {
+          pathLenConstraint = 0;
+          for (const byte of content(length)) pathLenConstraint = pathLenConstraint * 256 + byte;
+        }
+      } else if (id === OID.keyUsage) {
+        const bits = content(value);
+        keyCertSign = value.tag === 0x03 && bits.length > 1 && !!(bits[1]! & 0x04);
+      }
       else if (id === OID.subjectKeyIdentifier) subjectKeyId = content(value);
     }
   }
@@ -343,6 +358,8 @@ export function parseCertificate(der: Uint8Array): Certificate {
     sigAlgDer: raw(sigAlgT),
     signature: sigBits.subarray(1),
     isCA,
+    keyCertSign,
+    pathLenConstraint,
     subjectKeyId,
   };
 }

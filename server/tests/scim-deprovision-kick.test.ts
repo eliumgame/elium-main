@@ -57,6 +57,7 @@ beforeEach(() => {
 describe("PATCH /api/scim/v2/Users/:id (active:false)", () => {
   it("kicks the user's live connections when suspended", async () => {
     mQueryOne.mockResolvedValueOnce({ id: ORG }).mockResolvedValueOnce(member);
+    mQuery.mockResolvedValueOnce([{ id: "m1" }] as never);
     const app = await makeApp();
     const res = await app.inject({
       method: "PATCH",
@@ -66,6 +67,22 @@ describe("PATCH /api/scim/v2/Users/:id (active:false)", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(mKickUser).toHaveBeenCalledWith(TARGET_USER, "scim-deprovisioned");
+    expect(mQuery.mock.calls[0]?.[0]).toContain("user_id <> (SELECT owner_user_id");
+    await app.close();
+  });
+
+  it("refuses to suspend the owner and leaves their live connections intact", async () => {
+    mQueryOne.mockResolvedValueOnce({ id: ORG }).mockResolvedValueOnce(member);
+    mQuery.mockResolvedValueOnce([] as never);
+    const app = await makeApp();
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/scim/v2/Users/${TARGET_USER}`,
+      headers: AUTH,
+      payload: { Operations: [{ op: "replace", path: "active", value: false }] },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(mKickUser).not.toHaveBeenCalled();
     await app.close();
   });
 
@@ -92,6 +109,17 @@ describe("DELETE /api/scim/v2/Users/:id", () => {
     const res = await app.inject({ method: "DELETE", url: `/api/scim/v2/Users/${TARGET_USER}`, headers: AUTH });
     expect(res.statusCode).toBe(204);
     expect(mKickUser).toHaveBeenCalledWith(TARGET_USER, "scim-deprovisioned");
+    expect(mQuery.mock.calls[0]?.[0]).toContain("user_id <> (SELECT owner_user_id");
+    await app.close();
+  });
+
+  it("refuses to delete the owner's membership", async () => {
+    mQueryOne.mockResolvedValueOnce({ id: ORG }).mockResolvedValueOnce({ id: "m1" });
+    mQuery.mockResolvedValueOnce([] as never);
+    const app = await makeApp();
+    const res = await app.inject({ method: "DELETE", url: `/api/scim/v2/Users/${TARGET_USER}`, headers: AUTH });
+    expect(res.statusCode).toBe(409);
+    expect(mKickUser).not.toHaveBeenCalled();
     await app.close();
   });
 

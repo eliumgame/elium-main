@@ -22,7 +22,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { query, queryOne } from "../db/pool.js";
 import { sha256Hex, randomToken } from "../lib/crypto-server.js";
-import { unauthorized, notFound } from "../lib/errors.js";
+import { unauthorized, notFound, conflict } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
 import { DEFAULT_MEMBER_ROLE_KEY } from "../rbac/roles.js";
 import { kickUser } from "../collab/relay.js";
@@ -396,7 +396,14 @@ export default async function scimRoutes(app: FastifyInstance): Promise<void> {
     );
     if (!row) throw notFound("Utilisateur SCIM introuvable.");
     if (active === false) {
-      await query(`UPDATE memberships SET status = 'suspended' WHERE org_id = $1 AND user_id = $2`, [orgId, id]);
+      const suspended = await query(
+        `UPDATE memberships SET status = 'suspended'
+          WHERE org_id = $1 AND user_id = $2
+            AND user_id <> (SELECT owner_user_id FROM organizations WHERE id = $1)
+          RETURNING id`,
+        [orgId, id],
+      );
+      if (!suspended.length) throw conflict("Le propriétaire de l'organisation ne peut pas être suspendu par SCIM.");
       kickUser(id, "scim-deprovisioned");
       await audit(orgId, null, "scim.user.deprovision", "user", id, {}, req.ip);
       row.membership_status = "suspended";
@@ -414,10 +421,20 @@ export default async function scimRoutes(app: FastifyInstance): Promise<void> {
     const orgId = await orgFromScim(req);
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const r = await query(
-      `UPDATE memberships SET status = 'suspended' WHERE org_id = $1 AND user_id = $2 RETURNING id`,
+      `UPDATE memberships SET status = 'suspended'
+        WHERE org_id = $1 AND user_id = $2
+          AND user_id <> (SELECT owner_user_id FROM organizations WHERE id = $1)
+        RETURNING id`,
       [orgId, id],
     );
-    if (!r.length) throw notFound("Utilisateur SCIM introuvable.");
+    if (!r.length) {
+      const existing = await queryOne<{ id: string }>(
+        `SELECT id FROM memberships WHERE org_id = $1 AND user_id = $2`,
+        [orgId, id],
+      );
+      if (existing) throw conflict("Le propriétaire de l'organisation ne peut pas être suspendu par SCIM.");
+      throw notFound("Utilisateur SCIM introuvable.");
+    }
     kickUser(id, "scim-deprovisioned");
     await audit(orgId, null, "scim.user.deprovision", "user", id, {}, req.ip);
     reply.code(204);

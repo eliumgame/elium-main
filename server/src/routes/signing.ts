@@ -452,7 +452,7 @@ export default async function signingRoutes(app: FastifyInstance): Promise<void>
       kickRoom(nodeId, "content-replaced");
 
       // Audit anonyme (actor null) + réveil de la vue émetteur (poll conforté par push).
-      await audit(orgId, null, "node.sign.submit", "file", nodeId, { signerFpr: signerFpr ?? undefined }, req.ip);
+      await audit(orgId, null, "node.sign.submit", "file", nodeId, signerFpr ? { signerFpr } : {}, req.ip);
       notifyOrg(orgId);
       return { ok: true };
     },

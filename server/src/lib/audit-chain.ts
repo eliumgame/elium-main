@@ -17,18 +17,48 @@ import { query } from "../db/pool.js";
 /** Racine de chaîne (aucune entrée précédente) : 32 octets à zéro. */
 export const GENESIS = Buffer.alloc(32);
 
+/**
+ * Forme CANONIQUE des métadonnées : exactement ce que la base stocke (aller-retour
+ * JSON, comme `JSON.stringify` à l'INSERT puis la relecture JSONB). Une clé à
+ * `undefined` disparaît, une `Date` devient sa chaîne ISO, etc. Hacher cette forme
+ * — et non l'objet JS d'origine — garantit que `verifyAuditChain`, qui re-hache le
+ * JSONB relu, retrouve le même hash. Pour des métadonnées déjà « propres » (le cas
+ * de toutes les entrées historiques saines), le résultat est identique à l'objet
+ * d'origine : les maillons existants restent vérifiables.
+ */
+export function canonicalAuditMetadata(metadata: unknown): unknown {
+  try {
+    const s = JSON.stringify(metadata ?? {});
+    return s === undefined ? {} : (JSON.parse(s) as unknown);
+  } catch {
+    // Non sérialisable (cycle, BigInt) : marqueur explicite plutôt qu'une divergence.
+    return { unserializable: true };
+  }
+}
+
+/**
+ * Variantes HISTORIQUES de métadonnées pour des entrées écrites AVANT la
+ * canonicalisation (audit 2026-11) : l'ancien code hachait l'objet JS d'origine,
+ * si bien qu'une clé `undefined` était hachée `null` (et absente en base) et
+ * qu'une `Date` était hachée `{}` (et stockée en ISO). Seuls les deux appels
+ * réellement concernés sont reconstruits — de façon ciblée par action, pour ne
+ * pas affaiblir la détection d'altération des autres entrées. Ces entrées sont
+ * comptées dans `legacyAccepted`.
+ */
+function legacyMetadataVariants(action: string, metadata: unknown): unknown[] {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return [];
+  const m = metadata as Record<string, unknown>;
+  if (action === "node.sign.submit" && !("signerFpr" in m)) return [{ ...m, signerFpr: null }];
+  if (action === "site.user.password_reset" && typeof m.expiresAt === "string") return [{ ...m, expiresAt: {} }];
+  return [];
+}
+
 /** Sérialisation stable (clés triées récursivement) pour hacher les métadonnées. */
 function stableStringify(v: unknown): string {
   if (v === null || typeof v !== "object") return JSON.stringify(v ?? null);
   if (Array.isArray(v)) return `[${v.map(stableStringify).join(",")}]`;
   const keys = Object.keys(v as Record<string, unknown>).sort();
   return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify((v as Record<string, unknown>)[k])}`).join(",")}}`;
-}
-
-/** Match JSON/JSONB persistence before sorting: omit undefined properties,
- * turn array holes into null, and serialize Date/toJSON values identically. */
-function persistedMetadata(value: unknown): unknown {
-  return JSON.parse(JSON.stringify(value ?? {}));
 }
 
 export interface AuditFields {
@@ -51,7 +81,7 @@ export function auditEntryHash(prevHash: Buffer, f: AuditFields): Buffer {
     f.action,
     f.resourceType,
     f.resourceId ?? "",
-    stableStringify(persistedMetadata(f.metadata)),
+    stableStringify(canonicalAuditMetadata(f.metadata)),
     f.ip,
     f.createdAt,
   ]);
@@ -63,6 +93,8 @@ export interface AuditVerifyResult {
   total: number; // entrées totales dans la chaîne
   hashed: number; // entrées effectivement chaînées (les anciennes peuvent être sans hash)
   brokenAtId?: string; // id de la première entrée dont le maillon est rompu
+  /** Entrées antérieures au correctif de canonicalisation, validées via leur forme historique. */
+  legacyAccepted?: number;
 }
 
 interface AuditRow {
@@ -108,6 +140,7 @@ export async function verifyAuditChain(orgId: string | null): Promise<AuditVerif
   let started = false;
   let brokenAtId: string | undefined;
   let afterId: AuditRow["id"] | null = null;
+  let legacyAccepted = 0;
 
   while (true) {
     const page: AuditRow[] = await query<AuditRow>(
@@ -153,9 +186,18 @@ export async function verifyAuditChain(orgId: string | null): Promise<AuditVerif
         ip: r.ip,
         createdAt: new Date(r.created_at).toISOString(),
       };
-      const recomputed = auditEntryHash(prev, fields);
+      let hashOk = auditEntryHash(prev, fields).equals(entryHash);
+      if (!hashOk) {
+        for (const variant of legacyMetadataVariants(r.action, r.metadata)) {
+          if (auditEntryHash(prev, { ...fields, metadata: variant }).equals(entryHash)) {
+            hashOk = true;
+            legacyAccepted++;
+            break;
+          }
+        }
+      }
       const prevOk = !started ? prev.equals(GENESIS) : prev.equals(expectedPrev);
-      if (!prevOk || !recomputed.equals(entryHash)) {
+      if (!prevOk || !hashOk) {
         brokenAtId = r.id;
         continue;
       }
@@ -167,8 +209,9 @@ export async function verifyAuditChain(orgId: string | null): Promise<AuditVerif
     if (page.length < VERIFY_PAGE_SIZE) break; // dernière page (page incomplète = plus de lignes)
   }
 
+  const legacy = legacyAccepted ? { legacyAccepted } : {};
   if (brokenAtId !== undefined) {
-    return { ok: false, total, hashed, brokenAtId };
+    return { ok: false, total, hashed, brokenAtId, ...legacy };
   }
-  return { ok: true, total, hashed };
+  return { ok: true, total, hashed, ...legacy };
 }

@@ -412,7 +412,15 @@ export default async function siteRoutes(app: FastifyInstance): Promise<void> {
         actor.id,
         expiresAt,
       ]);
-      await audit(orgId, actor.id, "site.user.password_reset", "user", userId, { expiresAt }, req.ip);
+      await audit(
+        orgId,
+        actor.id,
+        "site.user.password_reset",
+        "user",
+        userId,
+        { expiresAt: expiresAt.toISOString() },
+        req.ip,
+      );
       return { token, expiresAt };
     });
 

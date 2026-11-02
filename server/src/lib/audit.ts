@@ -1,6 +1,6 @@
 /** Append an entry to the audit log. Never throws into the request path. */
 import { withTx } from "../db/pool.js";
-import { auditEntryHash, GENESIS, type AuditFields } from "./audit-chain.js";
+import { auditEntryHash, canonicalAuditMetadata, GENESIS, type AuditFields } from "./audit-chain.js";
 
 // Espace de nom du verrou consultatif transactionnel qui sérialise l'écriture de
 // la chaîne PAR ORGANISATION : deux entrées concurrentes de la même org ne
@@ -17,6 +17,10 @@ export async function audit(
   ip = "",
 ): Promise<void> {
   const cleanIp = ip.slice(0, 64);
+  // Une seule forme canonique, utilisée À LA FOIS pour le hash et pour l'INSERT :
+  // le hash couvre exactement ce que la base stocke (sinon la chaîne se déclare
+  // rompue dès qu'une métadonnée contient `undefined` ou une `Date`).
+  const canonical = canonicalAuditMetadata(metadata);
   try {
     await withTx(async (c) => {
       // Sérialise la chaîne de cette org (org_id NULL → clé "").
@@ -35,7 +39,7 @@ export async function audit(
         action,
         resourceType,
         resourceId,
-        metadata,
+        metadata: canonical,
         ip: cleanIp,
         createdAt,
       };
@@ -49,7 +53,7 @@ export async function audit(
           action,
           resourceType,
           resourceId,
-          JSON.stringify(metadata),
+          JSON.stringify(canonical),
           cleanIp,
           createdAt,
           prevHash,

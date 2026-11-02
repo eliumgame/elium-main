@@ -24,7 +24,7 @@ import re
 import sys
 from pathlib import Path
 
-from build_common import CODE_HASH_PLACEHOLDER, compute_code_hash, repo_root
+from build_common import CODE_HASH_PLACEHOLDER, build_runtime_id, compute_code_hash, repo_root
 
 
 def _normalize(version: str) -> tuple[str, str]:
@@ -125,7 +125,7 @@ def main() -> int:
 
     # BUILD_CODE_HASH : calculé après stampage (le calcul normalise déjà __init__.py exclu
     # et la constante elle-même, donc l'ordre n'a pas d'importance).
-    code_hash = compute_code_hash(root)
+    code_hash = compute_code_hash(root, build_runtime_id())
     print(f"BUILD_CODE_HASH : {code_hash}")
     _sub_in_file(
         root / "installer" / "updater.py",

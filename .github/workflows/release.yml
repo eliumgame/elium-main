@@ -288,6 +288,7 @@ jobs:
           cp dist-zips/web.zip dist-zips/web-core.zip dist-zips/assets-*.zip out/
           cp installer/output/*.msi out/
           cp sbom-npm.cdx.json sbom-python.cdx.json out/
+          python -c "import sys; sys.path.insert(0, 'installer'); import updater; print(updater.BUILD_CODE_HASH)" > out/code-hash.txt
           ls -l out
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
@@ -437,6 +438,7 @@ jobs:
                 --web-core out/web-core.zip --assets "$ASSETS_ZIP"
                 --msi "out/Elium-${VER}-Setup.msi" --msi-user "out/Elium-User-${VER}.msi"
                 --server-image "$SERVER_IMAGE" --web-image "$WEB_IMAGE"
+                --code-hash-file out/code-hash.txt
                 --out dist --notes "Elium $VER")
           [ -f dist/changelog.json ] && ARGS+=(--changelog-file dist/changelog.json)
           python installer/gen_manifest.py "${ARGS[@]}"

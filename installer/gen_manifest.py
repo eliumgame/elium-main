@@ -87,11 +87,16 @@ def main() -> int:
     )
     parser.add_argument("--key")
     parser.add_argument("--key-file")
+    parser.add_argument("--code-hash-file", help="Empreinte intégrée à l'exe par le job de build.")
     args = parser.parse_args()
 
     version = args.version.lstrip("vV")
     tag = f"v{version}"
     priv = _load_private_key(args)
+    code_hash = (Path(args.code_hash_file).read_text(encoding="ascii").strip()
+                 if args.code_hash_file else compute_code_hash(repo_root()))
+    if not re.fullmatch(r"[0-9a-f]{64}", code_hash):
+        raise SystemExit("codeHash du build invalide")
 
     changes: list[str] = []
     history: list[dict] = []
@@ -159,7 +164,7 @@ def main() -> int:
         # octets exacts du manifeste reste valide dans les deux cas.
         "commit": args.commit,
         "pubDate": datetime.now(timezone.utc).isoformat(),
-        "codeHash": compute_code_hash(repo_root()),
+        "codeHash": code_hash,
         "notes": args.notes,
         # Images du Drive serveur, épinglées par DIGEST et signées avec le reste du manifeste :
         # install.sh auto-update tire exactement ces images (plus de construction sur le VPS).

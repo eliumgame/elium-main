@@ -17,13 +17,19 @@ Invariants importants :
 from __future__ import annotations
 
 import hashlib
+import importlib.metadata
 import re
+import sys
 from pathlib import Path
 
 CODE_HASH_PLACEHOLDER = "__BUILD_CODE_HASH__"
 
 # Fichiers dont le contenu définit le comportement natif figé dans l'exe.
-_LAUNCHER_FILES = ["installer/elium_launcher.py", "installer/updater.py", "installer/local_files.py"]
+_LAUNCHER_FILES = [
+    "installer/elium_launcher.py", "installer/updater.py", "installer/local_files.py",
+    "installer/changelog.py", "installer/elium.spec",
+    "requirements/runtime.txt", "requirements/build.txt",
+]
 
 # Motif de la constante à neutraliser dans updater.py avant hachage.
 _BUILD_HASH_RE = re.compile(r'^BUILD_CODE_HASH = "[^"]*"', re.MULTILINE)
@@ -58,14 +64,25 @@ def _code_files(root: Path) -> list[Path]:
     return files
 
 
-def compute_code_hash(root: Path | None = None) -> str:
-    """sha256 déterministe des sources Python figées (chemins POSIX triés + contenu normalisé)."""
+def build_runtime_id() -> str:
+    """Identité du runtime et du bootloader utilisés pour construire l'exe."""
+    try:
+        pyinstaller = importlib.metadata.version("pyinstaller")
+    except importlib.metadata.PackageNotFoundError:
+        return ""  # gate sans dépendances : le job build recalcule après installation
+    return f"CPython {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}; PyInstaller {pyinstaller}"
+
+
+def compute_code_hash(root: Path | None = None, runtime_id: str = "") -> str:
+    """sha256 des sources et dépendances figées, avec le runtime du build si fourni."""
     root = root or repo_root()
     entries: list[tuple[str, str]] = []
     for path in _code_files(root):
         rel = path.relative_to(root).as_posix()
         entries.append((rel, hashlib.sha256(_read_normalized(path)).hexdigest()))
     entries.sort()
+    if runtime_id:
+        entries.append(("build-runtime", hashlib.sha256(runtime_id.encode("utf-8")).hexdigest()))
     joined = "\n".join(f"{rel}:{digest}" for rel, digest in entries)
     return hashlib.sha256(joined.encode("utf-8")).hexdigest()
 

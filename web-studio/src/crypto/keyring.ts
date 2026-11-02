@@ -233,8 +233,10 @@ export async function migrateLegacy(
     const publicHex = id.publicKeyHex.toLowerCase();
     const fingerprint = (isHex(id.fingerprint, 64) ? id.fingerprint : await fingerprintOf(publicHex)).toLowerCase();
     const kid = kidOf(fingerprint);
-    if (!existing.has(kid)) {
-      const enc = typeof id.enc === "string" && isHex(id.enc) ? id.enc.toLowerCase() : "";
+    const enc = typeof id.enc === "string" && isHex(id.enc) ? id.enc.toLowerCase() : "";
+    // Miroir d'une clé DÉRIVÉE (enc vide, p. ex. réimporté depuis une sauvegarde d'espace) : aucune clé
+    // privée à migrer. Créer une entrée « password » sans conteneur bloquerait ensuite la vraie restauration.
+    if (!existing.has(kid) && enc) {
       await store.put({
         id: kid,
         type: "identity-ed25519",
@@ -246,7 +248,7 @@ export async function migrateLegacy(
         publicHex,
         fingerprint,
         protection: "password",
-        ...(enc ? { enc } : {}),
+        enc,
       });
       existing.add(kid);
       added++;
@@ -258,8 +260,8 @@ export async function migrateLegacy(
     const publicHex = rc.publicHex.toLowerCase();
     const fingerprint = await recipientFingerprint(publicHex);
     const kid = kidOf(fingerprint);
-    if (!existing.has(kid)) {
-      const enc = typeof rc.enc === "string" && isHex(rc.enc) ? rc.enc.toLowerCase() : "";
+    const enc = typeof rc.enc === "string" && isHex(rc.enc) ? rc.enc.toLowerCase() : "";
+    if (!existing.has(kid) && enc) {
       await store.put({
         id: kid,
         type: "recipient-p256",
@@ -271,7 +273,7 @@ export async function migrateLegacy(
         publicHex,
         fingerprint,
         protection: "password",
-        ...(enc ? { enc } : {}),
+        enc,
       });
       added++;
     }
@@ -488,11 +490,20 @@ export async function generateRecipientKey(
   return { entry, privateHex: d.privateHex };
 }
 
+/**
+ * Entrée « fantôme » : protégée par mot de passe mais SANS conteneur chiffré (créée par une ancienne
+ * migration depuis le miroir d'une clé dérivée). Elle n'apporte aucune clé privée : une restauration
+ * (phrase, .eliumkey) doit la remplacer au lieu de la considérer comme déjà présente.
+ */
+export const isKeylessEntry = (e: Pick<KeyEntry, "protection" | "enc">): boolean =>
+  e.protection === "password" && !e.enc;
+
 /** Importe une clé issue d'une sauvegarde / d'un import brut (protection « password » : conteneur fourni). */
 export async function importKey(store: KeyringStore, entry: KeyEntry): Promise<"added" | "exists"> {
   const all = await store.getAll();
-  if (all.some((e) => e.id === entry.id)) return "exists";
-  await store.put(entry);
+  const cur = all.find((e) => e.id === entry.id);
+  if (cur && !(isKeylessEntry(cur) && !isKeylessEntry(entry))) return "exists";
+  await store.put(cur ? { ...entry, status: cur.status } : entry);
   return "added";
 }
 

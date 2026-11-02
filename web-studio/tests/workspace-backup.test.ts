@@ -167,6 +167,26 @@ describe("sauvegarde : aller-retour complet", () => {
     expect(SECRET_KEYS).toContain("elium_identity");
   });
 
+  it("les révocations du carnet de confiance font l'aller-retour avec les secrets", async () => {
+    const a = machine();
+    await seed(a);
+    const revocations = JSON.stringify([{ publicKeyHex: "ab".repeat(32), reason: "compromise", at: "2026-10-01" }]);
+    a.store.set("elium_trust_revocations", revocations);
+    const back = await openBackup(
+      await packBackup(await collectSnapshot(a.deps, { includeSecrets: true }), { includeSecrets: true }),
+    );
+    expect(back.snapshot.secrets["elium_trust_revocations"]).toBe(revocations);
+    const b = machine();
+    await restoreSnapshot(b.deps, back.snapshot, planBackupRestore([], [], back.snapshot, "skip"), {
+      applySettings: false,
+      applySecrets: true,
+    });
+    expect(b.store.get("elium_trust_revocations")).toBe(revocations);
+    // Sans les secrets, rien ne part.
+    const plain = await collectSnapshot(a.deps, { includeSecrets: false });
+    expect(plain.secrets).toEqual({});
+  });
+
   it("chiffrement par mot de passe : illisible sans lui, mauvais mot de passe refusé", async () => {
     const a = machine();
     await seed(a);

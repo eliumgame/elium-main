@@ -246,21 +246,35 @@ export async function syncOnce(
   }
   if (opts.only && !opts.piecesToo) return finish(env, report);
   // Index et réglages (petits : comparés par empreinte).
-  const meta = {
-    folders,
-    items: items.map((i) => ({ ...i, locked: undefined })),
-    createdAt: nowIso(env),
-    appVersion: env.appVersion,
-  };
-  await putPiece(
-    env,
-    folderId,
-    INDEX_FILE,
-    "index",
-    strToU8(JSON.stringify(meta)),
-    hashString(JSON.stringify({ folders, items: items.map(({ lastOpenedAt: _o, ...rest }) => (void _o, rest)) })),
-    report,
+  const indexSig = hashString(
+    JSON.stringify({ folders, items: items.map(({ lastOpenedAt: _o, ...rest }) => (void _o, rest)) }),
   );
+  if (env.store.load().pieces.index?.sig !== indexSig) {
+    // Plusieurs appareils : l'index du Drive peut porter des éléments envoyés par un autre appareil.
+    // On le relit et on garde ce que cet appareil ne connaît pas (et n'a pas supprimé) au lieu de l'écraser.
+    const localDeleted = Object.keys(env.store.load().items).filter((id) => !items.some((i) => i.id === id));
+    let remoteIdx: RawIndex | null = null;
+    const known = env.store.load().pieces.index;
+    if (known?.node) {
+      try {
+        remoteIdx = JSON.parse(
+          strFromU8(await env.remote.download({ id: known.node, name: INDEX_FILE, modifiedAt: "" })),
+        ) as RawIndex;
+      } catch {
+        throw new Error(
+          "Impossible de lire l'index distant : sauvegarde suspendue pour préserver les autres appareils.",
+        );
+      }
+    }
+    const merged = mergeIndex(
+      items.map((i) => ({ ...i, locked: undefined })),
+      folders,
+      localDeleted,
+      remoteIdx,
+    );
+    const meta = { ...merged, createdAt: nowIso(env), appVersion: env.appVersion };
+    await putPiece(env, folderId, INDEX_FILE, "index", strToU8(JSON.stringify(meta)), indexSig, report);
+  }
   const settings = pickKeys(
     Object.fromEntries(SYNC_SETTINGS_KEYS.map((k) => [k, env.deps.storage.get(k)])),
     SYNC_SETTINGS_KEYS,
@@ -332,6 +346,105 @@ async function putPiece(
   report.pieces++;
 }
 
+// --- Index partagé entre appareils -----------------------------------------------------------------
+
+export interface RawIndex {
+  items?: unknown[];
+  folders?: unknown[];
+  /** Éléments supprimés définitivement (pierres tombales) : ni fusionnés, ni reconstruits. */
+  deleted?: unknown[];
+  createdAt?: string;
+}
+
+const MAX_TOMBSTONES = 5000;
+
+/**
+ * Index à publier : le catalogue local, plus les éléments (et leurs dossiers) que l'index distant porte
+ * et que cet appareil ne connaît pas — envoyés par un autre appareil. Un élément supprimé ici
+ * (`localDeleted` : déjà synchronisé, absent du catalogue) n'est pas réintroduit et devient une pierre tombale.
+ */
+export function mergeIndex(
+  localItems: WorkItem[],
+  localFolders: WorkFolder[],
+  localDeleted: string[],
+  remote: RawIndex | null,
+): { items: WorkItem[]; folders: WorkFolder[]; deleted: string[] } {
+  const localIds = new Set(localItems.map((i) => i.id));
+  const remoteDeleted = Array.isArray(remote?.deleted)
+    ? remote.deleted.filter((x): x is string => typeof x === "string")
+    : [];
+  // Un élément présent ici l'emporte sur une suppression faite ailleurs (rien n'est perdu).
+  const deleted = [...new Set([...remoteDeleted, ...localDeleted])].filter((id) => !localIds.has(id));
+  const gone = new Set(deleted);
+  const extra = (Array.isArray(remote?.items) ? remote.items : [])
+    .map(cleanItem)
+    .filter((x): x is WorkItem => !!x && !localIds.has(x.id) && !gone.has(x.id));
+  const folderIds = new Set(localFolders.map((f) => f.id));
+  const remoteFolders = new Map(
+    (Array.isArray(remote?.folders) ? remote.folders : [])
+      .map(cleanFolder)
+      .filter((f): f is WorkFolder => !!f)
+      .map((f) => [f.id, f]),
+  );
+  const extraFolders: WorkFolder[] = [];
+  const addFolder = (id: string | null | undefined) => {
+    while (id && !folderIds.has(id)) {
+      const f = remoteFolders.get(id);
+      if (!f) return;
+      folderIds.add(id);
+      extraFolders.push(f);
+      id = f.parentId;
+    }
+  };
+  for (const i of extra) addFolder(i.folderId);
+  return {
+    items: [...localItems, ...extra],
+    folders: [...localFolders, ...extraFolders],
+    deleted: deleted.slice(-MAX_TOMBSTONES),
+  };
+}
+
+const KIND_OF_STORE: Record<ContentStoreId, WorkItem["kind"]> = {
+  drive: "doc",
+  sheets: "sheet",
+  slides: "slides",
+  pdfs: "pdf",
+};
+
+/**
+ * Fichiers d'éléments présents dans le dossier mais absents de l'index (index écrasé par un autre
+ * appareil) : reconstruits depuis leur nom `Titre [id].ext`. Seulement pour un index qui tient ses
+ * pierres tombales (sinon un élément supprimé reviendrait).
+ */
+export function orphanItems(entries: RemoteEntry[], index: RawIndex, indexed: Set<string>): WorkItem[] {
+  if (!Array.isArray(index.deleted)) return [];
+  const gone = new Set(index.deleted.filter((x): x is string => typeof x === "string"));
+  const out: WorkItem[] = [];
+  for (const e of entries) {
+    const id = itemIdFromName(e.name);
+    if (!id || indexed.has(id) || gone.has(id)) continue;
+    const store = (Object.keys(EXT) as ContentStoreId[]).find((s) => e.name.endsWith(` [${id}]${EXT[s]}`));
+    if (!store) continue;
+    const title = e.name.slice(0, e.name.length - ` [${id}]${EXT[store]}`.length) || "Sans titre";
+    const at = !Number.isNaN(Date.parse(e.modifiedAt)) ? e.modifiedAt : new Date(0).toISOString();
+    out.push({
+      id,
+      kind: KIND_OF_STORE[store],
+      contentStore: store,
+      title,
+      size: 0,
+      createdAt: at,
+      modifiedAt: at,
+      folderId: null,
+      tags: [],
+      starred: false,
+      vaultProtected: false,
+    });
+    indexed.add(id);
+  }
+  return out;
+}
+
 // --- Détection et restauration ---------------------------------------------------------------------
 
 export interface RemoteProbe {
@@ -351,13 +464,10 @@ export async function probeRemote(env: SyncEnv): Promise<RemoteProbe> {
     const entries = await env.remote.list(folderId);
     const idx = entries.find((e) => e.name === INDEX_FILE);
     if (idx) {
-      const raw = JSON.parse(strFromU8(await env.remote.download(idx))) as {
-        items?: unknown[];
-        folders?: unknown[];
-        createdAt?: string;
-      };
+      const raw = JSON.parse(strFromU8(await env.remote.download(idx))) as RawIndex;
       const present = new Set(entries.map((e) => itemIdFromName(e.name)).filter((x): x is string => !!x));
-      const items = (raw.items ?? []).map(cleanItem).filter((x): x is WorkItem => !!x && present.has(x.id));
+      const listed = (raw.items ?? []).map(cleanItem).filter((x): x is WorkItem => !!x && present.has(x.id));
+      const items = [...listed, ...orphanItems(entries, raw, new Set(listed.map((i) => i.id)))];
       const folders = (raw.folders ?? []).map(cleanFolder).filter((x): x is WorkFolder => !!x);
       return { kind: "incremental", folderId, entries, items, folders, createdAt: raw.createdAt };
     }

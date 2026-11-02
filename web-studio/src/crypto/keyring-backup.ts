@@ -8,6 +8,7 @@ import {
   getMasterRecord,
   importKey,
   installMaster,
+  isKeylessEntry,
   kidOf,
   markBackedUp,
   toBundleMeta,
@@ -124,13 +125,14 @@ export async function restoreFromMaster(
   now: Date = new Date(),
 ): Promise<{ record: MasterRecord; restored: string[] }> {
   const record = await installMaster(store, master, password, { ed: RESTORE_SCAN_COUNT, p256: RESTORE_SCAN_COUNT });
-  const existingIds = new Set((await store.getAll()).map((e) => e.id));
+  // Une entrée fantôme (mot de passe sans conteneur) n'est pas une clé : la clé dérivée la remplace.
+  const existingIds = new Set((await store.getAll()).filter((e) => !isKeylessEntry(e)).map((e) => e.id));
   const restored: string[] = [];
   for (let i = 0; i < RESTORE_SCAN_COUNT; i++) {
     const ed = await deriveEd25519(master, i);
     const edFpr = await fingerprintOf(ed.publicKeyHex);
     if (!existingIds.has(kidOf(edFpr))) {
-      await store.put({
+      await importKey(store, {
         id: kidOf(edFpr),
         type: "identity-ed25519",
         suite: KEY_SUITES["identity-ed25519"],
@@ -149,7 +151,7 @@ export async function restoreFromMaster(
     const p = await deriveP256(master, i);
     const pFpr = await recipientFingerprint(p.publicHex);
     if (!existingIds.has(kidOf(pFpr))) {
-      await store.put({
+      await importKey(store, {
         id: kidOf(pFpr),
         type: "recipient-p256",
         suite: KEY_SUITES["recipient-p256"],

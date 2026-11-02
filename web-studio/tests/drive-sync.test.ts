@@ -270,6 +270,77 @@ describe("sauvegarde incrémentale", () => {
   });
 });
 
+describe("plusieurs appareils : l'index n'est plus écrasé", () => {
+  const indexOf = (drive: ReturnType<typeof memoryDrive>) =>
+    JSON.parse(dec([...drive.files.values()].find((f) => f.entry.name === "_index.json")!.bytes)!) as {
+      items: { id: string }[];
+      deleted?: string[];
+    };
+
+  async function twoDevices() {
+    const drive = memoryDrive();
+    const a = device(drive);
+    markReady(a.env);
+    await a.catalog.upsertItems([item("base")]);
+    a.contents.drive.map.set("base", enc("b"));
+    await syncOnce(a.env);
+    const b = device(drive);
+    await restoreIncremental(b.env, await probeRemote(b.env), "keep_both");
+    return { drive, a, b };
+  }
+
+  it("A crée X, B (qui ne relit pas) crée Y : l'index garde X et Y, un appareil neuf restaure les deux", async () => {
+    const { drive, a, b } = await twoDevices();
+    await a.catalog.upsertItems([item("X")]);
+    a.contents.drive.map.set("X", enc("x"));
+    await syncOnce(a.env);
+    await b.catalog.upsertItems([item("Y")]);
+    b.contents.drive.map.set("Y", enc("y"));
+    await syncOnce(b.env);
+    expect(
+      indexOf(drive)
+        .items.map((i) => i.id)
+        .sort(),
+    ).toEqual(["X", "Y", "base"]);
+    const c = device(drive);
+    const probe = await probeRemote(c.env);
+    expect(probe.items.map((i) => i.id).sort()).toEqual(["X", "Y", "base"]);
+  });
+
+  it("une suppression n'est pas annulée par la fusion ni par la reconstruction des orphelins", async () => {
+    const { drive, a, b } = await twoDevices();
+    await a.catalog.removeItems(["base"]);
+    await a.catalog.upsertItems([item("X")]);
+    a.contents.drive.map.set("X", enc("x"));
+    await syncOnce(a.env);
+    expect(indexOf(drive).deleted).toEqual(["base"]);
+    // B, resté sur l'ancien index, modifie autre chose : « base » ne revient pas, X est conservé.
+    await b.catalog.upsertItems([item("Y")]);
+    b.contents.drive.map.set("Y", enc("y"));
+    await b.catalog.removeItems(["base"]);
+    await syncOnce(b.env);
+    const c = device(drive);
+    expect((await probeRemote(c.env)).items.map((i) => i.id).sort()).toEqual(["X", "Y"]);
+  });
+
+  it("fichier présent mais absent de l'index (écrasé par une ancienne version) : reconstruit depuis son nom", async () => {
+    const drive = memoryDrive();
+    const a = device(drive);
+    markReady(a.env);
+    await a.catalog.upsertItems([item("X", { title: "Rapport", kind: "sheet", contentStore: "sheets" })]);
+    a.contents.sheets.map.set("X", enc("{}"));
+    await syncOnce(a.env);
+    const idx = [...drive.files.values()].find((f) => f.entry.name === "_index.json")!;
+    idx.bytes = enc(JSON.stringify({ items: [], folders: [], deleted: [] }));
+    const probe = await probeRemote(device(drive).env);
+    expect(probe.items).toHaveLength(1);
+    expect(probe.items[0]).toMatchObject({ id: "X", title: "Rapport", kind: "sheet", contentStore: "sheets" });
+    // Index d'une ancienne version (sans pierres tombales) : pas de reconstruction (un supprimé reviendrait).
+    idx.bytes = enc(JSON.stringify({ items: [], folders: [] }));
+    expect((await probeRemote(device(drive).env)).items).toHaveLength(0);
+  });
+});
+
 describe("pièces annexes : encodage et fusion", () => {
   it("aller-retour binaire sans perte (Uint8Array, Blob, imbriqués)", async () => {
     const bytes = new Uint8Array([0, 1, 2, 250, 255]);

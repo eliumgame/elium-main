@@ -28,8 +28,18 @@ export const SETTINGS_KEYS = [
   "elium_recent_commands",
 ] as const;
 
-/** Clés sensibles : identité de signature chiffrée, clé de réception, carnet de confiance, sceaux épinglés. Sur demande seulement. */
-export const SECRET_KEYS = ["elium_identity", "elium_recipient_key", "elium_trust_book", "elium_seal_pins"] as const;
+/**
+ * Clés sensibles : identité de signature chiffrée, clé de réception, carnet de confiance (contacts ET
+ * révocations — sans elles, une clé déclarée compromise redeviendrait un contact nommé), sceaux épinglés.
+ * Sur demande seulement.
+ */
+export const SECRET_KEYS = [
+  "elium_identity",
+  "elium_recipient_key",
+  "elium_trust_book",
+  "elium_trust_revocations",
+  "elium_seal_pins",
+] as const;
 
 export interface BackupManifest {
   format: typeof BACKUP_FORMAT;

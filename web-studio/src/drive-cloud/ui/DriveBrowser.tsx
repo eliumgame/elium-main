@@ -77,6 +77,7 @@ import {
   type ViewMode,
 } from "../browser-model";
 import { moveWithKeyShares } from "../move";
+import { repairInterruptedRotation } from "../rotate";
 import ShareDialog from "./ShareDialog";
 import SignRequestDialog from "./SignRequestDialog";
 import CollabDocEditor from "./CollabDocEditor";
@@ -539,6 +540,9 @@ export default function DriveBrowser() {
   };
 
   const open = (e: DriveEntry) => {
+    // Rotation de clé interrompue sur ce fichier (versions ou journal collab encore sous l'ancienne clé) :
+    // on la termine maintenant, en tâche de fond, au lieu d'attendre la révocation suivante.
+    if (ctx && e.kind === "file" && e.prevKeyWrapped) void repairInterruptedRotation(ctx, e).catch(() => undefined);
     if (e.kind === "folder") {
       setPath((p) => [...p, { id: e.id, name: e.name }]);
       setSelection([]);

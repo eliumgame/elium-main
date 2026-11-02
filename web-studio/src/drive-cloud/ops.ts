@@ -371,11 +371,35 @@ export async function renameNode(ctx: OpsCtx, entry: DriveEntry, newName: string
   await ctx.api.patchNode(entry.id, { nameEncrypted: enc.nameEncrypted, nameNonce: enc.nameNonce });
 }
 
+/**
+ * Déchiffre un blob du nœud avec sa clé courante, puis — rotation interrompue avant le ré-chiffrement
+ * de ce blob — avec la clé précédente (fente `prevKeyWrapped`, elle-même chiffrée sous la courante).
+ */
+export async function decryptNodeBlob(
+  key: Uint8Array,
+  entry: Pick<NodeMeta, "prevKeyWrapped" | "prevKeyNonce">,
+  nonceHex: string,
+  bytes: Uint8Array,
+): Promise<Uint8Array> {
+  try {
+    return await decryptContent(key, nonceHex, bytes);
+  } catch (e) {
+    if (!entry.prevKeyWrapped || !entry.prevKeyNonce) throw e;
+    let prev: Uint8Array;
+    try {
+      prev = await decryptContent(key, entry.prevKeyNonce, fromHex(entry.prevKeyWrapped));
+    } catch {
+      throw e;
+    }
+    return await decryptContent(prev, nonceHex, bytes);
+  }
+}
+
 export async function downloadFile(ctx: OpsCtx, entry: DriveEntry): Promise<{ bytes: Uint8Array; name: string }> {
   const key = await nodeKeyFrom(ctx, entry.myWrappedKey);
   if (!key) throw new Error("Clé du nœud indisponible.");
   const { bytes, nonceHex } = await ctx.api.getContent(entry.id);
-  const plain = await decryptContent(key, nonceHex, bytes);
+  const plain = await decryptNodeBlob(key, entry, nonceHex, bytes);
   return { bytes: plain, name: entry.name };
 }
 
@@ -458,7 +482,7 @@ export async function downloadVersion(
   const key = await nodeKeyFrom(ctx, entry.myWrappedKey);
   if (!key) throw new Error("Clé du nœud indisponible.");
   const { bytes, nonceHex } = await ctx.api.getVersionContent(entry.id, versionId);
-  return { bytes: await decryptContent(key, nonceHex, bytes), name: entry.name };
+  return { bytes: await decryptNodeBlob(key, entry, nonceHex, bytes), name: entry.name };
 }
 
 /** Resolve a public share link and decrypt its name (+ content if a file). */
@@ -560,7 +584,7 @@ export async function loadEliumFile(
   if (!key) return null;
   try {
     const { bytes, nonceHex } = await ctx.api.getContent(entry.id);
-    const plaintext = await decryptContent(key, nonceHex, bytes);
+    const plaintext = await decryptNodeBlob(key, entry, nonceHex, bytes);
     const { file } = await readEliumPackage(plaintext, {});
     return { file, nodeKey: key };
   } catch {

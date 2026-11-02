@@ -23,6 +23,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Readable } from "node:stream";
 import { z } from "zod";
+import { LIVE_SHARE_POLICY } from "../lib/live-share-policy.js";
 import { query, queryOne, withTx } from "../db/pool.js";
 import { authenticate, requireUser, requireNodePerm } from "../middleware/auth.js";
 import { badRequest, notFound, conflict, tooLarge, insufficientStorage } from "../lib/errors.js";
@@ -305,7 +306,7 @@ export default async function signingRoutes(app: FastifyInstance): Promise<void>
            JOIN nodes n ON n.id = sl.node_id
            LEFT JOIN signature_request_parties p ON p.link_id = sl.id
            LEFT JOIN signature_requests sr ON sr.id = p.request_id
-          WHERE sl.token_hash = $1`,
+          WHERE sl.token_hash = $1 AND ${LIVE_SHARE_POLICY}`,
         [sha256Hex(token)],
       );
       if (!link || link.revoked_at) throw notFound("Lien introuvable, révoqué ou expiré.");
@@ -477,7 +478,7 @@ export default async function signingRoutes(app: FastifyInstance): Promise<void>
            FROM share_links sl
            JOIN nodes n ON n.id = sl.node_id
            LEFT JOIN signature_request_parties p ON p.link_id = sl.id
-          WHERE sl.token_hash = $1`,
+          WHERE sl.token_hash = $1 AND ${LIVE_SHARE_POLICY}`,
       [sha256Hex(token)],
     );
     if (!link || link.revoked_at) throw notFound("Lien introuvable, révoqué ou expiré.");

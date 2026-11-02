@@ -22,6 +22,7 @@ import { sha256Hex, randomToken } from "../lib/crypto-server.js";
 import { storage } from "../storage/adapter.js";
 import { audit } from "../lib/audit.js";
 import { kickRoom } from "../collab/relay.js";
+import { LIVE_SHARE_POLICY } from "../lib/live-share-policy.js";
 
 const envelope = z.record(z.string(), z.unknown()); // recipients envelope (opaque)
 
@@ -103,7 +104,10 @@ async function resolveLink(token: string) {
        FROM share_links sl
        JOIN roles r ON r.id = sl.role_id
        JOIN nodes n ON n.id = sl.node_id
-      WHERE sl.token_hash = $1`,
+       JOIN users creator ON creator.id = sl.created_by AND creator.status = 'active'
+       JOIN memberships creator_membership ON creator_membership.org_id = n.org_id
+         AND creator_membership.user_id = creator.id AND creator_membership.status = 'active'
+      WHERE sl.token_hash = $1 AND ${LIVE_SHARE_POLICY}`,
     [tokenHash],
   );
   if (!row) return null;

@@ -246,6 +246,22 @@ def test_doc_sign_reseal_covers_enriched_journal(tmp_path):
     assert _types(result) == ["document.created", "signature.added", "document.modified"]
 
 
+def test_doc_sign_preserves_access_expiry(tmp_path):
+    identity = generate_identity()
+    model = create_document_model(text_to_doc("Contrat"))
+    doc = tmp_path / "expiring.elium"
+    key = tmp_path / "seal.hex"
+    key.write_text(identity["privateKeyHex"], encoding="utf-8")
+    expiry = "2099-01-01T00:00:00Z"
+    doc.write_bytes(write_elium(model, profile="signed", title="Expiring",
+                               access_expires_at=expiry,
+                               seal_private_key_hex=identity["privateKeyHex"]))
+    run("doc-sign", str(doc), "--key", str(key), "--name", "Bob", "--seal-key", str(key))
+    result = read_elium(doc.read_bytes())
+    assert result["manifest"]["accessExpiresAt"] == expiry
+    assert result["seal"]["verdict"] == "valid"
+
+
 def test_doc_open_text_prints_content(tmp_path, capsys):
     src = tmp_path / "o.txt"
     src.write_text("Contenu visible ici", encoding="utf-8")

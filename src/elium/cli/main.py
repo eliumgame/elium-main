@@ -364,6 +364,7 @@ def cmd_doc_sign(args: argparse.Namespace) -> None:
         parapheur=result["parapheur"],
         created_at=manifest.get("createdAt"),
         doc_id=manifest.get("docId"),
+        access_expires_at=manifest.get("accessExpiresAt"),
         password=password,
         keyfile=keyfile,
         encrypt_metadata=secure_meta,

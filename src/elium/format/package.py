@@ -136,6 +136,7 @@ def _build_manifest(
     recipient_fprs: list[str] | None = None,
     doc_id: str | None = None,
     parapheur: dict | None = None,
+    access_expires_at: str | None = None,
 ) -> dict[str, Any]:
     p = PROFILES[profile]
     protection = {
@@ -150,7 +151,7 @@ def _build_manifest(
         # Only the fingerprints are stored in the clear; the wrapped keys live in
         # the recipients envelope inside the encrypted content entry.
         protection["recipients"] = recipient_fprs
-    return {
+    manifest = {
         "format": ELIUM_FORMAT,
         "formatVersion": ELIUM_FORMAT_VERSION,
         "profile": profile,
@@ -175,6 +176,9 @@ def _build_manifest(
             "notice": _RGPD_NOTICE,
         },
     }
+    if access_expires_at:
+        manifest["accessExpiresAt"] = access_expires_at
+    return manifest
 
 
 def write_elium(
@@ -190,6 +194,7 @@ def write_elium(
     parapheur: dict | None = None,
     created_at: str | None = None,
     doc_id: str | None = None,
+    access_expires_at: str | None = None,
     password: str | None = None,
     keyfile: bytes | None = None,
     recipients: list[str] | None = None,
@@ -291,6 +296,7 @@ def write_elium(
         recipient_fprs=recipient_fprs,
         doc_id=doc_id,
         parapheur=clear_parapheur,
+        access_expires_at=access_expires_at,
     )
 
     # Optional cryptographic seal: one Ed25519 anchor over the integrity-critical

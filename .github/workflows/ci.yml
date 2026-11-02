@@ -107,8 +107,8 @@ jobs:
       run: npm run test:browser
     - name: Audit dépendances de production
       working-directory: ./web-studio
-      # Même exigence que `npm audit --audit-level=high`, sauf les exceptions datées et
-      # justifiées de scripts/audit-gate.mjs (node-forge : aucun correctif publié).
+      # Même exigence que `npm audit --audit-level=high`, avec exceptions datées
+      # et justifiées dans scripts/audit-gate.mjs.
       run: node scripts/audit-gate.mjs
 
   server-checks:
@@ -178,3 +178,15 @@ jobs:
     - name: Run collaborative Tableur E2E (embedded Postgres, real WS relay, 2 clients)
       working-directory: ./web-studio
       run: npm run test:e2e:sheet
+    - name: Run owner portal security E2E
+      working-directory: ./web-studio
+      run: npm run test:e2e:portal
+    - name: Install Chromium for login and Drive E2E
+      working-directory: ./web-studio
+      run: npx playwright install --with-deps chromium
+    - name: Run login security journeys
+      working-directory: ./web-studio
+      run: npm run test:e2e:login
+    - name: Run Drive permissions journeys
+      working-directory: ./web-studio
+      run: npm run test:e2e:drive

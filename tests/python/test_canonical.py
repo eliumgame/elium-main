@@ -66,3 +66,9 @@ def test_now_iso_format_and_freshness():
     # struct_time as UTC, matching what strptime produced from a "Z"-suffixed string.
     parsed = time.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
     assert abs(calendar.timegm(parsed) - calendar.timegm(time.gmtime())) < 5
+def test_ecmascript_number_formatting():
+    from elium.format.canonical import canonical_json
+
+    assert canonical_json({"a": 5e-5, "b": 1e16, "c": 1.5e-7, "d": -0.0}) == (
+        '{"a":0.00005,"b":10000000000000000,"c":1.5e-7,"d":0}'
+    )

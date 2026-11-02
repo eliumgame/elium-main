@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import time
+from decimal import Decimal
 from typing import Any
 
 ZERO_HASH = "0" * 64
@@ -20,9 +22,28 @@ def canonical_json(value: Any) -> str:
     non-standard tokens `NaN`/`Infinity`, invalid JSON and divergent from the TS
     `canonicalJSON`, which throws on non-finite numbers) → parité + pas de hash
     de sceau/journal silencieusement corrompu."""
-    return json.dumps(
-        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
-    )
+    def encode(item: Any) -> str:
+        if isinstance(item, float):
+            if not math.isfinite(item):
+                raise ValueError("Non-finite number in canonical JSON")
+            if item == 0:
+                return "0"
+            magnitude = abs(item)
+            shortest = repr(item)
+            if 1e-6 <= magnitude < 1e21:
+                return format(Decimal(shortest), "f").removesuffix(".0")
+            coefficient, exponent = shortest.lower().split("e") if "e" in shortest.lower() else (shortest, "0")
+            return f"{coefficient.removesuffix('.0')}e{int(exponent):+d}" if int(exponent) >= 0 else f"{coefficient.removesuffix('.0')}e{int(exponent)}"
+        if isinstance(item, dict):
+            return "{" + ",".join(
+                json.dumps(k, ensure_ascii=False) + ":" + encode(v)
+                for k, v in sorted(item.items())
+            ) + "}"
+        if isinstance(item, (list, tuple)):
+            return "[" + ",".join(encode(v) for v in item) + "]"
+        return json.dumps(item, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+
+    return encode(value)
 
 
 def sha256_hex(data: bytes | str) -> str:

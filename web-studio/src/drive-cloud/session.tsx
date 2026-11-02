@@ -87,7 +87,12 @@ export interface DriveSession {
    *  (issue de l'enrôlement). Renvoie false si l'authentificateur n'a pas PRF. */
   enrollPasskeyUnlock: (credentialId: string | null) => Promise<boolean>;
   /** Change le mot de passe (ré-enveloppe le paquet de clés, révoque les autres sessions). */
-  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  /** `secondFactor` : obligatoire si le compte a une 2FA (le serveur répond sinon 403 `mfa_code_required`). */
+  changePassword: (
+    currentPassword: string,
+    newPassword: string,
+    secondFactor?: { code?: string; webauthn?: unknown },
+  ) => Promise<void>;
   /** Désactive (oublie localement) le déverrouillage par clé d'accès. */
   disablePasskeyUnlock: () => void;
   /** Vrai si une clé d'accès peut déverrouiller la session actuellement verrouillée. */
@@ -574,7 +579,7 @@ export function DriveProvider({ children }: { children: ReactNode }) {
   // d'authentification, révoque les autres sessions. Une enveloppe passkey (PRF)
   // contenait l'ANCIENNE masterKey : on l'oublie (à ré-enrôler).
   const changePassword = useCallback(
-    async (currentPassword: string, newPassword: string) => {
+    async (currentPassword: string, newPassword: string, secondFactor?: { code?: string; webauthn?: unknown }) => {
       const snap = snapshotRef.current;
       if (!snap || !keys || !user) throw new Error("Session verrouillée : déverrouillez d'abord.");
       setBusy(true);
@@ -590,7 +595,7 @@ export function DriveProvider({ children }: { children: ReactNode }) {
           keys,
           newPassword,
         });
-        const res = await api.changePassword({ challengeId, ...change.request });
+        const res = await api.changePassword({ challengeId, ...change.request, ...(secondFactor ?? {}) });
         api.setTokens({
           accessToken: res.accessToken,
           accessTokenExpiresAt: res.accessTokenExpiresAt,

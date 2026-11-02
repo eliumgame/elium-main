@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { KeyRound, Check } from "lucide-react";
 import { useDrive } from "../session";
+import { ApiError } from "../api";
+import { useDialogs } from "../../ui/dialogs";
 import { reportError } from "../../ui/crash-log";
 
 /** Valide le formulaire (pur, testé) ; renvoie un message d'erreur FR ou null. */
@@ -20,6 +22,7 @@ export function validatePasswordChange(current: string, next: string, confirm: s
  */
 export default function ChangePasswordSection() {
   const d = useDrive();
+  const dialogs = useDialogs();
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -34,7 +37,37 @@ export default function ChangePasswordSection() {
     setBusy(true);
     setErr(null);
     try {
-      await d.changePassword(current, next);
+      try {
+        await d.changePassword(current, next);
+      } catch (e) {
+        // Compte avec 2FA : le serveur exige aussi un second facteur frais (audit A1).
+        if (!(e instanceof ApiError && e.code === "mfa_code_required")) throw e;
+        const methods = (e.details as { methods?: { totp?: boolean; webauthn?: boolean } } | undefined)?.methods;
+        let second: { code?: string; webauthn?: unknown } | null = null;
+        if (methods?.webauthn) {
+          try {
+            const { startAuthentication } = await import("@simplewebauthn/browser");
+            const options = await d.api.webauthnReauthOptions();
+            second = { webauthn: await startAuthentication({ optionsJSON: options as never }) };
+          } catch {
+            second = null; // annulée : repli sur le code si le compte a un TOTP
+          }
+        }
+        if (!second && methods?.totp) {
+          const c = await dialogs.prompt({
+            title: "Code de vérification",
+            label: "Code de votre application (ou code de secours)",
+            placeholder: "123456",
+            confirmLabel: "Confirmer",
+          });
+          if (c) second = { code: c.trim() };
+        }
+        if (!second) {
+          setErr("Changement annulé : un code de vérification est nécessaire.");
+          return;
+        }
+        await d.changePassword(current, next, second);
+      }
       setCurrent("");
       setNext("");
       setConfirm("");

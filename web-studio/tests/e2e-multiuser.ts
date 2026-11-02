@@ -1299,15 +1299,13 @@ async function main(): Promise<void> {
     const pfDan = await dan.api.deletionPreflight();
     ok("RGPD : preflight autorise le propriétaire d'une org solo", pfDan.canDelete === true);
 
-    const preDan = await new DriveApi({ baseUrl: base }).prelogin(dan.user.email);
-    const danSeed = (await prepareLogin(dan.password, preDan.kdfSalt, preDan.kdfParams as KdfParams)).authSignSeedHex;
+    // Audit A1 : plus de preuve statique rejouable — une ré-authentification fraîche est exigée.
     await expectStatus(
-      "RGPD : preuve invalide refusée (400)",
-      dan.api.deleteMyAccount(await signLoginChallenge("elium:delete-account:mauvais", danSeed)),
-      400,
+      "RGPD : jeton de ré-authentification invalide refusé (403)",
+      dan.api.deleteMyAccount("x".repeat(40)),
+      403,
     );
-    const proof = await signLoginChallenge(`elium:delete-account:${dan.user.email.toLowerCase()}`, danSeed);
-    const delRes = await dan.api.deleteMyAccount(proof);
+    const delRes = await dan.api.deleteMyAccount(await reauthenticate(dan.api, dan.user.email, dan.password));
     ok("RGPD : compte supprimé + org solo supprimée", delRes.ok === true && delRes.deletedOrgs === 1);
     let danLoginFailed = false;
     try {

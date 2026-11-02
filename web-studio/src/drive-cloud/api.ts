@@ -331,7 +331,7 @@ export class DriveApi {
     });
   }
   /** Authenticated: re-wrap the key bundle under a new password (see account.buildPasswordChange). */
-  changePassword(body: { challengeId: string } & PasswordChange["request"]) {
+  changePassword(body: { challengeId: string; code?: string; webauthn?: unknown } & PasswordChange["request"]) {
     return this.json<{ ok: true } & Tokens>("POST", "/auth/change-password", { body });
   }
   /** Third step when MFA is enabled: prove the TOTP / backup code. */
@@ -616,9 +616,11 @@ export class DriveApi {
     }>("GET", `/users/me/deletion-preflight`);
   }
   /** Erase my account. `proof` = Ed25519 signature over "elium:delete-account:<email>". */
-  deleteMyAccount(proof: string) {
+  /** Suppression du compte : exige un jeton de ré-authentification (mot de passe + 2FA, voir `reauth`). */
+  deleteMyAccount(reauthToken: string) {
     return this.json<{ ok: boolean; deletedOrgs: number; transferredNodes: number }>("DELETE", `/users/me`, {
-      body: { proof },
+      body: {},
+      headers: reauthHeader(reauthToken),
     });
   }
   /** Transfer org ownership to another active member (current owner only). */

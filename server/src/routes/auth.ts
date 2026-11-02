@@ -145,6 +145,10 @@ const changePasswordSchema = z.object({
   newKdfSalt: z.string().min(8).max(256),
   newKdfParams: kdfParamsSchema,
   newKeyBundle: z.record(z.string(), z.unknown()),
+  /** Second facteur frais (obligatoire si le compte en a un) : code TOTP / de secours… */
+  code: z.string().max(32).optional(),
+  /** …ou assertion WebAuthn (options via /reauth/webauthn-options). */
+  webauthn: z.record(z.string(), z.unknown()).optional(),
 });
 
 function userDto(u: {
@@ -747,6 +751,37 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
+  /**
+   * Second facteur FRAIS exigé dès que le compte en a un : code TOTP / de secours ou assertion
+   * WebAuthn fournis dans la requête. Sans eux : 403 `mfa_code_required` (avec les méthodes
+   * disponibles) ; faux : 401 + audit `deniedAction`. À n'appeler qu'APRÈS la preuve du mot de
+   * passe, pour qu'un jeton volé seul ne puisse pas épuiser le verrouillage du second facteur.
+   */
+  async function assertFreshSecondFactor(
+    userId: string,
+    mfaEnabled: boolean,
+    b: { code?: string | undefined; webauthn?: Record<string, unknown> | undefined },
+    ip: string,
+    deniedAction: string,
+  ): Promise<void> {
+    const webauthn = await hasWebauthn(userId);
+    if (!mfaEnabled && !webauthn) return;
+    let secondOk = false;
+    if (b.webauthn && webauthn) {
+      secondOk = await verifyAuthentication(userId, b.webauthn as never);
+    } else if (b.code && mfaEnabled) {
+      secondOk = await verifySecondFactor(userId, b.code, ip);
+    } else {
+      throw new ApiError(403, "mfa_code_required", "Saisissez aussi un code de vérification.", {
+        methods: { totp: mfaEnabled, webauthn },
+      });
+    }
+    if (!secondOk) {
+      await audit(null, userId, deniedAction, "user", userId, { reason: "mfa" }, ip);
+      throw unauthorized("Code de vérification invalide.");
+    }
+  }
+
   // --- Ré-authentification (opérations sensibles) ------------------------------
   // Même défi-réponse que la connexion : prouve la connaissance du mot de passe (signature d'un
   // défi frais par la clé d'authentification) et, si le compte a un TOTP, un code valide.
@@ -782,23 +817,7 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
       throw unauthorized("Mot de passe incorrect.");
     }
     // 2e facteur dès qu'un facteur existe : TOTP/code de secours OU clé WebAuthn (comme à la connexion).
-    const webauthn = await hasWebauthn(user.id);
-    if (row.mfa_enabled || webauthn) {
-      let secondOk = false;
-      if (b.webauthn && webauthn) {
-        secondOk = await verifyAuthentication(user.id, b.webauthn as never);
-      } else if (b.code && row.mfa_enabled) {
-        secondOk = await verifySecondFactor(user.id, b.code, req.ip);
-      } else {
-        throw new ApiError(403, "mfa_code_required", "Saisissez aussi un code de vérification.", {
-          methods: { totp: row.mfa_enabled, webauthn },
-        });
-      }
-      if (!secondOk) {
-        await audit(null, user.id, "auth.reauth.denied", "user", user.id, { reason: "mfa" }, req.ip);
-        throw unauthorized("Code de vérification invalide.");
-      }
-    }
+    await assertFreshSecondFactor(user.id, row.mfa_enabled, b, req.ip, "auth.reauth.denied");
     await audit(null, user.id, "auth.reauth", "user", user.id, {}, req.ip);
     return { reauthToken: issueReauthToken(user.id) };
   });
@@ -824,8 +843,8 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
     const user = requireUser(req);
     const b = changePasswordSchema.parse(req.body);
 
-    const row = await queryOne<{ email: string; auth_sign_public_hex: string | null }>(
-      `SELECT email, auth_sign_public_hex FROM users WHERE id = $1 AND status = 'active'`,
+    const row = await queryOne<{ email: string; auth_sign_public_hex: string | null; mfa_enabled?: boolean }>(
+      `SELECT email, auth_sign_public_hex, mfa_enabled FROM users WHERE id = $1 AND status = 'active'`,
       [user.id],
     );
     const ch = await queryOne<{
@@ -835,7 +854,7 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
       expires_at: string;
       used_at: string | null;
     }>(`SELECT id, user_id, nonce, expires_at, used_at FROM login_challenges WHERE id = $1`, [b.challengeId]);
-    // Single use, whatever the outcome.
+    // Single use, whatever the outcome (le client refait un /login/init s'il doit ajouter le 2e facteur).
     if (ch) await query(`UPDATE login_challenges SET used_at = now() WHERE id = $1`, [b.challengeId]);
     if (
       !row ||
@@ -849,6 +868,10 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
       await audit(null, user.id, "auth.password.change_denied", "user", user.id, {}, req.ip);
       throw unauthorized("Mot de passe actuel incorrect.");
     }
+    // Le mot de passe seul ne suffit pas (audit A1) : connu + jeton volé, il permettait de
+    // couper toutes les sessions de la victime et de remplacer son paquet de clés en
+    // contournant sa 2FA. Même second facteur frais que /reauth.
+    await assertFreshSecondFactor(user.id, !!row.mfa_enabled, b, req.ip, "auth.password.change_denied");
     if (!verifyEd25519(row.email.toLowerCase(), b.newAuthSignProof, b.newAuthSignPublicHex)) {
       throw badRequest("Preuve de possession de la nouvelle clé d'authentification invalide.");
     }

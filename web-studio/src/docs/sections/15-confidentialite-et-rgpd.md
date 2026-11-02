@@ -74,7 +74,7 @@ L'onglet **Sécurité** du Drive propose **Supprimer mon compte**. Une vérifica
 - ne plus être propriétaire d'une organisation qui a d'autres membres (transférer la propriété) ;
 - ne plus être le seul administrateur de recouvrement d'une organisation qui subsiste (en promouvoir un autre).
 
-**Preuve exigée** : une signature faite avec votre clé d'authentification, pour qu'un jeton volé ne puisse pas détruire le compte.
+**Preuve exigée** : une confirmation d'identité fraîche (mot de passe, plus le code de vérification ou la clé d'accès si la 2FA est active), valable 5 minutes. Un jeton volé ne peut donc pas détruire le compte, et aucune preuve ancienne ne peut être rejouée.
 
 **Effet** :
 

@@ -34,7 +34,7 @@ Les routes `GET /api/users/me/sessions` et `DELETE /api/users/me/sessions/:id` p
 
 L'onglet **Sécurité** propose le changement de mot de passe. La route est `POST /auth/change-password`.
 
-1. Le client demande un défi et le **signe avec l'ancienne clé** : un jeton volé ne suffit pas.
+1. Le client demande un défi et le **signe avec l'ancienne clé** : un jeton volé ne suffit pas. Si le compte a une 2FA, il fournit aussi un **code de vérification** (ou une assertion de clé d'accès) : le mot de passe seul ne suffit pas non plus (sinon `403 mfa_code_required`).
 2. Il dérive une **nouvelle clé maître** (nouveau sel) et rechiffre le **même** paquet de clés sous cette clé.
 3. Il envoie la nouvelle clé publique d'authentification, avec une preuve de possession, et le paquet rechiffré.
 4. Le serveur remplace le tout, **révoque toutes les autres sessions** et en ouvre une nouvelle.

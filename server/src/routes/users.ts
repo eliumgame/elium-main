@@ -14,7 +14,8 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { query, queryOne } from "../db/pool.js";
 import { authenticate, requireUser } from "../middleware/auth.js";
-import { verifyEd25519, sha256Hex } from "../lib/crypto-server.js";
+import { sha256Hex } from "../lib/crypto-server.js";
+import { requireReauth } from "../lib/reauth.js";
 import { notFound, badRequest, ApiError } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
 import { accountDeletionBlockers, eraseAccount, AccountDeletionBlocked } from "../lib/account-deletion.js";
@@ -201,23 +202,17 @@ export default async function userRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // --- RGPD: erase my account (right to erasure) ---------------------------
-  // Requires a fresh proof of possession of the account's auth key (signature
-  // over "elium:delete-account:<email>"), so a merely-stolen access token can't
-  // destroy the account. Personal data + key material are wiped and the account
-  // disabled; an anonymized id survives only to keep the audit chain valid.
+  // Exige une RÉ-AUTHENTIFICATION fraîche (x-reauth-token : défi signé par la clé
+  // d'authentification + second facteur s'il existe, valable 5 min). L'ancienne preuve
+  // — signature de la chaîne CONSTANTE « elium:delete-account:<email> » — était
+  // déterministe, sans défi ni 2FA, donc rejouable indéfiniment (audit A1) : elle n'est
+  // plus acceptée. Personal data + key material are wiped and the account disabled;
+  // an anonymized id survives only to keep the audit chain valid.
   app.delete("/me", async (req) => {
-    const { proof } = z.object({ proof: z.string().regex(/^[0-9a-f]{128}$/) }).parse(req.body ?? {});
     const user = requireUser(req);
-    const u = await queryOne<{ auth_sign_public_hex: string | null }>(
-      `SELECT auth_sign_public_hex FROM users WHERE id = $1 AND status = 'active'`,
-      [user.id],
-    );
-    if (!u?.auth_sign_public_hex) throw badRequest("Compte introuvable ou sans clé d'authentification.");
-    if (!verifyEd25519(`elium:delete-account:${user.email.toLowerCase()}`, proof, u.auth_sign_public_hex)) {
-      throw badRequest(
-        "Preuve de possession invalide : signez « elium:delete-account:<email> » avec votre clé d'authentification.",
-      );
-    }
+    await requireReauth(req, user.id);
+    const u = await queryOne<{ id: string }>(`SELECT id FROM users WHERE id = $1 AND status = 'active'`, [user.id]);
+    if (!u) throw badRequest("Compte introuvable.");
 
     try {
       const res = await eraseAccount(user.id);

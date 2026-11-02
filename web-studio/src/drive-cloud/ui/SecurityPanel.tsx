@@ -20,7 +20,6 @@ import {
   LockKeyhole,
 } from "lucide-react";
 import { useDrive } from "../session";
-import { prepareLogin, signLoginChallenge } from "../account";
 import ChangePasswordSection from "./ChangePasswordSection";
 import DevicesSection from "./DevicesSection";
 import { useReauth } from "./useReauth";
@@ -268,16 +267,16 @@ export default function SecurityPanel() {
       return;
     }
     const email = d.user?.email ?? "";
-    const pwd = window.prompt(
-      `SUPPRESSION DÉFINITIVE du compte ${email}.\nVos données personnelles et vos clés seront effacées ; cette action est IRRÉVERSIBLE.\n\nSaisissez votre mot de passe pour confirmer :`,
+    const sure = window.confirm(
+      `SUPPRESSION DÉFINITIVE du compte ${email}.\nVos données personnelles et vos clés seront effacées ; cette action est IRRÉVERSIBLE.\n\nVous devrez confirmer avec votre mot de passe (et votre code 2FA s'il est actif).`,
     );
-    if (!pwd) return;
+    if (!sure) return;
     setDelBusy(true);
     try {
-      const p = await d.api.prelogin(email);
-      const { authSignSeedHex } = await prepareLogin(pwd, p.kdfSalt, p.kdfParams);
-      const proof = await signLoginChallenge(`elium:delete-account:${email.toLowerCase()}`, authSignSeedHex);
-      await d.api.deleteMyAccount(proof);
+      // Confirmation fraîche (mot de passe + second facteur) : un jeton volé ne suffit pas.
+      const tok = await reauth();
+      if (!tok) return;
+      await d.api.deleteMyAccount(tok);
       window.alert("Votre compte a été supprimé.");
       await d.logout();
     } catch (e) {

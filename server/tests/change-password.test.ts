@@ -39,8 +39,10 @@ async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
   await app.register(rateLimit, { max: 600, timeWindow: "1 minute" });
   app.setErrorHandler((err, _req, reply) => {
-    if (err instanceof ApiError) return reply.status(err.statusCode).send({ error: { code: err.code, message: err.message } });
-    if (err instanceof ZodError) return reply.status(400).send({ error: { code: "validation", message: "Requête invalide." } });
+    if (err instanceof ApiError)
+      return reply.status(err.statusCode).send({ error: { code: err.code, message: err.message } });
+    if (err instanceof ZodError)
+      return reply.status(400).send({ error: { code: "validation", message: "Requête invalide." } });
     return reply.status(500).send({ error: { code: "internal", message: String(err) } });
   });
   await app.register(authRoutes, { prefix: "/api/auth" });
@@ -52,8 +54,17 @@ const FPR = "c".repeat(64);
 const EMAIL = "alice@example.org";
 const NONCE = "d".repeat(64);
 
-function setup(opts: { currentKey: ReturnType<typeof keypairHex>; challengeUser?: string; used?: boolean; expired?: boolean }) {
+function setup(opts: {
+  currentKey: ReturnType<typeof keypairHex>;
+  challengeUser?: string;
+  used?: boolean;
+  expired?: boolean;
+  mfa?: boolean;
+  backupOk?: boolean;
+}) {
   mockedQueryOne.mockImplementation(async (sql: string) => {
+    if (sql.includes("mfa_failed_count")) return { count: 1, locked: false } as never;
+    if (sql.includes("UPDATE mfa_backup_codes")) return (opts.backupOk ? { id: "bc" } : null) as never;
     if (sql.includes("SELECT id, fingerprint, email, display_name, status, token_epoch FROM users")) {
       return {
         id: USER_ID,
@@ -64,8 +75,8 @@ function setup(opts: { currentKey: ReturnType<typeof keypairHex>; challengeUser?
         token_epoch: new Date(0).toISOString(),
       } as never;
     }
-    if (sql.includes("SELECT email, auth_sign_public_hex FROM users")) {
-      return { email: EMAIL, auth_sign_public_hex: opts.currentKey.pubHex } as never;
+    if (sql.includes("SELECT email, auth_sign_public_hex, mfa_enabled FROM users")) {
+      return { email: EMAIL, auth_sign_public_hex: opts.currentKey.pubHex, mfa_enabled: !!opts.mfa } as never;
     }
     if (sql.includes("FROM login_challenges")) {
       return {
@@ -80,7 +91,11 @@ function setup(opts: { currentKey: ReturnType<typeof keypairHex>; challengeUser?
   });
 }
 
-function body(current: ReturnType<typeof keypairHex>, next: ReturnType<typeof keypairHex>, over: Record<string, unknown> = {}) {
+function body(
+  current: ReturnType<typeof keypairHex>,
+  next: ReturnType<typeof keypairHex>,
+  over: Record<string, unknown> = {},
+) {
   return {
     challengeId: randomUUID(),
     signature: current.sign(NONCE),
@@ -106,7 +121,12 @@ describe("POST /auth/change-password", () => {
     const cur = keypairHex();
     const next = keypairHex();
     setup({ currentKey: cur });
-    const res = await app.inject({ method: "POST", url: "/api/auth/change-password", headers: auth(), payload: body(cur, next) });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/auth/change-password",
+      headers: auth(),
+      payload: body(cur, next),
+    });
     expect(res.statusCode).toBe(200);
     const out = res.json();
     expect(out.ok).toBe(true);
@@ -124,7 +144,11 @@ describe("POST /auth/change-password", () => {
     const app = await buildApp();
     const cur = keypairHex();
     setup({ currentKey: cur });
-    const res = await app.inject({ method: "POST", url: "/api/auth/change-password", payload: body(cur, keypairHex()) });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/auth/change-password",
+      payload: body(cur, keypairHex()),
+    });
     expect(res.statusCode).toBe(401);
   });
 
@@ -133,7 +157,12 @@ describe("POST /auth/change-password", () => {
     const cur = keypairHex();
     setup({ currentKey: cur });
     const wrong = keypairHex();
-    const res = await app.inject({ method: "POST", url: "/api/auth/change-password", headers: auth(), payload: body(wrong, keypairHex()) });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/auth/change-password",
+      headers: auth(),
+      payload: body(wrong, keypairHex()),
+    });
     expect(res.statusCode).toBe(401);
     expect(res.json().error.message).toMatch(/incorrect/);
     expect(mockedQuery.mock.calls.some((c) => String(c[0]).includes("UPDATE users"))).toBe(false);
@@ -144,7 +173,12 @@ describe("POST /auth/change-password", () => {
     const cur = keypairHex();
     for (const o of [{ used: true }, { expired: true }, { challengeUser: "00000000-0000-4000-8000-0000000000ff" }]) {
       setup({ currentKey: cur, ...o });
-      const res = await app.inject({ method: "POST", url: "/api/auth/change-password", headers: auth(), payload: body(cur, keypairHex()) });
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/auth/change-password",
+        headers: auth(),
+        payload: body(cur, keypairHex()),
+      });
       expect(res.statusCode).toBe(401);
     }
     expect(mockedQuery.mock.calls.some((c) => String(c[0]).includes("UPDATE users"))).toBe(false);
@@ -177,5 +211,44 @@ describe("POST /auth/change-password", () => {
     });
     expect(weak.statusCode).toBe(400);
     expect(mockedQuery.mock.calls.some((c) => String(c[0]).includes("UPDATE users"))).toBe(false);
+  });
+
+  it("audit A1 : compte avec 2FA — le mot de passe seul ne suffit pas (403 mfa_code_required, rien d'écrit)", async () => {
+    const app = await buildApp();
+    const cur = keypairHex();
+    setup({ currentKey: cur, mfa: true });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/auth/change-password",
+      headers: auth(),
+      payload: body(cur, keypairHex()),
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe("mfa_code_required");
+    expect(mockedQuery.mock.calls.some((c) => String(c[0]).includes("UPDATE users"))).toBe(false);
+    expect(mockedQuery.mock.calls.some((c) => String(c[0]).includes("UPDATE sessions"))).toBe(false);
+  });
+
+  it("audit A1 : compte avec 2FA — code faux refusé (401), code valide accepté", async () => {
+    const app = await buildApp();
+    const cur = keypairHex();
+    setup({ currentKey: cur, mfa: true, backupOk: false });
+    const bad = await app.inject({
+      method: "POST",
+      url: "/api/auth/change-password",
+      headers: auth(),
+      payload: body(cur, keypairHex(), { code: "abcd-efgh" }),
+    });
+    expect(bad.statusCode).toBe(401);
+    expect(mockedQuery.mock.calls.some((c) => String(c[0]).includes("UPDATE users"))).toBe(false);
+
+    setup({ currentKey: cur, mfa: true, backupOk: true });
+    const good = await app.inject({
+      method: "POST",
+      url: "/api/auth/change-password",
+      headers: auth(),
+      payload: body(cur, keypairHex(), { code: "abcd-efgh" }),
+    });
+    expect(good.statusCode).toBe(200);
   });
 });

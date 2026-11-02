@@ -33,6 +33,16 @@ vi.mock("../src/lib/crypto-server.js", () => ({ verifyEd25519: vi.fn(() => true)
 
 vi.mock("../src/lib/audit.js", () => ({ audit: vi.fn(async () => {}) }));
 
+// Ré-authentification simulée : seul le jeton « good-reauth » est accepté.
+vi.mock("../src/lib/reauth.js", async () => {
+  const { ApiError: E } = await vi.importActual<typeof import("../src/lib/errors.js")>("../src/lib/errors.js");
+  return {
+    requireReauth: vi.fn(async (req: { headers: Record<string, unknown> }) => {
+      if (req.headers["x-reauth-token"] !== "good-reauth") throw new E(403, "reauth_required", "reauth");
+    }),
+  };
+});
+
 vi.mock("../src/collab/relay.js", () => ({ kickUser: vi.fn() }));
 
 vi.mock("../src/lib/account-deletion.js", async () => {
@@ -194,31 +204,47 @@ describe("RGPD account erasure", () => {
     expect(res.json()).toMatchObject({ canDelete: false, ownedOrgsWithMembers: ["org1"] });
   });
 
-  it("DELETE /me rejects an invalid proof of possession", async () => {
-    mQueryOne.mockResolvedValueOnce({ auth_sign_public_hex: HEX64 } as never);
-    mVerifyEd25519.mockReturnValueOnce(false);
+  it("DELETE /me exige une ré-authentification fraîche (403 sans jeton)", async () => {
     const app = await makeApp();
-    const res = await app.inject({ method: "DELETE", url: "/api/users/me", payload: { proof: HEX128 } });
-    expect(res.statusCode).toBe(400);
+    const res = await app.inject({ method: "DELETE", url: "/api/users/me", payload: {} });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe("reauth_required");
     expect(mEraseAccount).not.toHaveBeenCalled();
   });
 
-  it("DELETE /me erases the account on a valid proof", async () => {
-    mQueryOne.mockResolvedValueOnce({ auth_sign_public_hex: HEX64 } as never);
+  it("DELETE /me refuse l'ancienne preuve statique rejouable (signature de la chaîne constante)", async () => {
     const app = await makeApp();
     const res = await app.inject({ method: "DELETE", url: "/api/users/me", payload: { proof: HEX128 } });
+    expect(res.statusCode).toBe(403);
+    expect(mEraseAccount).not.toHaveBeenCalled();
+  });
+
+  it("DELETE /me erases the account with a valid reauth token", async () => {
+    mQueryOne.mockResolvedValueOnce({ id: USER } as never);
+    const app = await makeApp();
+    const res = await app.inject({
+      method: "DELETE",
+      url: "/api/users/me",
+      headers: { "x-reauth-token": "good-reauth" },
+      payload: {},
+    });
     expect(res.statusCode).toBe(200);
     expect(mEraseAccount).toHaveBeenCalledWith(USER);
     expect(mKickUser).toHaveBeenCalledWith(USER, "account-erased");
   });
 
   it("DELETE /me surfaces a 409 when erasure is blocked (ownership/recovery)", async () => {
-    mQueryOne.mockResolvedValueOnce({ auth_sign_public_hex: HEX64 } as never);
+    mQueryOne.mockResolvedValueOnce({ id: USER } as never);
     mEraseAccount.mockRejectedValueOnce(
       new AccountDeletionBlocked({ ownedOrgsWithMembers: ["org1"], soleRecoveryAdminOrgs: [] } as never),
     );
     const app = await makeApp();
-    const res = await app.inject({ method: "DELETE", url: "/api/users/me", payload: { proof: HEX128 } });
+    const res = await app.inject({
+      method: "DELETE",
+      url: "/api/users/me",
+      headers: { "x-reauth-token": "good-reauth" },
+      payload: {},
+    });
     expect(res.statusCode).toBe(409);
     expect(mKickUser).not.toHaveBeenCalled();
   });

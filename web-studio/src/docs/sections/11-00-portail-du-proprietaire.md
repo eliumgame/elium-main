@@ -97,8 +97,8 @@ Menu **Sécurité** :
 - **Vérification en deux étapes (TOTP)** : QR code à scanner dans une application d'authentification, **10 codes de secours** à usage unique, régénérables.
 - **Clés d'accès** (passkeys) comme second facteur ou pour déverrouiller les données.
 - **Appareils et sessions** : navigateur, adresse, dernière activité ; révocation d'une session ou de **tous les autres appareils**. Un jeton d'accès déjà émis reste valable jusqu'à 15 minutes au plus ; il n'est plus renouvelable.
-- **Changement de mot de passe** (il révoque les autres sessions).
-- **Confirmation d'identité** : ajouter ou retirer une clé d'accès, et configurer le SSO/SCIM, exigent de ressaisir votre mot de passe (et un code de vérification si la 2FA est active). Le serveur délivre alors un jeton de 5 minutes ; un jeton de connexion volé ne suffit donc pas à poser une porte dérobée durable. Le profil (`PATCH /users/me`) ne modifie plus que le nom affiché : clés et mot de passe passent exclusivement par « Changer de mot de passe ».
+- **Changement de mot de passe** (il révoque les autres sessions ; si la 2FA est active, un code de vérification ou une clé d'accès est aussi demandé).
+- **Confirmation d'identité** : ajouter ou retirer une clé d'accès, activer la 2FA, supprimer son compte et configurer le SSO/SCIM exigent de ressaisir votre mot de passe (et un code de vérification si la 2FA est active). Le serveur délivre alors un jeton de 5 minutes ; un jeton de connexion volé ne suffit donc pas à poser une porte dérobée durable. Le profil (`PATCH /users/me`) ne modifie plus que le nom affiché : clés et mot de passe passent exclusivement par « Changer de mot de passe ».
 
 ### Droits : plafond de privilège et identité
 

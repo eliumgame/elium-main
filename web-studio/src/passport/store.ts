@@ -6,6 +6,7 @@
 import { decryptAtRest, encryptAtRest, hasVaultSecret, toB64, type VaultSecret } from "../crypto/local-vault";
 import { PASSPORT_SPEC } from "../format/db-specs";
 import { openMigrated } from "../format/idb-migrate";
+import { committedRequest } from "./idb-request";
 import { isVaultConfigured } from "../format/vault-store";
 import { clearAnnexes, listStoredAnnexes, reencryptAnnexes, type StoredAnnexe } from "./annexes";
 import { normalizePassport } from "./model";
@@ -99,17 +100,7 @@ async function toStored(data: PassportData, secret?: VaultSecret): Promise<Store
 }
 
 function run<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
-  return openMigrated(PASSPORT_SPEC).then(
-    (db) =>
-      new Promise<T>((resolve, reject) => {
-        const t = db.transaction(STORE, mode);
-        const req = fn(t.objectStore(STORE));
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
-        t.oncomplete = () => db.close();
-        t.onabort = () => db.close();
-      }),
-  );
+  return openMigrated(PASSPORT_SPEC).then((db) => committedRequest(db, STORE, mode, fn));
 }
 
 /**

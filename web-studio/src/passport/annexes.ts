@@ -12,6 +12,7 @@ import {
 } from "../crypto/local-vault";
 import { PASSPORT_SPEC } from "../format/db-specs";
 import { openMigrated } from "../format/idb-migrate";
+import { committedRequest } from "./idb-request";
 import type { Annexe } from "./types";
 import { markDirty } from "../workspace/sync-dirty";
 
@@ -40,17 +41,7 @@ export function newAnnexeId(): string {
 }
 
 function tx<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
-  return openMigrated(PASSPORT_SPEC).then(
-    (db) =>
-      new Promise<T>((resolve, reject) => {
-        const t = db.transaction(STORE, mode);
-        const req = fn(t.objectStore(STORE));
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
-        t.oncomplete = () => db.close();
-        t.onabort = () => db.close();
-      }),
-  );
+  return openMigrated(PASSPORT_SPEC).then((db) => committedRequest(db, STORE, mode, fn));
 }
 
 export async function putAnnexe(id: string, bytes: Uint8Array, secret?: VaultSecret): Promise<void> {

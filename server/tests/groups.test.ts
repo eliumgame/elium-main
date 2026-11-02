@@ -85,8 +85,8 @@ function txDispatch(map: Array<[RegExp, (params?: unknown[]) => { rows: unknown[
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mQuery.mockResolvedValue([] as never);
-  mQueryOne.mockResolvedValue(null as never);
+  mQuery.mockReset().mockResolvedValue([] as never);
+  mQueryOne.mockReset().mockResolvedValue(null as never);
   mRequireOrgPerm.mockResolvedValue({
     orgId: ORG,
     membershipId: "m1",
@@ -277,9 +277,22 @@ describe("GET /api/orgs/:orgId/groups/:groupId", () => {
 describe("POST /api/orgs/:orgId/groups/:groupId/members", () => {
   const payload = { userId: OTHER_USER, wrappedGroupPrivate: { c: "x" }, isManager: false };
 
+  it("refuses self-enrollment by an organization manager outside the group", async () => {
+    mQueryOne.mockResolvedValueOnce({ id: GROUP, org_id: ORG }).mockResolvedValueOnce(null);
+    const app = await makeApp();
+    const res = await app.inject({
+      method: "POST", url: `/api/orgs/${ORG}/groups/${GROUP}/members`,
+      payload: { ...payload, userId: USER, isManager: true },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(mQueryOne.mock.calls.some(([sql]) => /INSERT INTO group_members/.test(sql))).toBe(false);
+    await app.close();
+  });
+
   it("adds (upserts) a member and returns their record", async () => {
     mQueryOne
       .mockResolvedValueOnce({ id: GROUP, org_id: ORG, name: "g", description: "", color: "#0ea5e9", group_public_hex: GROUP_PUBLIC_HEX, created_at: "t" }) // loadGroupInOrg
+      .mockResolvedValueOnce({ is_manager: true }) // caller manages this group
       .mockResolvedValueOnce({ user_id: OTHER_USER }) // active-membership check
       .mockResolvedValueOnce({ user_id: OTHER_USER, is_manager: false, added_at: "t2" }); // upsert RETURNING
     const app = await makeApp();
@@ -293,6 +306,7 @@ describe("POST /api/orgs/:orgId/groups/:groupId/members", () => {
   it("400 when the target user isn't an active member of the org", async () => {
     mQueryOne
       .mockResolvedValueOnce({ id: GROUP, org_id: ORG, name: "g", description: "", color: "#0ea5e9", group_public_hex: GROUP_PUBLIC_HEX, created_at: "t" })
+      .mockResolvedValueOnce({ is_manager: true })
       .mockResolvedValueOnce(null); // not an active member
     const app = await makeApp();
     const res = await app.inject({ method: "POST", url: `/api/orgs/${ORG}/groups/${GROUP}/members`, payload });

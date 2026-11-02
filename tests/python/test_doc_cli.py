@@ -148,6 +148,33 @@ def test_doc_sign_refuses_when_resource_tampered(tmp_path):
     assert after["signatures"] == []
 
 
+def test_doc_sign_refuses_tampered_content_and_seal_loss(tmp_path):
+    model = create_document_model(text_to_doc("Contrat 1000"))
+    identity = generate_identity()
+    key = tmp_path / "key.hex"
+    key.write_text(identity["privateKeyHex"], encoding="utf-8")
+    doc = tmp_path / "sealed.elium"
+    doc.write_bytes(write_elium(model, profile="signed", title="Contrat",
+                               seal_private_key_hex=identity["privateKeyHex"]))
+    original = doc.read_bytes()
+    with pytest.raises(SystemExit, match="scellé"):
+        run("doc-sign", str(doc), "--key", str(key), "--name", "Bob")
+    assert doc.read_bytes() == original
+
+    entries = {}
+    with zipfile.ZipFile(io.BytesIO(original)) as zf:
+        entries = {name: zf.read(name) for name in zf.namelist()}
+    entries["content/document.json"] = entries["content/document.json"].replace(b"1000", b"9000")
+    with zipfile.ZipFile(doc, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, data in entries.items():
+            zf.writestr(name, data)
+    tampered = doc.read_bytes()
+    assert read_elium(tampered)["integrity"]["contentIntact"] is False
+    with pytest.raises(SystemExit, match="altéré"):
+        run("doc-sign", str(doc), "--key", str(key), "--name", "Bob", "--seal-key", str(key))
+    assert doc.read_bytes() == tampered
+
+
 def test_doc_verify_and_open_warn_on_tampered_resource(tmp_path, capsys):
     """`resourcesTampered` must be surfaced in the plain console output of both
     doc-verify and doc-open, not just incidentally inside the optional JSON

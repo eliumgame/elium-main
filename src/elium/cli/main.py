@@ -245,6 +245,17 @@ def cmd_doc_sign(args: argparse.Namespace) -> None:
         password = getpass.getpass("Mot de passe du document: ")
         result = read_elium(blob, password=password, keyfile=keyfile, recipient_private_hex=rkey)
 
+    integrity = result["integrity"]
+    if (not integrity["unchecked"] and not integrity["contentIntact"]
+            or result["seal"]["verdict"] == "broken"
+            or not verify_journal(result["journal"])["valid"]):
+        raise SystemExit("doc-sign : contenu, sceau ou journal altéré — aucune modification effectuée.")
+    if result["manifest"].get("seal") and not args.seal_key:
+        raise SystemExit(
+            "doc-sign : le document est scellé. Fournissez --seal-key pour le re-sceller "
+            "après la signature ; aucune modification effectuée."
+        )
+
     with open(args.key, encoding="utf-8") as f:
         private_key_hex = f.read().strip()
 

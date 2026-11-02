@@ -468,7 +468,14 @@ export default function PassportView({ onHome, onOpenDrive, vaultSecret }: Props
             onExpected={(n) => update((d) => ({ ...d, expectedSituations: n }))}
             extra={
               <>
-                <FileSyncSection data={data} />
+                <FileSyncSection
+                  data={data}
+                  onAdopt={async (next) => {
+                    await adoptData(next);
+                    setEditing(null);
+                    setNotice("Passeport repris depuis le fichier de sauvegarde.");
+                  }}
+                />
                 <DriveSyncSection
                   data={data}
                   onRestore={async (next) => {

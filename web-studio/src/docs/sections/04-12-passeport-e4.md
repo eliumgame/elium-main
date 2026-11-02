@@ -22,7 +22,7 @@ et des annexes de ce poste). Rien n'est effacé sans cette confirmation.
 
 | Sauvegarde | Où | Détail |
 |---|---|---|
-| Fichier sur le PC | Application de bureau et navigateurs Chromium | Vous choisissez un fichier une fois ; Elium le réécrit 2 secondes après chaque modification. Il est en JSON **non chiffré**. Après un redémarrage, le navigateur peut demander de confirmer l'accès (bouton « Réactiver ») |
+| Fichier sur le PC | Application de bureau et navigateurs Chromium | Vous choisissez un fichier une fois ; Elium le réécrit 2 secondes après chaque modification. À l'ouverture (ou à la réactivation), le fichier est d'abord **relu** : s'il contient une autre version (modifiée depuis un autre poste), la sauvegarde est suspendue et Elium propose de reprendre la version du fichier ou de l'écraser — jamais d'écrasement silencieux. Il est en JSON **non chiffré**. Après un redémarrage, le navigateur peut demander de confirmer l'accès (bouton « Réactiver ») |
 | Drive entreprise | Serveur | Fichier `Passeport-BTS-GPME.json` **chiffré de bout en bout** à la racine du Drive, versionné par le serveur. Manuelle ou automatique (20 secondes après la dernière modification). Un conflit (fichier modifié ailleurs) propose de restaurer ou d'écraser |
 | Export manuel | Téléchargement | Sauvegarde JSON réimportable depuis le tableau de bord |
 

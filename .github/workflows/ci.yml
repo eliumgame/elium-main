@@ -32,7 +32,7 @@ jobs:
       run: ruff check src/ tests/ installer/ security/ scripts/
     - name: Run Pytest with coverage
       run: |
-        pytest tests/python -v --cov=elium --cov-report=term-missing
+        pytest tests/python installer/tests -v --cov=elium --cov-report=term-missing
     - name: Audit des dépendances Python EMBARQUÉES (pip-audit, exceptions datées)
       # Même principe que l'audit npm : toute faille connue des dépendances d'exécution (ce qui est
       # réellement livré) bloque, sauf les exceptions DATÉES et justifiées de scripts/pip_audit_gate.py.

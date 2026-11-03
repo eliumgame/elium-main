@@ -206,7 +206,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          pytest tests/python -q --tb=short > pytest.log 2>&1
+          pytest tests/python installer/tests -q --tb=short > pytest.log 2>&1
           code=$?
           cat pytest.log
           if [ $code -ne 0 ]; then

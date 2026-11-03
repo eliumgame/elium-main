@@ -1152,7 +1152,7 @@ def _prune_assets() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Vérification de l'overlay web (rejouée au lancement)
+# Vérification de l'overlay web (rejouée au lancement et après modification)
 # --------------------------------------------------------------------------- #
 
 _overlay_memo: dict[str, tuple[tuple, bool]] = {}
@@ -1163,11 +1163,24 @@ def reset_verification_cache() -> None:
     _overlay_memo.clear()
 
 
-def _mtime_ns(path: Path) -> int:
-    try:
-        return path.stat().st_mtime_ns
-    except OSError:
-        return -1
+def _overlay_stamp(version: str) -> tuple:
+    """Invalide le verdict quand un fichier servi ou un sidecar change.
+
+    Les métadonnées ne prouvent pas l'intégrité : elles déclenchent une nouvelle
+    vérification cryptographique. Ce contrôle ne prétend pas isoler l'application
+    d'un processus malveillant exécuté sous le même compte Windows.
+    """
+    root = _web_root() / version
+    paths = [*_sidecar_paths(root), _web_root() / f"{version}.tree", _pointer_file()]
+    paths.extend(sorted(root.rglob("*")))
+    entries = []
+    for path in paths:
+        try:
+            stat = path.stat()
+            entries.append((str(path), stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size))
+        except OSError:
+            entries.append((str(path), -1, -1, -1))
+    return tuple(entries)
 
 
 def _verify_overlay(version: str) -> bool:
@@ -1195,13 +1208,24 @@ def _verify_overlay(version: str) -> bool:
 
 
 def _overlay_ok(version: str) -> bool:
-    key = (version, _mtime_ns(_pointer_file()), _mtime_ns(_sidecar_paths(_web_root() / version)[0]))
+    key = _overlay_stamp(version)
     hit = _overlay_memo.get(version)
     if hit and hit[0] == key:
         return hit[1]
     ok = _verify_overlay(version)
     _overlay_memo[version] = (key, ok)
     return ok
+
+
+def serving_web_dir_is_valid(directory: Path) -> bool:
+    """Revérifie aussi l'overlay épinglé lorsque le navigateur demande ses assets."""
+    directory = directory.absolute()
+    if directory.parent != _web_root().absolute():
+        return True  # ressources embarquées ou dossier de développement
+    try:
+        return _overlay_ok(directory.name)
+    except OSError:
+        return False
 
 
 def _verified_pointer() -> str | None:

@@ -1521,6 +1521,9 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         # sans mélanger d'anciens et de nouveaux assets (fichiers hashés par Vite).
         is_navigation = clean in ("/", "/index.html") or not os.path.splitext(clean)[1]
         self.directory = str(_resolve_serving_dir(refresh=is_navigation))
+        if updater is not None and not updater.serving_web_dir_is_valid(Path(self.directory)):
+            self.send_error(503, "Interface modifiée sur disque ; rechargez la page")
+            return
 
         # (Re)chargement de page -> ré-évalue l'état de màj (évite la carte « Recharger »
         # qui revient en boucle une fois la màj web appliquée).

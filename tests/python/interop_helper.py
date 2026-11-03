@@ -119,6 +119,8 @@ def main():
             "anchorType": "page",
         }
         visual = {"text": name}
+        if len(sys.argv) > 6:
+            placement = json.loads(sys.argv[6])
         proof = create_proof(sig_id, model, signer, signer_priv, placement, visual)
         signature = {
             "id": sig_id, "kind": "typed", "visual": visual, "placement": placement,

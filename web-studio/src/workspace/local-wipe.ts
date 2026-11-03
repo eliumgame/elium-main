@@ -14,6 +14,7 @@
  * workspace/backup.ts plutôt que par une seconde recopie).
  */
 import { SETTINGS_KEYS, SECRET_KEYS } from "./backup";
+import { SYNC_SETTINGS_KEYS } from "./drive-sync";
 
 // Toutes les bases du cadre de migration (format/db-specs.ts ALL_DB_SPECS),
 // plus celles qui vivent en dehors de ce cadre (trousseau, polices, sauvegardes,
@@ -39,12 +40,15 @@ export const LOCAL_WORKSPACE_DATABASES = [
 
 const LOCAL_WORKSPACE_STORAGE_KEYS = [
   ...SETTINGS_KEYS,
+  ...SYNC_SETTINGS_KEYS, // aucune préférence de l'ancien compte ne doit repartir dans le Drive du suivant
   ...SECRET_KEYS, // inclut les legacy elium_identity / elium_recipient_key
   "elium_drive_prf_v1", // registre de déverrouillage par clé d'accès (PRF)
   "elium_trust_revocations",
   "elium_keyring_idle_min",
   "elium_session",
   "elium_view_mode",
+  "elium_crash_log",
+  "elium_drive_circuit_sync_v1",
 ] as const;
 
 /**
@@ -95,7 +99,8 @@ export async function wipeLocalWorkspaceData(): Promise<void> {
   // État de synchronisation Drive par compte/organisation : effacé avec les données pour
   // qu'un espace vide ne soit jamais poussé par-dessus une sauvegarde au prochain démarrage.
   for (const k of Object.keys(localStorage))
-    if (k.startsWith("elium_drive_sync_v1:") || k.startsWith("elium_drive_link:") || k === "elium_sync_dirty_v1")
+    if (k.startsWith("elium_drive_sync_v1:") || k.startsWith("elium_drive_link:") ||
+      k.startsWith("elium-detector-") || k === "elium_sync_dirty_v1")
       localStorage.removeItem(k);
   await Promise.all(LOCAL_WORKSPACE_DATABASES.map((db) => deleteDatabase(db)));
 }

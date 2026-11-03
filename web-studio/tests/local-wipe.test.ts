@@ -12,6 +12,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { claimLocalWorkspace, wipeLocalWorkspaceData, LOCAL_WORKSPACE_DATABASES } from "../src/workspace/local-wipe";
+import { SYNC_SETTINGS_KEYS } from "../src/workspace/drive-sync";
 
 // Minimal localStorage shim for the Node test environment (same pattern as
 // tests/circuit-sync.test.ts), backed by a plain object so that
@@ -64,6 +65,15 @@ function installFakeIndexedDB(opts: { existing?: string[]; behavior?: Record<str
 }
 
 describe("claimLocalWorkspace", () => {
+  it("efface tout réglage synchronisable et les données détecteur/incidents au changement de compte", async () => {
+    installFakeIndexedDB();
+    await claimLocalWorkspace("user-a");
+    const keys = [...SYNC_SETTINGS_KEYS, "elium_crash_log", "elium_drive_circuit_sync_v1", "elium-detector-search-key"];
+    for (const key of keys) localStorage.setItem(key, "private-account-a");
+    expect(await claimLocalWorkspace("user-b")).toBe(true);
+    for (const key of keys) expect(localStorage.getItem(key), key).toBeNull();
+  });
+
   it("premier usage, espace vide (aucune base présente) : n'efface rien, enregistre le compte", async () => {
     installFakeIndexedDB({ existing: [] });
     localStorage.setItem("elium_prefs", '{"x":1}');

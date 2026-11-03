@@ -14,7 +14,7 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
-from elium.format.canonical import canonical_json, now_iso, sha256_hex
+from elium.format.canonical import canonical_json, legacy_python_json, now_iso, sha256_hex
 
 _TS_NOTE = "Horodatage local non qualifié (pas d'autorité de temps)."
 
@@ -31,6 +31,7 @@ def _to_be_signed(
     placement: dict | None = None,
     visual: dict | None = None,
     doc_id: str | None = None,
+    legacy_numbers: bool = False,
 ) -> str:
     """Canonical to-be-signed structure (mirror of proof.ts).
 
@@ -52,7 +53,7 @@ def _to_be_signed(
     # autre document ne vérifie plus). Absent ⇒ ancienne preuve, octets inchangés.
     if doc_id is not None:
         payload["signedDocId"] = doc_id
-    return canonical_json(payload)
+    return (legacy_python_json if legacy_numbers else canonical_json)(payload)
 
 
 def generate_identity() -> dict[str, str]:
@@ -138,7 +139,15 @@ def verify_proof(
             proof.get("signedDocId"),
         ).encode("utf-8")
         pub = Ed25519PublicKey.from_public_bytes(bytes.fromhex(proof["publicKeyHex"]))
-        pub.verify(bytes.fromhex(proof["signatureHex"]), message)
+        try:
+            pub.verify(bytes.fromhex(proof["signatureHex"]), message)
+        except InvalidSignature:
+            legacy_message = _to_be_signed(
+                signature["id"], proof["signedContentHash"], signature.get("signer", {}),
+                proof["signedAt"], proof.get("signedPlacement"), proof.get("signedVisual"),
+                proof.get("signedDocId"), legacy_numbers=True,
+            ).encode("utf-8")
+            pub.verify(bytes.fromhex(proof["signatureHex"]), legacy_message)
     except (InvalidSignature, ValueError, KeyError, TypeError):
         return "invalid"
 
@@ -147,7 +156,8 @@ def verify_proof(
     if fp is not None and fp != hashlib.sha256(bytes.fromhex(proof["publicKeyHex"])).hexdigest():
         return "invalid"
 
-    if compute_content_hash(model) != proof["signedContentHash"]:
+    if (compute_content_hash(model) != proof["signedContentHash"]
+            and sha256_hex(legacy_python_json(model)) != proof["signedContentHash"]):
         return "modified"
     # A v2 proof also detects the signature being moved or its appearance altered.
     if "signedPlacement" in proof and (

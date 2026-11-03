@@ -27,7 +27,7 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
-from elium.format.canonical import canonical_json, now_iso, sha256_hex
+from elium.format.canonical import canonical_json, legacy_python_json, now_iso, sha256_hex
 
 # Verdicts (mirror seal.ts SealVerdict).
 SEAL_UNSEALED = "unsealed"          # no seal present
@@ -103,17 +103,19 @@ def seal_message(
     include_doc_id: bool = True,
     include_recipients: bool = True,
     strict: bool = False,
+    legacy_numbers: bool = False,
 ) -> str:
     """The exact canonical string that gets signed (identical in Python and TS).
 
     `strict=True` is the v2 form (new seals); `False` reproduces the legacy v1
     forms byte-for-byte so already-sealed files keep verifying."""
-    return canonical_json(
+    encode = legacy_python_json if legacy_numbers else canonical_json
+    return encode(
         {
             "v": SEAL_MSG_VERSION if strict else 1,
             "manifest": _manifest_subset(manifest, include_doc_id, include_recipients, strict),
-            "signaturesHash": sha256_hex(canonical_json(signatures)),
-            "journalHash": sha256_hex(canonical_json(journal)),
+            "signaturesHash": sha256_hex(encode(signatures)),
+            "journalHash": sha256_hex(encode(journal)),
         }
     )
 
@@ -169,14 +171,16 @@ def verify_seal(
     strict_seal = seal.get("msgVersion") == SEAL_MSG_VERSION
 
     def _matches(include_doc_id: bool, include_recipients: bool, strict: bool = False) -> bool:
-        message = seal_message(
-            manifest, signatures, journal, include_doc_id, include_recipients, strict
-        ).encode("utf-8")
-        try:
-            pub.verify(sig, message)
-            return True
-        except InvalidSignature:
-            return False
+        for legacy_numbers in (False, True):
+            message = seal_message(
+                manifest, signatures, journal, include_doc_id, include_recipients, strict, legacy_numbers
+            ).encode("utf-8")
+            try:
+                pub.verify(sig, message)
+                return True
+            except InvalidSignature:
+                pass
+        return False
 
     recipient_forms = [True, False] if manifest.get("protection", {}).get("recipients") else [False]
     docid_forms = [True, False] if manifest.get("docId") else [False]

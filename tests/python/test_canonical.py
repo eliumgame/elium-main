@@ -72,3 +72,30 @@ def test_ecmascript_number_formatting():
     assert canonical_json({"a": 5e-5, "b": 1e16, "c": 1.5e-7, "d": -0.0}) == (
         '{"a":0.00005,"b":10000000000000000,"c":1.5e-7,"d":0}'
     )
+
+
+def test_legacy_python_float_evidence_remains_verifiable():
+    from unittest.mock import patch
+    from elium.format.canonical import legacy_python_json
+    from elium.format.document import create_document_model, text_to_doc
+    from elium.format.journal import append_event, empty_journal, verify_journal
+    from elium.format.package import read_elium, write_elium
+    from elium.format.proof import create_proof, generate_identity, verify_proof
+
+    identity = generate_identity()
+    model = create_document_model(text_to_doc("Legacy"))
+    model["number"] = 5e-5
+    placement = {"xPct": 1.5e-7}
+    with (patch("elium.format.proof.canonical_json", legacy_python_json),
+          patch("elium.format.seal.canonical_json", legacy_python_json),
+          patch("elium.format.journal.canonical_json", legacy_python_json)):
+        proof = create_proof("s", model, {}, identity["privateKeyHex"], placement)
+        sig = {"id": "s", "kind": "typed", "signer": {}, "proof": proof, "placement": placement}
+        journal = append_event(empty_journal(), "document.created", data={"number": 5e-5})
+        blob = write_elium(model, title="Legacy", signatures=[sig], journal=journal,
+                           seal_private_key_hex=identity["privateKeyHex"])
+    loaded = read_elium(blob)
+    assert loaded["seal"]["verdict"] == "valid"
+    assert verify_journal(loaded["journal"])["valid"]
+    assert verify_proof(sig, model) == "valid"
+    assert verify_proof(sig, {**model, "number": 9e-5}) == "modified"

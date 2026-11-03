@@ -15,6 +15,11 @@ from typing import Any
 ZERO_HASH = "0" * 64
 
 
+def legacy_python_json(value: Any) -> str:
+    """Read-only compatibility for evidence emitted before ECMAScript number formatting."""
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+
+
 def canonical_json(value: Any) -> str:
     """Deterministic JSON: keys sorted recursively, no insignificant whitespace.
 

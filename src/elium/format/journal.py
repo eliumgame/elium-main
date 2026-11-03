@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, TypedDict
 
-from elium.format.canonical import ZERO_HASH, canonical_json, now_iso, sha256_hex
+from elium.format.canonical import ZERO_HASH, canonical_json, legacy_python_json, now_iso, sha256_hex
 
 
 class Journal(TypedDict):
@@ -59,10 +59,11 @@ def verify_journal(journal: Journal) -> dict[str, Any]:
             return {"valid": False, "brokenAt": i, "count": len(events)}
         payload = _payload(e["seq"], e["type"], e["at"], e.get("actor"), e.get("data"))
         try:
-            expected = sha256_hex(prev + canonical_json(payload))
+            matches = (sha256_hex(prev + canonical_json(payload)) == e.get("hash")
+                       or sha256_hex(prev + legacy_python_json(payload)) == e.get("hash"))
         except (TypeError, ValueError):
             return {"valid": False, "brokenAt": i, "count": len(events)}
-        if expected != e.get("hash"):
+        if not matches:
             return {"valid": False, "brokenAt": i, "count": len(events)}
         prev = e["hash"]
     return {"valid": True, "brokenAt": None, "count": len(events)}

@@ -37,14 +37,19 @@ export default function VersionsDialog({
   const dialogs = useDialogs();
   const [versions, setVersions] = useState<Version[]>([]);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [canRestore, setCanRestore] = useState(false);
 
   const reload = useCallback(async () => {
-    const { versions: v } = await ctx.api.listVersions(entry.id);
+    const [{ versions: v }, { permissions }] = await Promise.all([
+      ctx.api.listVersions(entry.id), ctx.api.getNode(entry.id),
+    ]);
     setVersions((v as Version[]) ?? []);
+    setCanRestore(permissions.includes("node.version.restore"));
   }, [ctx.api, entry.id]);
 
   useEffect(() => {
-    void reload();
+    void reload().catch(e => setError(e instanceof Error ? e.message : "Historique indisponible."));
   }, [reload]);
 
   const download = async (ver: Version) => {
@@ -56,6 +61,7 @@ export default function VersionsDialog({
     }
   };
   const restore = async (ver: Version) => {
+    if (!canRestore || busy) return;
     if (
       !(await dialogs.confirm({
         title: "Restaurer la version",
@@ -65,9 +71,12 @@ export default function VersionsDialog({
     )
       return;
     setBusy(true);
+    setError(null);
     try {
       await ctx.api.restoreVersion(entry.id, ver.id);
       await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Restauration impossible.");
     } finally {
       setBusy(false);
     }
@@ -91,6 +100,7 @@ export default function VersionsDialog({
             <X size={18} />
           </button>
         </header>
+        {error && <p role="alert">{error}</p>}
         {versions.length === 0 ? (
           <p className="elx-empty">Aucune version enregistrée.</p>
         ) : (
@@ -116,14 +126,14 @@ export default function VersionsDialog({
                     <button className="elx-icon" title="Télécharger cette version" onClick={() => void download(v)}>
                       <Download size={15} />
                     </button>
-                    <button
+                    {canRestore && <button
                       className="elx-icon"
                       title="Restaurer cette version"
                       disabled={busy}
                       onClick={() => void restore(v)}
                     >
                       <RotateCcw size={15} />
-                    </button>
+                    </button>}
                   </td>
                 </tr>
               ))}

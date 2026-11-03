@@ -94,6 +94,34 @@ def test_static_files_are_unaffected_by_the_host_check(server):
     assert status == 200 and b"ok" in body
 
 
+def test_inbox_requires_boot_session_and_keeps_unread_file(server, monkeypatch):
+    monkeypatch.setattr(elium_launcher.QuietHandler, "opened_file", ("exam.elium", b"private"))
+
+    def request(path, headers=None):
+        conn = http.client.HTTPConnection("127.0.0.1", server, timeout=5)
+        try:
+            conn.request("GET", path, headers=headers or {})
+            response = conn.getresponse()
+            return response.status, response.read(), response.getheader("Set-Cookie")
+        finally:
+            conn.close()
+
+    for route in ("/__open__", "/__open_seq__"):
+        assert request(route, {"Sec-Fetch-Site": "same-origin"})[0] == 403
+        assert request(route, {"Cookie": f"elium_sid_{server}=forged"})[0] == 403
+    assert elium_launcher.QuietHandler.opened_file == ("exam.elium", b"private")
+
+    ticket = elium_launcher.new_boot_ticket()
+    status, _, cookie = request(f"/?boot={ticket}")
+    assert status == 200 and cookie
+    headers = {"Cookie": cookie.split(";", 1)[0]}
+    assert request("/__open_seq__", headers)[0] == 200
+    status, body, _ = request("/__open__", headers)
+    assert status == 200 and body == b"private"
+    assert elium_launcher.QuietHandler.opened_file is None
+    assert request(f"/?boot={ticket}")[2] is None
+
+
 def test_set_port_refuses_an_oversized_body_without_reading_it(server):
     status, _ = _post(server, "/__ports__/set", body=b"{" + b" " * 5000 + b"}",
                       headers={"Content-Type": "application/json"})

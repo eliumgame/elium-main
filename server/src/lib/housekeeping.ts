@@ -17,6 +17,7 @@ import type { FastifyInstance } from "fastify";
 import { query } from "../db/pool.js";
 import { storage } from "../storage/adapter.js";
 import { audit } from "./audit.js";
+import { subtreeBlobRefs } from "./subtree-blobs.js";
 import { getSiteSettings } from "./site-settings.js";
 import { orgRotationPreconditionMet, flagOrgKeyRotationDue } from "../routes/orgs.js";
 
@@ -109,13 +110,7 @@ async function purgeOrphanedTrashBlobs(app: FastifyInstance): Promise<void> {
   let purged = 0;
   for (const node of candidates) {
     try {
-      const versions = await query<{ content_ref: string }>(
-        `SELECT content_ref FROM node_versions WHERE node_id = $1`,
-        [node.id],
-      );
-      const refs = new Set<string>();
-      if (node.content_ref) refs.add(node.content_ref);
-      for (const v of versions) refs.add(v.content_ref);
+      const refs = await subtreeBlobRefs(node.id);
 
       // On supprime la ligne DB (cascade node_versions / node_keys) D'ABORD, et
       // seulement APRÈS on touche le storage — même ordre défensif que

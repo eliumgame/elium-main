@@ -11,6 +11,7 @@ import { authenticate, requireUser, requireOrgPerm, requireNodePerm, requireMemb
 import { badRequest, notFound, tooLarge, conflict, insufficientStorage } from "../lib/errors.js";
 import { storage } from "../storage/adapter.js";
 import { audit } from "../lib/audit.js";
+import { subtreeBlobRefs } from "../lib/subtree-blobs.js";
 import { kickRoom, notifyOrg } from "../collab/relay.js";
 import { config } from "../config.js";
 import { ApiError } from "../lib/errors.js";
@@ -465,14 +466,11 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
     );
     if (!node) throw notFound();
     if (!node.trashed_at) throw badRequest("Le nœud doit d'abord être dans la corbeille.");
-    // Best-effort blob cleanup (current + versions), then cascade-delete the row.
-    const versions = await query<{ content_ref: string }>(`SELECT content_ref FROM node_versions WHERE node_id = $1`, [
-      id,
-    ]);
-    const store = storage();
-    for (const v of versions) await store.delete(v.content_ref).catch(() => {});
-    if (node.content_ref) await store.delete(node.content_ref).catch(() => {});
+    // Include descendants and their versions before the cascade removes them.
+    const refs = await subtreeBlobRefs(id);
     await query(`DELETE FROM nodes WHERE id = $1`, [id]);
+    const store = storage();
+    for (const ref of refs) await store.delete(ref).catch(() => {});
     await audit(access.orgId, user.id, "node.purge", access.kind, id, {}, req.ip);
     notifyOrg(access.orgId);
     return { ok: true };

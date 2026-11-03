@@ -86,6 +86,44 @@ beforeEach(() => {
   mQueryOne.mockResolvedValue(null as never);
 });
 
+describe("purge du sous-arbre", () => {
+  it("supprime les blobs descendants et versions après la cascade, une seule fois", async () => {
+    mQueryOne.mockResolvedValue({ trashed_at: "2026-01-01", content_ref: null });
+    const order: string[] = [];
+    mQuery.mockImplementation(async (sql, params) => {
+      expect(params).toEqual([NODE]);
+      if (sql.includes("WITH RECURSIVE")) {
+        expect(sql).toContain("n.parent_id = s.id");
+        expect(sql).toContain("v.node_id = s.id");
+        return [{ content_ref: null }, { content_ref: "child" }, { content_ref: "version" }, { content_ref: "child" }];
+      }
+      if (sql.startsWith("DELETE FROM nodes")) order.push("db");
+      return [];
+    });
+    store.delete.mockImplementation(async () => { order.push("blob"); });
+    const app = await makeApp();
+    const res = await app.inject({ method: "DELETE", url: `/api/nodes/${NODE}/purge` });
+    expect(res.statusCode).toBe(200);
+    expect(order).toEqual(["db", "blob", "blob"]);
+    expect(store.delete).toHaveBeenCalledWith("child");
+    expect(store.delete).toHaveBeenCalledWith("version");
+    await app.close();
+  });
+
+  it("ne supprime aucun blob si la suppression SQL échoue", async () => {
+    mQueryOne.mockResolvedValue({ trashed_at: "2026-01-01", content_ref: null });
+    mQuery.mockImplementation(async (sql) => {
+      if (sql.includes("WITH RECURSIVE")) return [{ content_ref: "child" }];
+      throw new Error("database unavailable");
+    });
+    const app = await makeApp();
+    const res = await app.inject({ method: "DELETE", url: `/api/nodes/${NODE}/purge` });
+    expect(res.statusCode).toBe(500);
+    expect(store.delete).not.toHaveBeenCalled();
+    await app.close();
+  });
+});
+
 describe("POST /api/nodes/:id/rotate — part de recouvrement d'organisation", () => {
   const ownerShare = { principalType: "user", principalId: OWNER, roleId: ROLE, wrappedKey: { r: 1 } };
   const orgShare = { principalType: "org", principalId: ORG, roleId: ROLE, wrappedKey: { r: 2 } };

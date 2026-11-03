@@ -126,7 +126,7 @@ describe("purgeOrphanedTrashBlobs", () => {
       }
       if (sql.includes("FROM node_versions")) {
         expect(params).toEqual([NODE]);
-        return [{ content_ref: "blobB" }];
+        return [{ content_ref: "blobA" }, { content_ref: "blobB" }, { content_ref: "child-current" }, { content_ref: "grandchild-version" }];
       }
       if (sql.startsWith("DELETE FROM nodes")) {
         order.push("db-delete");
@@ -144,13 +144,15 @@ describe("purgeOrphanedTrashBlobs", () => {
 
     // Exactly the two refs belonging to THIS node were purged — nothing else
     // (e.g. an unrelated active node's blob) was ever touched.
-    expect(del).toHaveBeenCalledTimes(2);
+    expect(del).toHaveBeenCalledTimes(4);
     expect(del).toHaveBeenCalledWith("blobA");
     expect(del).toHaveBeenCalledWith("blobB");
+    expect(del).toHaveBeenCalledWith("child-current");
+    expect(del).toHaveBeenCalledWith("grandchild-version");
 
     // The DB row is gone BEFORE any blob is touched — never leaves a
     // content_ref dangling at a blob that's already been removed.
-    expect(order).toEqual(["db-delete", "blob-delete", "blob-delete"]);
+    expect(order).toEqual(["db-delete", "blob-delete", "blob-delete", "blob-delete", "blob-delete"]);
 
     expect(mAudit).toHaveBeenCalledWith(
       ORG,
@@ -172,7 +174,7 @@ describe("purgeOrphanedTrashBlobs", () => {
       if (sql.includes("FROM nodes") && sql.includes("trashed_at")) {
         return [{ id: NODE, org_id: ORG, kind: "file", content_ref: "blobA" }];
       }
-      if (sql.includes("FROM node_versions")) return [];
+      if (sql.includes("FROM node_versions")) return [{ content_ref: "blobA" }];
       return [];
     });
     const app = fakeApp();

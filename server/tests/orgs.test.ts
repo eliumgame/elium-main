@@ -789,8 +789,13 @@ describe("POST /api/orgs/:orgId/transfer-ownership", () => {
     mQueryOne
       .mockResolvedValueOnce({ owner_user_id: USER }) // caller IS the current owner
       .mockResolvedValueOnce({ id: "m-other" }) // target is an active member
-      .mockResolvedValueOnce({ id: "role-owner" }); // owner role lookup
-    mWithTx.mockImplementation(txDispatch([]) as never);
+      .mockResolvedValueOnce({ id: "role-owner" }) // owner role lookup
+      .mockResolvedValueOnce({ id: "role-admin" });
+    const mutations: { sql: string; params: unknown[] }[] = [];
+    mWithTx.mockImplementation(async fn => fn({ query: async (sql: string, params: unknown[]) => {
+      mutations.push({ sql, params });
+      return { rows: [{ id: "updated" }] };
+    } } as never));
     const app = await makeApp();
     const res = await app.inject({
       method: "POST",
@@ -799,6 +804,10 @@ describe("POST /api/orgs/:orgId/transfer-ownership", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ ok: true });
+    expect(mutations).toContainEqual({
+      sql: expect.stringContaining("AND role_id = $4"),
+      params: [ORG, USER, "role-admin", "role-owner"],
+    });
     expect(mAudit).toHaveBeenCalledWith(
       ORG,
       USER,

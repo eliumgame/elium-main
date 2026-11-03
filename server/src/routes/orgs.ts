@@ -405,18 +405,24 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
     const ownerRole = await queryOne<{ id: string }>(`SELECT id FROM roles WHERE org_id = $1 AND key = 'owner'`, [
       orgId,
     ]);
+    const adminRole = await queryOne<{ id: string }>(`SELECT id FROM roles WHERE org_id = $1 AND key = 'admin'`, [orgId]);
+    if (!ownerRole || !adminRole) throw conflict("Les rôles propriétaire et administrateur doivent exister avant le transfert.");
 
     await withTx(async (c) => {
-      await c.query(`UPDATE organizations SET owner_user_id = $2, updated_at = now() WHERE id = $1`, [
+      const changed = await c.query(`UPDATE organizations SET owner_user_id = $2, updated_at = now() WHERE id = $1 AND owner_user_id = $3 RETURNING id`, [
         orgId,
         b.newOwnerUserId,
+        actor.id,
       ]);
-      if (ownerRole)
-        await c.query(`UPDATE memberships SET role_id = $3 WHERE org_id = $1 AND user_id = $2`, [
+      if (!changed.rows.length) throw conflict("La propriété a changé entre-temps.");
+      const promoted = await c.query(`UPDATE memberships SET role_id = $3 WHERE org_id = $1 AND user_id = $2 AND status = 'active' RETURNING id`, [
           orgId,
           b.newOwnerUserId,
           ownerRole.id,
         ]);
+      if (!promoted.rows.length) throw conflict("Le nouveau propriétaire n'est plus membre actif.");
+      await c.query(`UPDATE memberships SET role_id = $3 WHERE org_id = $1 AND user_id = $2 AND role_id = $4`,
+        [orgId, actor.id, adminRole.id, ownerRole.id]);
     });
     await audit(orgId, actor.id, "org.ownership.transfer", "org", orgId, { newOwnerUserId: b.newOwnerUserId }, req.ip);
     return { ok: true };

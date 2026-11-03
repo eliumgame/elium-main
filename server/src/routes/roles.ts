@@ -131,6 +131,7 @@ export default async function roleRoutes(app: FastifyInstance): Promise<void> {
 
     const existing = await loadOrgRole(orgId, roleId);
     if (!existing) throw notFound("Rôle introuvable.");
+    assertCanGrantPermissions(ctx, existing.permissions);
     if (b.permissions !== undefined) {
       if (existing.key === "owner") throw forbidden("Les permissions du rôle propriétaire ne sont pas modifiables.");
       assertCanGrantPermissions(ctx, sanitizePermissions(b.permissions));
@@ -191,7 +192,7 @@ export default async function roleRoutes(app: FastifyInstance): Promise<void> {
   // --- Clone any org role (system or custom) into a new custom role --------
   app.post("/:orgId/roles/:roleId/clone", async (req) => {
     const { orgId, roleId } = z.object({ orgId: z.string().uuid(), roleId: z.string().uuid() }).parse(req.params);
-    await requireOrgPerm(req, orgId, "role.create");
+    const ctx = await requireOrgPerm(req, orgId, "role.create");
     const user = requireUser(req);
 
     const src = await loadOrgRole(orgId, roleId);
@@ -200,6 +201,7 @@ export default async function roleRoutes(app: FastifyInstance): Promise<void> {
     // Re-sanitize the source permissions so the clone can never inherit a key
     // that has since left the catalog.
     const permissions = sanitizePermissions(src.permissions);
+    assertCanGrantPermissions(ctx, permissions);
     const row = await queryOne<RoleRow>(
       `INSERT INTO roles (org_id, key, name, description, color, is_system, permissions)
        VALUES ($1, $2, $3, $4, $5, false, $6)

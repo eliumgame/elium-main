@@ -728,8 +728,19 @@ describe("PATCH /api/orgs/:orgId/members/:userId", () => {
 });
 
 describe("DELETE /api/orgs/:orgId/members/:userId", () => {
+  it("refuse de retirer un membre plus puissant", async () => {
+    mQueryOne.mockResolvedValueOnce({ owner_user_id: OWNER })
+      .mockResolvedValueOnce({ key: "admin", permissions: ["org.settings.manage"] });
+    const app = await makeApp();
+    const res = await app.inject({ method: "DELETE", url: `/api/orgs/${ORG}/members/${OTHER_USER}` });
+    expect(res.statusCode).toBe(403);
+    expect(mQueryOne.mock.calls.some(([sql]) => sql.startsWith("DELETE"))).toBe(false);
+    await app.close();
+  });
+
   it("removes a member", async () => {
-    mQueryOne.mockResolvedValueOnce({ owner_user_id: OWNER }).mockResolvedValueOnce({ id: "m3" });
+    mQueryOne.mockResolvedValueOnce({ owner_user_id: OWNER })
+      .mockResolvedValueOnce({ key: "viewer", permissions: [] }).mockResolvedValueOnce({ id: "m3" });
     const app = await makeApp();
     const res = await app.inject({ method: "DELETE", url: `/api/orgs/${ORG}/members/${OTHER_USER}` });
     expect(res.statusCode).toBe(200);

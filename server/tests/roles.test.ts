@@ -88,6 +88,18 @@ beforeEach(() => {
   mQueryOne.mockResolvedValue(null as never);
 });
 
+describe("plafond de privilèges sur les rôles existants", () => {
+  it.each(["PATCH", "POST"] as const)("%s refuse la modification/le clonage d'un rôle plus puissant", async method => {
+    mQueryOne.mockResolvedValueOnce(roleRow({ permissions: ["org.settings.manage"] }));
+    const app = await makeApp();
+    const res = await app.inject({ method, url: `/api/orgs/${ORG}/roles/${ROLE}${method === "POST" ? "/clone" : ""}`,
+      payload: method === "PATCH" ? { permissions: [] } : {} });
+    expect(res.statusCode).toBe(403);
+    expect(mQueryOne).toHaveBeenCalledTimes(1);
+    await app.close();
+  });
+});
+
 describe("GET /api/orgs/permission-catalog", () => {
   it("returns the static permission catalog for any authenticated user", async () => {
     const app = await makeApp();

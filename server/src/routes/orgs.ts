@@ -358,13 +358,21 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
   app.delete("/:orgId/members/:userId", async (req) => {
     const { orgId, userId } = z.object({ orgId: z.string().uuid(), userId: z.string().uuid() }).parse(req.params);
     const actor = requireUser(req);
-    await requireOrgPerm(req, orgId, "member.remove");
+    const ctx = await requireOrgPerm(req, orgId, "member.remove");
 
     const org = await queryOne<{ owner_user_id: string }>(`SELECT owner_user_id FROM organizations WHERE id = $1`, [
       orgId,
     ]);
     if (!org) throw notFound();
     if (org.owner_user_id === userId) throw conflict("Le propriétaire de l'organisation ne peut pas être retiré.");
+    if (!ctx.isOwner) {
+      const target = await queryOne<{ key?: string; permissions?: string[] }>(
+        `SELECT r.key, r.permissions FROM memberships m JOIN roles r ON r.id = m.role_id WHERE m.org_id = $1 AND m.user_id = $2`,
+        [orgId, userId],
+      );
+      if (!target) throw notFound("Membre introuvable dans cette organisation.");
+      assertCanGrant(ctx, target);
+    }
 
     const removed = await queryOne(`DELETE FROM memberships WHERE org_id = $1 AND user_id = $2 RETURNING id`, [
       orgId,

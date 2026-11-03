@@ -78,3 +78,5 @@ def test_modified_proof_takes_priority_over_untrusted_key():
     assert verify_proof(signature, model, "00" * 32) == "unknown_key"
     altered = create_document_model(text_to_doc("altered"))
     assert verify_proof(signature, altered, "00" * 32) == "modified"
+    for field in ("fingerprint", "signedDocId"):
+        assert verify_proof({**signature, "proof": {**proof, field: None}}, model) == "invalid"

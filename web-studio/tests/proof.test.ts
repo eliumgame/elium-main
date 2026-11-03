@@ -53,6 +53,10 @@ describe("signature proof binds placement + visual (v2)", () => {
     });
     expect(proof.signedPlacement).toBeTruthy(); // v2
     expect(await verifyProof(sig(proof, PLACEMENT, { text: "Bob" }), model)).toBe("valid");
+    for (const field of ["fingerprint", "signedDocId"]) {
+      const malformed = { ...proof, [field]: null } as unknown as SignatureProof;
+      expect(await verifyProof(sig(malformed, PLACEMENT, { text: "Bob" }), model)).toBe("invalid");
+    }
   });
 
   it("is 'modified' when the signature is moved", async () => {

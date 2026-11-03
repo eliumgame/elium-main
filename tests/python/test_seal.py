@@ -268,3 +268,4 @@ def test_empty_seal_is_broken_not_unsealed():
     from elium.format.seal import verify_seal
 
     assert verify_seal({"seal": {}}, [], {"version": 1, "events": []}) == "broken"
+    assert verify_seal({"seal": {"publicKeyHex": None}}, [], {"version": 1, "events": []}) == "broken"

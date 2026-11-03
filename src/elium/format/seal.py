@@ -158,7 +158,7 @@ def verify_seal(
     try:
         pub = Ed25519PublicKey.from_public_bytes(bytes.fromhex(seal["publicKeyHex"]))
         sig = bytes.fromhex(seal["signatureHex"])
-    except (ValueError, KeyError):
+    except (ValueError, KeyError, TypeError):
         return SEAL_BROKEN
 
     # L'empreinte affichée DOIT être celle de la clé qui a réellement signé : sinon un

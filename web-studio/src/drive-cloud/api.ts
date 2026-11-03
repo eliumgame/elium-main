@@ -72,6 +72,8 @@ export interface ApiOptions {
   baseUrl?: string;
   tokens?: Tokens | null;
   onTokens?: (tokens: Tokens | null) => void;
+  /** Shared tokens for this account only; null after logout/account change. */
+  readTokens?: () => Tokens | null;
 }
 
 type Query = Record<string, string | number | boolean | undefined>;
@@ -188,11 +190,13 @@ export class DriveApi {
   private tokens: Tokens | null;
   private onTokens?: (t: Tokens | null) => void;
   private refreshing: Promise<boolean> | null = null;
+  private readTokens?: () => Tokens | null;
 
   constructor(opts: ApiOptions = {}) {
     this.baseUrl = (opts.baseUrl ?? defaultBase()).replace(/\/$/, "");
     this.tokens = opts.tokens ?? null;
     if (opts.onTokens !== undefined) this.onTokens = opts.onTokens;
+    if (opts.readTokens !== undefined) this.readTokens = opts.readTokens;
   }
 
   setTokens(t: Tokens | null): void {
@@ -250,8 +254,17 @@ export class DriveApi {
   private async tryRefresh(): Promise<boolean> {
     if (!this.tokens?.refreshToken) return false;
     if (!this.refreshing) {
-      const rt = this.tokens.refreshToken;
-      this.refreshing = (async () => {
+      const refresh = async () => {
+        const initial = this.tokens?.refreshToken;
+        if (this.readTokens) {
+          const latest = this.readTokens();
+          if (!latest) return false;
+          this.tokens = latest;
+          // Another tab already rotated the token while we waited for the lock.
+          if (latest.refreshToken !== initial) return true;
+        }
+        const rt = this.tokens?.refreshToken;
+        if (!rt) return false;
         try {
           const res = await fetch(this.url("/auth/refresh"), {
             method: "POST",
@@ -259,18 +272,29 @@ export class DriveApi {
             body: JSON.stringify({ refreshToken: rt }),
           });
           if (!res.ok) {
-            this.setTokens(null);
+            // A temporary outage/rate limit must not erase a usable session.
+            if (res.status === 401 && this.tokens?.refreshToken === rt &&
+              (!this.readTokens || this.readTokens()?.refreshToken === rt)) this.setTokens(null);
             return false;
           }
           const t = (await res.json()) as Tokens;
+          // Ignore an in-flight response after logout or a different login.
+          if (this.tokens?.refreshToken !== rt || (this.readTokens && this.readTokens()?.refreshToken !== rt)) return false;
           this.setTokens(t);
           return true;
         } catch {
           return false;
-        } finally {
-          this.refreshing = null;
         }
-      })();
+      };
+      // Web Locks serialize rotation across tabs; persistence happens before release.
+      // Without this browser capability, shared sessions fail closed instead of
+      // risking refresh-token replay and revoking another tab's session.
+      const run = this.readTokens
+        ? (typeof navigator !== "undefined" && navigator.locks
+          ? navigator.locks.request(`elium-drive-refresh:${this.baseUrl}`, refresh)
+          : Promise.resolve(false))
+        : refresh();
+      this.refreshing = (async () => await run)().finally(() => { this.refreshing = null; });
     }
     return this.refreshing;
   }

@@ -184,6 +184,11 @@ export function DriveProvider({ children }: { children: ReactNode }) {
     () =>
       new DriveApi({
         tokens: readPersisted()?.tokens ?? null,
+        readTokens: () => {
+          const saved = readPersisted();
+          const accountId = snapshotRef.current?.user.id;
+          return saved && accountId && saved.snapshot?.user.id === accountId ? saved.tokens : null;
+        },
         onTokens: (t) => {
           if (t) persist({ tokens: t });
           else localStorage.removeItem(STORAGE_KEY);

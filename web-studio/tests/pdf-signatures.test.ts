@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, StandardFonts } from "pdf-lib";
+import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFRef, StandardFonts } from "pdf-lib";
 import {
   listSignatureFields,
   loadPkcs12,
@@ -76,7 +76,10 @@ describe("PAdES signing", () => {
       ["Signature3", "Chloé P384", true, "ec"],
     ]);
     expect(v[0]!.modifications).toBe("allowed");
-    expect(v[0]!.changes.every((c) => c.kind === "signature")).toBe(true);
+    expect(
+      v[0]!.changes.every((c) => c.kind === "signature"),
+      JSON.stringify(v[0]!.changes),
+    ).toBe(true);
     expect(v[2]!.coversWholeDocument).toBe(true);
     expect(v[0]!.reason).toBe("Accord");
     // The signed version is the first revision exactly.
@@ -101,7 +104,7 @@ describe("PAdES signing", () => {
     const signed = await signPdfBytes(await makePdf(true), RSA, "pw");
     const filled = await update(signed, (doc) => doc.getForm().getTextField("Nom").setText("Durand"));
     let [v] = await verifyPdfSignatures(filled);
-    expect(v!.valid).toBe(true);
+    expect(v!.valid, JSON.stringify(v!.changes)).toBe(true);
     expect(v!.changes.map((c) => c.label)).toContain("Champ rempli : Nom");
 
     const commented = await update(signed, (doc) => {
@@ -164,6 +167,82 @@ describe("PAdES signing", () => {
     expect(v!.locks).toEqual(["*"]);
     const filled = await update(signed, (doc) => doc.getForm().getTextField("Nom").setText("X"));
     expect((await verifyPdfSignatures(filled))[0]!.modifications).toBe("disallowed");
+  });
+
+  it.each([1, 2] as const)("refuses revision reclassification attacks under DocMDP P=%s", async (certify) => {
+    const signed = await signPdfBytes(await makePdf(true), RSA, "pw", { certify });
+    for (const attack of ["DSS", "Info", "DR", "Metadata", "FT"] as const) {
+      const forged = await update(signed, (doc) => {
+        const page = doc.getPage(0);
+        if (attack === "FT") {
+          const fonts = page.node.Resources()!.lookup(PDFName.of("Font"), PDFDict);
+          const font = fonts.lookup(fonts.keys()[0]!, PDFDict);
+          font.set(PDFName.of("Encoding"), doc.context.obj({ Differences: [49, PDFName.of("nine")] }));
+          font.set(PDFName.of("FT"), PDFName.of("Tx"));
+          font.set(PDFName.of("T"), PDFHexString.fromText("montant"));
+          return;
+        }
+        const contents = page.node.lookup(PDFName.of("Contents"), PDFArray);
+        const ref = contents.get(0) as PDFRef;
+        const stream = doc.context.stream("BT (Montant falsifie) Tj ET");
+        doc.context.assign(ref, stream);
+        if (attack === "DSS") doc.catalog.set(PDFName.of("DSS"), doc.context.obj({ Certs: [ref] }));
+        if (attack === "Info") doc.context.trailerInfo.Info = ref;
+        if (attack === "DR")
+          doc.catalog.lookup(PDFName.of("AcroForm"), PDFDict).set(PDFName.of("DR"), doc.context.obj({ X: ref }));
+        if (attack === "Metadata") stream.dict.set(PDFName.of("Type"), PDFName.of("Metadata"));
+      });
+      const [v] = await verifyPdfSignatures(forged);
+      expect(v!.intact, attack).toBe(true);
+      expect(v!.modifications, attack).toBe("disallowed");
+      expect(v!.valid, attack).toBe(false);
+    }
+  });
+
+  it("allows new DSS validation data without exempting modified existing objects", async () => {
+    const signed = await signPdfBytes(await makePdf(), RSA, "pw", { certify: 1 });
+    const ltv = await update(signed, (doc) => {
+      const cert = doc.context.register(doc.context.stream(CA));
+      doc.catalog.set(PDFName.of("DSS"), doc.context.obj({ Certs: [cert] }));
+    });
+    const [v] = await verifyPdfSignatures(ltv);
+    expect(v!.valid).toBe(true);
+    expect(v!.modifications).toBe("none");
+  });
+
+  it("refuses a field rename and keeps FieldMDP locks on modified appearance streams", async () => {
+    const source = await PDFDocument.load(await makePdf(true));
+    const page = source.getPage(0);
+    const sig = source.context.register(
+      source.context.obj({
+        Type: "Annot",
+        Subtype: "Widget",
+        FT: "Sig",
+        T: PDFHexString.fromText("Sign"),
+        Rect: [0, 0, 0, 0],
+        P: page.ref,
+        Lock: { Action: "Include", Fields: [PDFHexString.fromText("Nom")] },
+      }),
+    );
+    source.catalog.lookup(PDFName.of("AcroForm"), PDFDict).lookup(PDFName.of("Fields"), PDFArray).push(sig);
+    page.node.lookup(PDFName.of("Annots"), PDFArray).push(sig);
+    const signed = await signPdfBytes(await source.save({ useObjectStreams: false }), RSA, "pw", { fieldName: "Sign" });
+    const renamed = await update(signed, (doc) => {
+      doc.getForm().getTextField("Nom").acroField.dict.set(PDFName.of("T"), PDFHexString.fromText("Autre"));
+    });
+    expect((await verifyPdfSignatures(renamed))[0]!.modifications).toBe("disallowed");
+    const appearance = await update(signed, (doc) => {
+      const widget = doc.getForm().getTextField("Nom").acroField.getWidgets()[0]!;
+      const ap = widget.dict.lookup(PDFName.of("AP"), PDFDict);
+      const ref = ap.get(PDFName.of("N")) as PDFRef;
+      doc.context.assign(
+        ref,
+        doc.context.stream("BT (Valeur falsifiee) Tj ET", { Type: "XObject", Subtype: "Form", BBox: [0, 0, 200, 20] }),
+      );
+    });
+    const [v] = await verifyPdfSignatures(appearance);
+    expect(v!.modifications, JSON.stringify(v!.changes)).toBe("disallowed");
+    expect(v!.changes).toContainEqual({ kind: "disallowed", label: "Champ rempli : Nom" });
   });
 
   it("trust: the CA as a trusted identity gives a trusted chain; unknown otherwise", async () => {

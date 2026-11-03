@@ -1313,8 +1313,12 @@ async function buildChain(
     let next: Certificate | undefined;
     for (const c of candidates) {
       const subordinateCAs = chain.filter((member) => member.isCA && !selfIssued(member)).length;
-      if (!c.isCA || c.keyCertSign === false ||
-          (c.pathLenConstraint !== undefined && subordinateCAs > c.pathLenConstraint)) continue;
+      if (
+        !c.isCA ||
+        c.keyCertSign === false ||
+        (c.pathLenConstraint !== undefined && subordinateCAs > c.pathLenConstraint)
+      )
+        continue;
       if (await verifyRaw(c, cur.sigAlgDer, undefined, cur.signature, cur.tbs)) {
         next = c;
         break;
@@ -1353,6 +1357,18 @@ function fullName(d: PDFDict): string {
   return parts.join(".");
 }
 
+function fieldFlags(d: PDFDict): string {
+  const seen = new Set<PDFDict>();
+  let n: PDFObject | undefined = d;
+  while (n instanceof PDFDict && !seen.has(n)) {
+    seen.add(n);
+    const flags = n.lookup(PDFName.of("Ff"));
+    if (flags) return flags.toString();
+    n = n.lookup(PDFName.of("Parent"));
+  }
+  return "0";
+}
+
 /** What changed between the signed revision and the final file. */
 export function diffRevisions(
   rev: PDFDocument,
@@ -1365,6 +1381,8 @@ export function diffRevisions(
   if (rev.getPageCount() !== fin.getPageCount()) add("disallowed", "Pages ajoutées ou supprimées");
   if (String(rev.context.trailerInfo.Root) !== String(fin.context.trailerInfo.Root))
     add("disallowed", "Catalogue du document remplacé");
+  if (String(rev.context.trailerInfo.Encrypt) !== String(fin.context.trailerInfo.Encrypt))
+    add("disallowed", "Protection du document modifiée");
 
   // Establish ownership from the SIGNED revision. A later DSS/form reference
   // cannot turn an existing page resource into harmless validation data.
@@ -1393,41 +1411,64 @@ export function diffRevisions(
     if (!fin.context.lookup(ref)) add("disallowed", "Objet de page supprimé");
   }
 
-  // Objects owned by annotations (appearances, pop-ups) and by the DSS count with them.
+  // Only the signed revision can grant an existing object an editable role.
   const owner = new Map<string, ChangeKind>();
-  const claim = (o: PDFObject | undefined, kind: ChangeKind, depth = 0) => {
+  const ownerFields = new Map<string, Set<string>>();
+  const fieldRefs = new Set<string>();
+  const claim = (o: PDFObject | undefined, kind: ChangeKind, field = "", depth = 0) => {
     if (!o || depth > 8) return;
     if (o instanceof PDFRef) {
       const k = o.toString();
-      if (owner.has(k)) return;
+      const names = ownerFields.get(k) ?? new Set<string>();
+      if (owner.has(k) && names.has(field)) return;
+      names.add(field);
+      ownerFields.set(k, names);
       owner.set(k, kind);
-      claim(fin.context.lookup(o), kind, depth + 1);
+      claim(rev.context.lookup(o), kind, field, depth + 1);
     } else if (o instanceof PDFDict) {
-      for (const [, v] of o.entries()) claim(v, kind, depth + 1);
+      for (const [key, v] of o.entries())
+        if (!["/P", "/Parent"].includes(key.asString())) claim(v, kind, field, depth + 1);
     } else if (o instanceof PDFArray) {
-      for (let i = 0; i < o.size(); i++) claim(o.get(i), kind, depth + 1);
+      for (let i = 0; i < o.size(); i++) claim(o.get(i), kind, field, depth + 1);
     } else if (o instanceof PDFStream) {
-      claim((o as unknown as { dict: PDFDict }).dict, kind, depth + 1);
+      claim(o.dict, kind, field, depth + 1);
     }
   };
-  const dss = fin.catalog.get(PDFName.of("DSS"));
-  claim(dss, "neutral");
-  const info = fin.context.trailerInfo.Info;
-  if (info instanceof PDFRef) owner.set(info.toString(), "neutral");
-  const acroRef = fin.catalog.get(PDFName.of("AcroForm"));
-  if (acroRef instanceof PDFRef) owner.set(acroRef.toString(), "neutral");
-  const acro = fin.catalog.lookup(PDFName.of("AcroForm"));
-  if (acro instanceof PDFDict) {
-    claim(acro.get(PDFName.of("DR")), "neutral");
-    const f = acro.get(PDFName.of("Fields"));
-    if (f instanceof PDFRef) owner.set(f.toString(), "neutral");
-  }
   const kindOfAnnot = (d: PDFDict): ChangeKind => {
     if (d.lookup(PDFName.of("Subtype")) === PDFName.of("Widget") || d.has(PDFName.of("FT")))
       return inheritedFT(d) === "Sig" ? "signature" : "form";
     return "comment";
   };
-  for (const p of fin.getPages()) {
+  const registerEditable = (r: PDFObject, d: PDFDict, isField: boolean) => {
+    const kind = isField ? (inheritedFT(d) === "Sig" ? "signature" : "form") : kindOfAnnot(d);
+    const name = kind === "comment" ? "" : fullName(d);
+    if (r instanceof PDFRef) {
+      owner.set(r.toString(), kind);
+      ownerFields.set(r.toString(), new Set([name]));
+      if (isField || kind !== "comment") fieldRefs.add(r.toString());
+    }
+    for (const key of ["AP", "Popup", "MK"]) claim(d.get(PDFName.of(key)), kind, name);
+  };
+  const acroRef = rev.catalog.get(PDFName.of("AcroForm"));
+  if (acroRef instanceof PDFRef) owner.set(acroRef.toString(), "neutral");
+  const acro = rev.catalog.lookup(PDFName.of("AcroForm"));
+  if (acro instanceof PDFDict) {
+    const f = acro.get(PDFName.of("Fields"));
+    if (f instanceof PDFRef) owner.set(f.toString(), "neutral");
+    const fields = acro.lookup(PDFName.of("Fields"));
+    const visited = new Set<PDFObject>();
+    const visit = (r: PDFObject, depth = 0) => {
+      if (depth > 32 || visited.has(r)) return;
+      visited.add(r);
+      const d = rev.context.lookup(r);
+      if (!(d instanceof PDFDict)) return;
+      registerEditable(r, d, true);
+      const kids = d.lookup(PDFName.of("Kids"));
+      if (kids instanceof PDFArray) for (let i = 0; i < kids.size(); i++) visit(kids.get(i), depth + 1);
+    };
+    if (fields instanceof PDFArray) for (let i = 0; i < fields.size(); i++) visit(fields.get(i));
+  }
+  for (const p of rev.getPages()) {
     const annots = p.node.get(PDFName.of("Annots"));
     if (annots instanceof PDFRef) owner.set(annots.toString(), "neutral");
     const arr = p.node.lookup(PDFName.of("Annots"));
@@ -1436,11 +1477,7 @@ export function diffRevisions(
       const r = arr.get(i);
       const d = arr.lookup(i);
       if (!(d instanceof PDFDict)) continue;
-      const kind = kindOfAnnot(d);
-      for (const key of ["AP", "Popup", "MK"]) claim(d.get(PDFName.of(key)), kind);
-      const v = d.get(PDFName.of("V"));
-      if (v instanceof PDFRef && kind === "signature") claim(v, "signature");
-      if (r instanceof PDFRef && !owner.has(r.toString())) owner.set(r.toString(), kind);
+      registerEditable(r, d, false);
     }
   }
   // Removed annotations and fields.
@@ -1493,6 +1530,25 @@ export function diffRevisions(
     const d =
       obj instanceof PDFDict ? obj : obj instanceof PDFStream ? (obj as unknown as { dict: PDFDict }).dict : undefined;
     const claimed = owner.get(k);
+    if (old && claimed === "neutral") {
+      const acroBefore = rev.catalog.lookup(PDFName.of("AcroForm"));
+      if (
+        old === acroBefore &&
+        obj instanceof PDFDict &&
+        old instanceof PDFDict &&
+        dictWithout(old, new Set(["/Fields", "/SigFlags"])) === dictWithout(obj, new Set(["/Fields", "/SigFlags"]))
+      )
+        continue;
+      if (
+        old instanceof PDFArray &&
+        obj instanceof PDFArray &&
+        (k === String(acro instanceof PDFDict ? acro.get(PDFName.of("Fields")) : undefined) ||
+          rev.getPages().some((page) => String(page.node.get(PDFName.of("Annots"))) === k))
+      )
+        continue;
+      add("disallowed", "Structure du document modifiée");
+      continue;
+    }
     // A signature already made, or its signed field, must never change afterwards.
     if (old instanceof PDFDict && old.has(PDFName.of("ByteRange"))) {
       add("disallowed", "Signature existante modifiée");
@@ -1502,32 +1558,48 @@ export function diffRevisions(
       add("disallowed", "Champ de signature signé modifié");
       continue;
     }
-    if (d && (d.lookup(PDFName.of("Type")) === PDFName.of("Sig") || d.has(PDFName.of("ByteRange")))) {
+    if (isNew && d && (d.lookup(PDFName.of("Type")) === PDFName.of("Sig") || d.has(PDFName.of("ByteRange")))) {
       add("signature", "Signature ajoutée");
       continue;
     }
     // A field (a markup annotation's /T is its author, not a field name).
-    const subtype = d?.lookup(PDFName.of("Subtype"));
-    const isField =
-      !!d &&
-      obj instanceof PDFDict &&
-      (d.has(PDFName.of("FT")) || (d.has(PDFName.of("T")) && (!subtype || subtype === PDFName.of("Widget"))));
+    const oldDict = old instanceof PDFDict ? old : undefined;
+    const isField = fieldRefs.has(k);
     if (isField || claimed === "form" || claimed === "signature") {
-      const kind = isField ? (inheritedFT(d!) === "Sig" ? "signature" : "form") : claimed!;
+      if (
+        isField &&
+        (!(old instanceof PDFDict && obj instanceof PDFDict) ||
+          fieldFlags(old) !== fieldFlags(obj) ||
+          dictWithout(old, new Set(["/V", "/AS", "/AP", "/Ff"])) !==
+            dictWithout(obj, new Set(["/V", "/AS", "/AP", "/Ff"])))
+      ) {
+        add("disallowed", "Champ ou apparence modifié hors du remplissage");
+        continue;
+      }
+      const kind = isField ? (inheritedFT(oldDict!) === "Sig" ? "signature" : "form") : claimed!;
       if (kind === "signature") add("signature", isNew ? "Champ de signature ajouté" : "Signature ajoutée");
       else {
-        const name = obj instanceof PDFDict ? fullName(obj) : "";
-        add("form", name ? `Champ rempli : ${name}` : "Formulaire rempli", name || undefined);
+        for (const name of ownerFields.get(k) ?? [""])
+          add("form", name ? `Champ rempli : ${name}` : "Formulaire rempli", name || undefined);
       }
       continue;
     }
-    if (claimed === "comment" || (d && d.lookup(PDFName.of("Type")) === PDFName.of("Annot"))) {
-      add("comment", isNew ? "Commentaire ajouté" : "Commentaire modifié");
+    if (claimed === "comment" || (isNew && d && d.lookup(PDFName.of("Type")) === PDFName.of("Annot"))) {
+      const kind = isNew && d ? kindOfAnnot(d) : "comment";
+      add(
+        kind === "form" ? "disallowed" : kind,
+        kind === "signature"
+          ? "Champ de signature ajouté"
+          : kind === "form"
+            ? "Champ ajouté"
+            : isNew
+              ? "Commentaire ajouté"
+              : "Commentaire modifié",
+      );
       continue;
     }
     if (claimed === "neutral") continue;
     if (isNew) continue; // unreferenced from pages: fonts, images of new appearances
-    if (d?.lookup(PDFName.of("Type")) === PDFName.of("Metadata")) continue;
     add("disallowed", obj instanceof PDFStream ? "Contenu modifié" : "Objet du document modifié");
   }
   return out;

@@ -5,9 +5,9 @@
  * validité CMS, et qu'une altération invalide la signature.
  */
 import { describe, it, expect } from "vitest";
-import { PDFDocument, PDFName, PDFSignature, StandardFonts } from "pdf-lib";
+import { PDFArray, PDFDict, PDFDocument, PDFName, PDFRef, PDFSignature, StandardFonts } from "pdf-lib";
 import forge from "node-forge";
-import { signPdfBytes, verifyPdfSignatures } from "./ops/pades";
+import { diffRevisions, signPdfBytes, verifyPdfSignatures } from "./ops/pades";
 import { generateSelfSignedP12 } from "./ops/self-cert";
 import { createFields } from "./ops/forms";
 
@@ -102,7 +102,10 @@ describe("PAdES-B (sign + verify)", () => {
     parent.validity.notAfter = new Date(Date.UTC(2035, 0, 1));
     parent.setSubject([{ name: "commonName", value: "Parent approuvé" }]);
     parent.setIssuer(parent.subject.attributes);
-    parent.setExtensions([{ name: "basicConstraints", cA: false }, { name: "keyUsage", digitalSignature: true }]);
+    parent.setExtensions([
+      { name: "basicConstraints", cA: false },
+      { name: "keyUsage", digitalSignature: true },
+    ]);
     parent.sign(parentKeys.privateKey, forge.md.sha256.create());
     const leafKeys = forge.pki.rsa.generateKeyPair(2048);
     const leaf = forge.pki.createCertificate();
@@ -113,7 +116,9 @@ describe("PAdES-B (sign + verify)", () => {
     leaf.setSubject([{ name: "commonName", value: "Identité usurpée" }]);
     leaf.setIssuer(parent.subject.attributes);
     leaf.sign(parentKeys.privateKey, forge.md.sha256.create());
-    const p12 = binToU8(forge.asn1.toDer(forge.pkcs12.toPkcs12Asn1(leafKeys.privateKey, [leaf, parent], "pw")).getBytes());
+    const p12 = binToU8(
+      forge.asn1.toDer(forge.pkcs12.toPkcs12Asn1(leafKeys.privateKey, [leaf, parent], "pw")).getBytes(),
+    );
     const signed = await signPdfBytes(await makePdf(), p12, "pw");
     const parentDer = binToU8(forge.asn1.toDer(forge.pki.certificateToAsn1(parent)).getBytes());
     const verdict = (await verifyPdfSignatures(signed, { trusted: [parentDer] }))[0]!;
@@ -192,6 +197,50 @@ describe("PAdES-B (sign + verify)", () => {
     expect(s.includes("/Subtype /Form") || s.includes("/Subtype/Form")).toBe(true);
     expect(/\/Rect\s*\[\s*40\b/.test(s)).toBe(true);
   }, 30000);
+});
+
+describe("PAdES — comparaison des révisions", () => {
+  it("ne blanchit pas un contenu signé référencé par le DSS final", async () => {
+    const bytes = await makePdf();
+    const rev = await PDFDocument.load(bytes);
+    const fin = await PDFDocument.load(bytes);
+    const contents = fin.getPage(0).node.lookup(PDFName.of("Contents"));
+    const ref = contents instanceof PDFArray ? contents.get(0) : fin.getPage(0).node.get(PDFName.of("Contents"));
+    expect(ref).toBeInstanceOf(PDFRef);
+    fin.context.assign(ref as PDFRef, fin.context.flateStream("BT /F1 12 Tf (faux montant) Tj ET"));
+    fin.catalog.set(PDFName.of("DSS"), fin.context.obj({ Certs: [ref] }));
+    expect(diffRevisions(rev, fin)).toContainEqual(expect.objectContaining({ kind: "disallowed" }));
+  });
+
+  it("signale le remplacement du catalogue même avec le même nombre de pages", async () => {
+    const bytes = await makePdf();
+    const rev = await PDFDocument.load(bytes);
+    const fin = await PDFDocument.load(bytes);
+    fin.context.trailerInfo.Root = fin.context.register(fin.catalog.clone(fin.context));
+    expect(diffRevisions(rev, fin)).toContainEqual(
+      expect.objectContaining({
+        kind: "disallowed",
+        label: "Catalogue du document remplacé",
+      }),
+    );
+  });
+
+  it("ne reclasse pas une police signée en champ formulaire", async () => {
+    const bytes = await makePdf();
+    const rev = await PDFDocument.load(bytes);
+    const fin = await PDFDocument.load(bytes);
+    const resources = fin.getPage(0).node.lookup(PDFName.of("Resources"));
+    const fonts = resources instanceof PDFDict ? resources.lookup(PDFName.of("Font")) : undefined;
+    const font = fonts instanceof PDFDict ? fonts.entries()[0]?.[1] : undefined;
+    expect(font).toBeInstanceOf(PDFRef);
+    const dict = fin.context.lookup(font as PDFRef);
+    expect(dict).toBeInstanceOf(PDFDict);
+    const modified = (dict as PDFDict).clone(fin.context);
+    modified.set(PDFName.of("FT"), PDFName.of("Tx"));
+    modified.set(PDFName.of("T"), fin.context.obj("montant"));
+    fin.context.assign(font as PDFRef, modified);
+    expect(diffRevisions(rev, fin)).toContainEqual(expect.objectContaining({ kind: "disallowed" }));
+  });
 });
 
 function binToU8Str(u: Uint8Array): string {

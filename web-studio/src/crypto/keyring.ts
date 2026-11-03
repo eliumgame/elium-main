@@ -403,6 +403,19 @@ export async function installMaster(
   nextIndex: { ed: number; p256: number } = { ed: 0, p256: 0 },
 ): Promise<MasterRecord> {
   const prev = await getMasterRecord(store);
+  const derived = (await store.getAll()).filter((e) => e.protection === "derived");
+  if (prev && derived.length === 0)
+    throw new KeyringError("Secret maître existant : restauration impossible sans clé dérivée de référence.");
+  for (const entry of derived) {
+    if (entry.derivationIndex === undefined)
+      throw new KeyringError("Clé dérivée sans indice : restauration impossible.");
+    const publicHex = entry.type === "identity-ed25519"
+      ? (await deriveEd25519(master, entry.derivationIndex)).publicKeyHex
+      : entry.type === "recipient-p256"
+        ? (await deriveP256(master, entry.derivationIndex)).publicHex : undefined;
+    if (publicHex?.toLowerCase() !== entry.publicHex.toLowerCase())
+      throw new KeyringError("La phrase ou les parts ne correspondent pas au trousseau existant.");
+  }
   const record: MasterRecord = {
     v: 1,
     createdAt: prev?.createdAt ?? new Date().toISOString(),

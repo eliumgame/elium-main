@@ -120,7 +120,8 @@ describe("récupération depuis le secret maître", () => {
     await expect(restoreFromMaster(store, wrong, "nouveau")).rejects.toThrow(/ne correspondent pas/);
     expect(await getMasterRecord(store)).toEqual(before);
     const session = new KeyringSession({ idleMinutes: 0 });
-    await session.unlockWithMaster(await store.getAll(), wrong);
+    await expect(session.unlockWithMaster(await store.getAll(), wrong)).rejects.toThrow(/ne correspond pas/);
     expect(session.getPrivate(f.ed.entry.id)).toBeUndefined();
+    expect(session.getMaster()).toBeNull();
   }, 60000);
 });

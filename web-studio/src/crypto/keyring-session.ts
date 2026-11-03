@@ -135,15 +135,19 @@ export class KeyringSession {
   /** Déverrouille avec le secret maître déjà connu (passkey, phrase, parts Shamir). */
   async unlockWithMaster(entries: KeyEntry[], master: Uint8Array): Promise<UnlockResult> {
     if (master.length !== 32) throw new KeyringError("Secret maître invalide.");
-    this.master = new Uint8Array(master);
-    const unlocked: string[] = [];
+    const derived = new Map<string, string>();
     for (const e of entries) {
-      if (e.protection === "derived" && e.derivationIndex !== undefined && (await this.deriveInto(e)))
-        unlocked.push(e.id);
+      if (e.protection !== "derived") continue;
+      const key = await this.derivePrivate(e, master);
+      if (key === undefined) throw new KeyringError("Le secret maître ne correspond pas aux clés du trousseau.");
+      derived.set(e.id, key);
     }
+    this.master?.fill(0);
+    this.master = new Uint8Array(master);
+    for (const [id, key] of derived) this.privates.set(id, key);
     this.touch();
     this.listeners.forEach((cb) => cb());
-    return { unlocked, failed: [], masterUnlocked: true };
+    return { unlocked: [...derived.keys()], failed: [], masterUnlocked: true };
   }
 
   /**
@@ -204,19 +208,23 @@ export class KeyringSession {
   }
 
   private async deriveInto(e: KeyEntry): Promise<boolean> {
-    if (!this.master || e.derivationIndex === undefined) return false;
+    if (!this.master) return false;
+    const key = await this.derivePrivate(e, this.master);
+    if (key === undefined) return false;
+    this.privates.set(e.id, key);
+    return true;
+  }
+
+  private async derivePrivate(e: KeyEntry, master: Uint8Array): Promise<string | undefined> {
+    if (e.derivationIndex === undefined) return undefined;
     if (e.type === "identity-ed25519") {
-      const key = await deriveEd25519(this.master, e.derivationIndex);
-      if (key.publicKeyHex.toLowerCase() !== e.publicHex.toLowerCase()) return false;
-      this.privates.set(e.id, key.privateKeyHex);
-      return true;
+      const key = await deriveEd25519(master, e.derivationIndex);
+      return key.publicKeyHex.toLowerCase() === e.publicHex.toLowerCase() ? key.privateKeyHex : undefined;
     }
     if (e.type === "recipient-p256") {
-      const key = await deriveP256(this.master, e.derivationIndex);
-      if (key.publicHex.toLowerCase() !== e.publicHex.toLowerCase()) return false;
-      this.privates.set(e.id, key.privateHex);
-      return true;
+      const key = await deriveP256(master, e.derivationIndex);
+      return key.publicHex.toLowerCase() === e.publicHex.toLowerCase() ? key.privateHex : undefined;
     }
-    return false;
+    return undefined;
   }
 }

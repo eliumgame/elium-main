@@ -124,17 +124,6 @@ export async function restoreFromMaster(
   password: string,
   now: Date = new Date(),
 ): Promise<{ record: MasterRecord; restored: string[] }> {
-  if (await getMasterRecord(store)) {
-    const derived = (await store.getAll()).filter((e) => e.protection === "derived" && e.derivationIndex !== undefined);
-    if (derived.length === 0) throw new KeyringError("Secret maître existant : restauration impossible sans clé dérivée de référence.");
-    for (const entry of derived) {
-      const publicHex = entry.type === "identity-ed25519"
-        ? (await deriveEd25519(master, entry.derivationIndex!)).publicKeyHex
-        : (await deriveP256(master, entry.derivationIndex!)).publicHex;
-      if (publicHex.toLowerCase() !== entry.publicHex.toLowerCase())
-        throw new KeyringError("La phrase ou les parts ne correspondent pas au trousseau existant.");
-    }
-  }
   const record = await installMaster(store, master, password, { ed: RESTORE_SCAN_COUNT, p256: RESTORE_SCAN_COUNT });
   // Une entrée fantôme (mot de passe sans conteneur) n'est pas une clé : la clé dérivée la remplace.
   const existingIds = new Set((await store.getAll()).filter((e) => !isKeylessEntry(e)).map((e) => e.id));

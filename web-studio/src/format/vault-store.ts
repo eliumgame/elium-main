@@ -8,7 +8,7 @@
  * format/drive-store.ts and format/parapheur-store.ts.
  *
  * The vault password is verified against an encrypted canary (never stored in
- * clear) using the same Argon2id (profil « local-cache », cf.
+ * clear) using the same Argon2id (profil « document » for new verifiers, cf.
  * crypto/kdf-profiles.ts)→AES-256-GCM primitive as everything else in
  * crypto/local-vault.ts. Like document passwords, this is zero-knowledge:
  * there is no recovery if it's forgotten (see resetVault, which wipes the

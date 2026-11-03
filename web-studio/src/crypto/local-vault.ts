@@ -22,12 +22,8 @@ export interface VaultSecret {
   keyfile?: Uint8Array;
 }
 
-// Paramètres Argon2id pour ce cache LOCAL : plus légers que la clé maîtresse d'un
-// document (les brouillons/versions se sauvent souvent, ça doit rester rapide),
-// mais bien supérieurs à PBKDF2-100k. ~19 Mo, 2 passes.
-const A2_ITERATIONS = KDF_PROFILES["local-cache"].t;
-const A2_MEMORY_KIB = KDF_PROFILES["local-cache"].m;
-const A2_PARALLELISM = KDF_PROFILES["local-cache"].p;
+// Le mot de passe peut être celui du document : le cache ne doit pas offrir
+// un oracle moins coûteux. Le profil local-cache reste réservé à la lecture.
 
 /** True when there is an actual secret to encrypt with (non-empty password and/or a keyfile). */
 export function hasVaultSecret(secret?: VaultSecret): secret is VaultSecret {
@@ -62,11 +58,12 @@ async function secretString(secret: VaultSecret): Promise<string> {
 }
 
 /** Dérivation ACTUELLE : Argon2id → clé AES-256-GCM. */
-async function deriveKeyArgon2(secret: string, salt: Uint8Array): Promise<CryptoKey> {
+async function deriveKeyArgon2(secret: string, salt: Uint8Array, legacy = false): Promise<CryptoKey> {
   // Via le moteur : exécute Argon2id dans le Worker (argon2-worker.ts) avec repli
   // sur le thread principal — même octets, mais l'UI ne gèle plus pendant la
   // dérivation. Le secret est déjà « mot de passe|KF|sha256(keyfile) ».
-  const raw = await EliumCryptoEngine.deriveMasterKey(secret, salt, A2_ITERATIONS, A2_MEMORY_KIB, A2_PARALLELISM);
+  const { t, m, p } = KDF_PROFILES[legacy ? "local-cache" : "document"];
+  const raw = await EliumCryptoEngine.deriveMasterKey(secret, salt, t, m, p);
   return crypto.subtle.importKey("raw", raw as unknown as BufferSource, { name: "AES-GCM", length: 256 }, false, [
     "encrypt",
     "decrypt",
@@ -86,7 +83,7 @@ async function deriveKeyPbkdf2(secret: string, salt: Uint8Array): Promise<Crypto
 }
 
 /** Encrypt an arbitrary JSON-serializable value. Returns a versioned JSON
- *  envelope `{"v":2,"d":base64(salt(16)||iv(12)||ct)}` (Argon2id). */
+ *  envelope `{"v":4,"d":base64(salt(16)||iv(12)||ct)}` (document Argon2id). */
 export async function encryptAtRest(value: unknown, secret: VaultSecret, json?: string): Promise<string> {
   const s = await secretString(secret);
   const salt = crypto.getRandomValues(new Uint8Array(16));
@@ -100,11 +97,10 @@ export async function encryptAtRest(value: unknown, secret: VaultSecret, json?: 
   out.set(salt, 0);
   out.set(iv, salt.length);
   out.set(ct, salt.length + iv.length);
-  return JSON.stringify({ v: 2, d: toB64(out) });
+  return JSON.stringify({ v: 4, d: toB64(out) });
 }
 
-/** Decrypt a value produced by {@link encryptAtRest}. Accepts the v2 Argon2id
- *  envelope AND legacy PBKDF2 blobs (raw base64) written before this change. */
+/** Decrypt current v4, legacy v2 Argon2id and raw-base64 PBKDF2 envelopes. */
 export async function decryptAtRest<T>(
   stored: string,
   secret: VaultSecret,
@@ -116,10 +112,10 @@ export async function decryptAtRest<T>(
   let deriveKey = deriveKeyPbkdf2; // legacy par défaut
   if (stored.startsWith("{")) {
     const env = JSON.parse(stored) as { v?: number; d?: string };
-    if (env.v === 2 && typeof env.d === "string") {
+    if ((env.v === 2 || env.v === 4) && typeof env.d === "string") {
       b64 = env.d;
-      deriveKey = deriveKeyArgon2;
-    }
+      deriveKey = (secret, salt) => deriveKeyArgon2(secret, salt, env.v === 2);
+    } else throw new Error("Version de cache chiffré inconnue.");
   }
   const bin = fromB64(b64);
   const salt = bin.slice(0, 16);
@@ -157,7 +153,7 @@ export interface SealedBytes {
 
 /**
  * One Argon2id derivation per secret and salt for the whole session: a cache
- * written every few seconds (recovery drafts) must not pay ~20 MB of Argon2id
+ * written every few seconds (recovery drafts) must not pay document Argon2id
  * each time. The key is non-extractable; the secret it comes from is already
  * held in memory by whoever passes it.
  */
@@ -172,12 +168,12 @@ function sessionEntry(secret: VaultSecret) {
   return entry;
 }
 
-function sessionKey(secret: VaultSecret, salt: Uint8Array): Promise<CryptoKey> {
+function sessionKey(secret: VaultSecret, salt: Uint8Array, legacy = false): Promise<CryptoKey> {
   const entry = sessionEntry(secret);
-  const id = Array.from(salt, (b) => b.toString(16).padStart(2, "0")).join("");
+  const id = `${legacy ? "legacy" : "document"}:` + Array.from(salt, (b) => b.toString(16).padStart(2, "0")).join("");
   let key = entry.keys.get(id);
   if (!key) {
-    key = secretString(secret).then((s) => deriveKeyArgon2(s, salt));
+    key = secretString(secret).then((s) => deriveKeyArgon2(s, salt, legacy));
     entry.keys.set(id, key);
     key.catch(() => entry.keys.delete(id));
   }
@@ -201,11 +197,17 @@ export async function sealBytesAtRest(bytes: Uint8Array, secret: VaultSecret): P
 
 /** Decrypt a {@link SealedBytes} envelope. Throws on a wrong secret. */
 export async function openSealedBytes(sealed: SealedBytes, secret: VaultSecret): Promise<Uint8Array> {
-  const key = await sessionKey(secret, sealed.salt);
-  const pt = await crypto.subtle.decrypt(
+  const decrypt = async (legacy: boolean) => new Uint8Array(await crypto.subtle.decrypt(
     { name: "AES-GCM", iv: sealed.iv as unknown as BufferSource },
-    key,
+    await sessionKey(secret, sealed.salt, legacy),
     sealed.ct as unknown as BufferSource,
-  );
-  return new Uint8Array(pt);
+  ));
+  try {
+    return await decrypt(false);
+  } catch (error) {
+    // Le miroir de fichiers conserve salt/iv/ct, sans marqueur de KDF.
+    // Seule une authentification GCM réussie autorise le repli de lecture.
+    if (!(error instanceof Error) || error.name !== "OperationError") throw error;
+    return decrypt(true);
+  }
 }

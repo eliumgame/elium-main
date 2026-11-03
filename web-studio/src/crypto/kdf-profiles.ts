@@ -14,8 +14,10 @@
  *    serveur (hors-ligne) : on accepte le coût. Les comptes existants gardent
  *    leurs paramètres, stockés côté serveur (`kdf` du compte) : ne PAS les
  *    changer ici sans migration.
- *  - `local-cache` (t2 / 19 Mio / p1) : brouillons et historique chiffrés dans
- *    IndexedDB, réécrits toutes les quelques secondes. Plancher OWASP.
+ *  - `local-cache` (t2 / 19 Mio / p1) : lecture des anciens caches uniquement.
+ *    Les nouvelles écritures utilisent `document`, car elles peuvent réutiliser
+ *    le mot de passe du document. Les anciennes copies restent moins coûteuses
+ *    à attaquer tant qu'elles ne sont pas réécrites ou supprimées.
  *
  * Les bornes de DÉCODAGE (anti-DoS mémoire par en-tête malveillant) sont
  * communes à tous les lecteurs et miroir de `core/container.py`.

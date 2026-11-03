@@ -393,7 +393,28 @@ describe("POST /api/orgs/:orgId/invites", () => {
 });
 
 describe("POST /api/orgs/invites/accept", () => {
-  it("accepts a live invite and creates/updates the membership", async () => {
+  it("does not overwrite an existing membership or consume the invite on conflict", async () => {
+    const queries: string[] = [];
+    mWithTx.mockImplementation(async (fn) => fn({ query: async (sql: string) => {
+      queries.push(sql);
+      if (sql.includes("FROM invites")) return { rows: [{ id: "invite-1", org_id: ORG,
+        role_id: ROLE, email: "u@example.org", expires_at: new Date(Date.now() + 10000).toISOString() }] };
+      if (sql.includes("INSERT INTO memberships")) {
+        expect(sql).toContain("DO NOTHING");
+        expect(sql).not.toContain("DO UPDATE");
+      }
+      return { rows: [] };
+    } } as never));
+    const app = await makeApp();
+    const res = await app.inject({ method: "POST", url: "/api/orgs/invites/accept",
+      payload: { token: "valid-existing-member-token" } });
+    expect(res.statusCode).toBe(409);
+    expect(queries.some(sql => sql.includes("UPDATE invites"))).toBe(false);
+    expect(mAudit).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it("accepts a live invite and creates the membership", async () => {
     mWithTx.mockImplementation(
       txDispatch([
         [

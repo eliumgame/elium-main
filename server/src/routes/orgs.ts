@@ -285,15 +285,17 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
         );
       }
 
-      // Membership for the current user with the invite's role.
+      // An invitation creates membership; it never changes an existing role or
+      // reactivates a membership suspended by the administrator/SCIM.
       const { rows: memRows } = await c.query(
         `INSERT INTO memberships (org_id, user_id, role_id, status)
          VALUES ($1,$2,$3,'active')
          ON CONFLICT (org_id, user_id)
-         DO UPDATE SET role_id = EXCLUDED.role_id, status = 'active'
+         DO NOTHING
          RETURNING org_id, role_id`,
         [invite.org_id, user.id, invite.role_id],
       );
+      if (!memRows.length) throw conflict("Ce compte possède déjà une adhésion à cette organisation.");
       await c.query(`UPDATE invites SET accepted_at = now() WHERE id = $1`, [invite.id]);
       return { ...memRows[0], inviteId: invite.id as string, invitedEmail: invite.email as string };
     });

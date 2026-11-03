@@ -6,7 +6,7 @@
  * edited in place; smart guides snap to the slide centre, edges and a light grid.
  */
 import "./master.css";
-import DOMPurify from "dompurify";
+import { sanitizeSlideHtml } from "./sanitize";
 import { playbackSrc } from "./media";
 import { cellClass, isCovered, mergeAt } from "./table";
 import { layoutDiagram, nodeFontPx, type DEdge, type DNode } from "./diagram";
@@ -325,7 +325,7 @@ function ElementView({
   useEffect(() => {
     const node = ref.current;
     if (!node || !editing || document.activeElement === node || el.html == null) return;
-    const safe = DOMPurify.sanitize(el.html);
+    const safe = sanitizeSlideHtml(el.html);
     if (node.innerHTML !== safe) node.innerHTML = safe;
   }, [editing, el.html]);
   // Entrée en édition (double-clic, Entrée) : le champ est un nouveau nœud DOM, il faut lui donner le
@@ -435,7 +435,7 @@ function ElementView({
     <div
       className={`ce-text${isPromptOnly(el) ? " ce-text--prompt" : ""}`}
       style={style}
-      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(withSlideNumber(el.html, slideNumber)) }}
+      dangerouslySetInnerHTML={{ __html: sanitizeSlideHtml(withSlideNumber(el.html, slideNumber)) }}
     />
   );
 }
@@ -699,6 +699,7 @@ export default function SlideCanvas({
       const target = single ? elements.find((x) => x.id === sel[0]) : undefined;
       if (target && (target.type === "text" || target.type === "table")) {
         e.preventDefault();
+        onBeginChange?.();
         setEditingId(target.id);
         announce("Édition du texte : Échap pour terminer");
       }
@@ -779,6 +780,7 @@ export default function SlideCanvas({
               if (editable && (elm.type === "text" || elm.type === "table")) {
                 e.stopPropagation();
                 onSelectionChange?.([elm.id]);
+                if (editingId !== elm.id) onBeginChange?.();
                 setEditingId(elm.id);
               }
             }}

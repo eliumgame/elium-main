@@ -28,6 +28,7 @@ export interface DeckPresence {
 }
 
 export interface DeckStore {
+  loading?: boolean;
   /** Current deck snapshot (plain objects; a fresh reference on every change). */
   deck: Deck;
   /** Index of the slide the local user is viewing/editing. */

@@ -108,17 +108,27 @@ export function useLocalSheetStore(initial?: Workbook, persist?: SheetPersist): 
   const loadedRef = useRef(!!initial);
   useEffect(() => {
     if (initial) return;
+    let cancelled = false;
+    loadedRef.current = false;
     loadWorkbook(persistId, persistRef.current?.secret)
       .then((w) => {
-        reset(w ?? computeInitialWorkbook());
+        if (cancelled) return;
+        const hydrated = w ?? computeInitialWorkbook();
+        wbRef.current = hydrated;
+        reset(hydrated);
         loadedRef.current = true;
       })
-      .catch((err) => setLoadError(err instanceof Error ? err.message : String(err)));
+      .catch((err) => {
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : String(err));
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [initial, persistId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Autosauvegarde débouncée à chaque changement du classeur.
   useEffect(() => {
-    if (initial || loadError) return;
+    if (initial || loadError || !loadedRef.current) return;
     const p = persistRef.current;
     const t = setTimeout(() => {
       // Nouvel élément resté vierge : rien à enregistrer tant que rien n'a été saisi.
@@ -155,7 +165,7 @@ export function useLocalSheetStore(initial?: Workbook, persist?: SheetPersist): 
     () => () => {
       void flush().catch((err) => reportError("sheet-autosave", err));
     },
-    [], // eslint-disable-line react-hooks/exhaustive-deps
+    [],
   );
 
   // --- helper : muter une feuille par index (enregistre l'historique) ---

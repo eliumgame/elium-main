@@ -79,14 +79,31 @@ export function useLocalDeckStore(initial?: Deck, vaultSecret?: VaultSecret, per
   // falling back to a blank deck: see the autosave effect below, which must
   // stay disabled while `loadError` is set so it never overwrites the still-
   // encrypted blob.
+  const [loaded, setLoaded] = useState(!!initial);
+  const loadedRef = useRef(!!initial);
   const [loadError, setLoadError] = useState<string | undefined>(undefined);
   useEffect(() => {
     if (initial) return;
+    let cancelled = false;
+    loadedRef.current = false;
+    setLoaded(false);
     loadDeck(vaultSecret, persistId)
       .then((d) => {
-        if (d) reset(migrate(d));
+        if (cancelled) return;
+        if (d) {
+          const hydrated = migrate(d);
+          deckRef.current = hydrated;
+          reset(hydrated);
+        }
+        loadedRef.current = true;
+        setLoaded(true);
       })
-      .catch((err) => setLoadError(err instanceof Error ? err.message : String(err)));
+      .catch((err) => {
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : String(err));
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [initial, persistId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounced autosave + save on unmount — both skipped while `loadError` is
@@ -107,19 +124,20 @@ export function useLocalDeckStore(initial?: Deck, vaultSecret?: VaultSecret, per
   const loadErrorRef = useRef(loadError);
   loadErrorRef.current = loadError;
   useEffect(() => {
-    if (initial || loadError) return;
+    if (initial || loadError || !loaded) return;
     const t = setTimeout(() => void persistDeck(deck), 400);
     return () => clearTimeout(t);
-  }, [deck, initial, loadError]);
+  }, [deck, initial, loadError, loaded]);
   useEffect(
     () => () => {
       if (!initial && !loadErrorRef.current) void persistDeck(deckRef.current);
     },
     [initial],
-  ); // eslint-disable-line react-hooks/exhaustive-deps
+  );
 
   /** Enregistre la présentation (sauf nouvel élément resté vierge) puis prévient l'espace de travail. */
   async function persistDeck(d: Deck): Promise<number | undefined> {
+    if (!loadedRef.current || loadErrorRef.current) return undefined;
     const p = persistRef.current;
     if (p?.isNew && !savedOnce.current && isDeckPristine(d)) return undefined;
     try {
@@ -160,7 +178,7 @@ export function useLocalDeckStore(initial?: Deck, vaultSecret?: VaultSecret, per
     }, true);
 
   // --- deck / slide operations ---
-  const setActive = (i: number) => set((d) => ({ ...d, active: i }));
+  const setActive = (i: number) => setQuiet((d) => ({ ...d, active: i }));
   const setDeckField = (patch: Partial<Deck>) => set((d) => ({ ...d, ...patch }));
   const replaceDeck = (d: Deck) => reset(migrate({ ...d, active: 0 }));
   const patchSlide = (patch: Partial<Slide>, commit = false) =>
@@ -256,6 +274,7 @@ export function useLocalDeckStore(initial?: Deck, vaultSecret?: VaultSecret, per
   return {
     flush,
     deck,
+    loading: !loaded && !loadError,
     active: deck.active,
     canWrite: true,
     collaborative: false,

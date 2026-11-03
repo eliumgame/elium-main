@@ -835,6 +835,8 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
     return map;
   }, [peers]);
 
+  if (store.loading) return <div role="status">Chargement de la présentation…</div>;
+
   return (
     <div className={`slides-app ${chrome.variant === "modal" ? "slides-app--modal" : ""}`}>
       <div className="sv-shell">

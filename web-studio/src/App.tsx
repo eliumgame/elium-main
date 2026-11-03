@@ -708,14 +708,28 @@ export default function App() {
         if (first && (first.type === "eliumSheet" || first.type === "eliumSlides" || first.type === "eliumPdf")) {
           try {
             const kind = first.type === "eliumSheet" ? "sheet" : first.type === "eliumSlides" ? "slides" : "pdf";
-            setAppView({ kind, data: JSON.parse(String(first.attrs?.data ?? "null")) });
-            setActiveItem(null);
+            const data = JSON.parse(String(first.attrs?.data ?? "null"));
+            if (kind === "sheet" || kind === "slides") {
+              const id = ws.service.newItemId();
+              const title = result.file.manifest.title || uploaded.name;
+              const secret = vaultSecretRef.current;
+              const size =
+                kind === "slides"
+                  ? await (await import("./slides/deck-store")).saveDeck(data, secret, id)
+                  : await (await import("./sheet/sheet-store")).saveWorkbook(data, id, secret);
+              await ws.registerSaved({ id, kind, title, size });
+              setAppView(null);
+              setActiveItem({ kind, id, title, isNew: false });
+            } else {
+              setAppView({ kind, data });
+              setActiveItem(null);
+            }
             setPdfSource(null);
             setAppKey((k) => k + 1);
             setMode(kind);
             return;
-          } catch {
-            /* corrupted app payload — fall through to a normal open */
+          } catch (err) {
+            throw new Error(`Impossible d’ouvrir le fichier : ${msg(err)}`);
           }
         }
         setPassword(pwd ?? "");
@@ -727,7 +741,7 @@ export default function App() {
         setBusy(false);
       }
     },
-    [askSecret, loadFile, openLegacy],
+    [askSecret, loadFile, openLegacy, ws],
   );
 
   /**
@@ -1589,7 +1603,7 @@ export default function App() {
     // available, instead of leaving the stale plaintext record untouched.
     const key = {
       t: file.manifest.title,
-      d: file.document.doc as unknown,
+      d: file.document as unknown,
       p: needsSecret,
       s: hasVaultSecret(secret),
     };

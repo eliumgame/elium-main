@@ -909,11 +909,14 @@ function parseGraphicFrame(block: string, pc: ParseCtx, tf: Tf): SlideElement | 
     const target = rId ? pc.rels.get(rId) : undefined;
     const bytes = target ? pc.media.get(resolveMedia(target)) : undefined;
     if (!bytes) return null;
-    const { data, unsupportedLabel } = parseChart(strFromU8(bytes));
+    const chartXml = strFromU8(bytes);
+    const { data, unsupportedLabel } = parseChart(chartXml);
     if (unsupportedLabel) {
       pc.onWarning?.(unsupportedLabel);
       return null;
     }
+    if (data && (chartXml.match(/<c:ser\b/g) ?? []).length > 1)
+      pc.onWarning?.("Graphique multi-séries : seule la première série est importée.");
     return data ? el({ type: "chart", chart: data }, g) : null;
   }
   if (!/<a:tbl\b/.test(block)) return null; // SmartArt / OLE → skip (degrade)

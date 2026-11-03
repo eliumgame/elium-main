@@ -25,6 +25,18 @@ import { audit } from "../lib/audit.js";
 import { isIP } from "node:net";
 import { isNonPublicAddress } from "./tsa.js";
 import { resyncOrgGroupRoles } from "./scim.js";
+import { config } from "../config.js";
+
+/** Org-controlled identity providers cannot authorize global accounts across tenants. */
+async function requireSingleDriveSso(orgId: string): Promise<void> {
+  if (!config.site.singleDrive) {
+    throw forbidden("Le SSO nécessite un déploiement mono-Drive. Utilisez la connexion par mot de passe.");
+  }
+  const orgs = await query<{ id: string }>(`SELECT id FROM organizations LIMIT 2`);
+  if (orgs.length !== 1 || orgs[0]?.id !== orgId) {
+    throw forbidden("Le SSO nécessite une organisation unique sur ce déploiement.");
+  }
+}
 
 // Garde SSRF à la saisie : https, sans identifiants, hôte non « localhost » et, pour un
 // littéral IP (v4, v6, ::ffff:v4, NAT64, 6to4…), adresse publique. Les noms DNS sont
@@ -97,6 +109,7 @@ export default async function ssoRoutes(app: FastifyInstance): Promise<void> {
     const b = ssoConfigSchema.parse(req.body);
     const actor = requireUser(req);
     await requireOwnerWithReauth(req, orgId, actor.id);
+    await requireSingleDriveSso(orgId);
     await query(`UPDATE organizations SET sso_config = $2, updated_at = now() WHERE id = $1`, [
       orgId,
       JSON.stringify(b),
@@ -203,6 +216,7 @@ export default async function ssoRoutes(app: FastifyInstance): Promise<void> {
   // non-trivial signature verification (RS/ES/EdDSA against a configured JWKS).
   app.post("/auth/sso/verify", { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (req) => {
     const b = z.object({ orgId: z.string().uuid(), idToken: z.string().min(10).max(8192) }).parse(req.body);
+    await requireSingleDriveSso(b.orgId);
     const org = await queryOne<{ sso_config: OidcConfig | null }>(
       `SELECT sso_config FROM organizations WHERE id = $1`,
       [b.orgId],

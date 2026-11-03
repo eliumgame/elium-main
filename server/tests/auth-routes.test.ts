@@ -29,6 +29,7 @@ import { issueScopedToken } from "../src/lib/tokens.js";
 import { sha256Hex, encryptServerSecret } from "../src/lib/crypto-server.js";
 import authRoutes from "../src/routes/auth.js";
 import ssoRoutes from "../src/routes/sso.js";
+import { config } from "../src/config.js";
 
 const mockedQueryOne = vi.mocked(queryOne);
 const mockedQuery = vi.mocked(query);
@@ -62,6 +63,7 @@ async function buildTestApp(): Promise<FastifyInstance> {
 }
 
 beforeEach(() => {
+  config.site.singleDrive = false;
   mockedQueryOne.mockReset().mockResolvedValue(null);
   mockedQuery.mockReset().mockResolvedValue([]);
 });
@@ -77,6 +79,36 @@ const USER_ROW = (pubHex: string) => ({
   key_bundle: {},
   status: "active",
   mfa_enabled: false,
+});
+
+describe("SSO : frontière de confiance du déploiement", () => {
+  it.each([false, true])("refuse plusieurs organisations (singleDrive=%s) avant toute vérification OIDC", async (singleDrive) => {
+    config.site.singleDrive = singleDrive;
+    const orgId = randomUUID();
+    mockedQuery.mockResolvedValue([{ id: orgId }, { id: randomUUID() }] as never);
+    const app = await buildTestApp();
+    const res = await app.inject({ method: "POST", url: "/api/auth/sso/verify",
+      payload: { orgId, idToken: "forged-provider-token" } });
+    expect(res.statusCode).toBe(403);
+    expect(mockedQueryOne).not.toHaveBeenCalled();
+    expect(mockedQuery.mock.calls.every(([sql]) => sql.startsWith("SELECT"))).toBe(true);
+    await app.close();
+  });
+
+  it("autorise la recherche du fournisseur seulement pour l'organisation unique", async () => {
+    config.site.singleDrive = true;
+    const orgId = randomUUID();
+    mockedQuery.mockResolvedValue([{ id: orgId }] as never);
+    const app = await buildTestApp();
+    const res = await app.inject({ method: "POST", url: "/api/auth/sso/verify",
+      payload: { orgId, idToken: "unknown-provider-token" } });
+    expect(res.statusCode).toBe(400);
+    expect(mockedQueryOne).toHaveBeenCalledWith(expect.stringContaining("SELECT sso_config"), [orgId]);
+    const wrong = await app.inject({ method: "POST", url: "/api/auth/sso/verify",
+      payload: { orgId: randomUUID(), idToken: "unknown-provider-token" } });
+    expect(wrong.statusCode).toBe(403);
+    await app.close();
+  });
 });
 
 describe("anti-énumération : /login/verify", () => {
@@ -212,7 +244,7 @@ describe("rate limiting des routes sensibles", () => {
         payload: { orgId: randomUUID(), idToken: "x".repeat(32) },
       });
       last = res.statusCode;
-      if (i < 20) expect(res.statusCode).toBe(400); // SSO non configuré (org inconnue)
+      if (i < 20) expect(res.statusCode).toBe(403); // SSO interdit en multi-Drive
     }
     expect(last).toBe(429);
     await app.close();

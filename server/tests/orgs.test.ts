@@ -1031,8 +1031,22 @@ describe("GET /api/orgs/:orgId/recovery-key", () => {
 });
 
 describe("POST /api/orgs/:orgId/recovery/admins", () => {
+  it("cannot overwrite an existing recovery administrator's key", async () => {
+    mQueryOne.mockResolvedValueOnce({ ok: 1 });
+    mQuery.mockResolvedValueOnce([]);
+    const app = await makeApp();
+    const res = await app.inject({ method: "POST", url: `/api/orgs/${ORG}/recovery/admins`,
+      payload: { adminUserId: OTHER_USER, wrappedOrgPrivate: { c: "replacement" } } });
+    expect(res.statusCode).toBe(409);
+    expect(mQuery).toHaveBeenCalledWith(expect.stringContaining("DO NOTHING RETURNING admin_user_id"),
+      [ORG, OTHER_USER, JSON.stringify({ c: "replacement" })]);
+    expect(mAudit).not.toHaveBeenCalled();
+    await app.close();
+  });
+
   it("registers a new recovery admin (re-wraps the org private key to them)", async () => {
     mQueryOne.mockResolvedValueOnce({ ok: 1 }); // active membership
+    mQuery.mockResolvedValueOnce([{ admin_user_id: OTHER_USER }]);
     const app = await makeApp();
     const res = await app.inject({
       method: "POST",

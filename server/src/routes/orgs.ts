@@ -523,13 +523,14 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
     );
     if (!member) throw badRequest("L'administrateur cible n'est pas membre actif de l'organisation.");
 
-    await query(
+    const granted = await query(
       `INSERT INTO org_recovery_keys (org_id, admin_user_id, wrapped_org_private)
        VALUES ($1,$2,$3)
        ON CONFLICT (org_id, admin_user_id)
-       DO UPDATE SET wrapped_org_private = EXCLUDED.wrapped_org_private`,
+       DO NOTHING RETURNING admin_user_id`,
       [orgId, b.adminUserId, JSON.stringify(b.wrappedOrgPrivate)],
     );
+    if (!granted.length) throw conflict("Cet administrateur possède déjà une clé de recouvrement. Utilisez la rotation pour la remplacer.");
     await audit(orgId, actor.id, "recovery.admin.grant", "org", orgId, { adminUserId: b.adminUserId }, req.ip);
     return { ok: true };
   });

@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+import { importXlsx, importXlsxAsync } from "../src/sheet/xlsx-import";
 import { describe, it, expect, vi } from "vitest";
 import { zipSync, strToU8, unzipSync, strFromU8 } from "fflate";
 import { createCalc } from "../src/sheet/formula";
@@ -7,6 +9,28 @@ import { workbookToXlsx } from "../src/sheet/xlsx-export";
 import { runStreamImport } from "../src/sheet/xlsx-stream";
 const calc = (cells: Record<string, string>) => createCalc((ref) => cells[ref]);
 describe("audit F tableur", () => {
+  it("preserves shared, inline and str text types in both XLSX readers", async () => {
+    const zip = unzipSync(workbookToXlsx(csvToWorkbook("placeholder")));
+    zip["xl/sharedStrings.xml"] = strToU8(
+      '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><si><t>123</t></si></sst>',
+    );
+    zip["xl/worksheets/sheet1.xml"] = strToU8(
+      '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="inlineStr"><is><t>00123</t></is></c><c r="C1" t="str"><v>=1+1</v></c><c r="D1" t="inlineStr"><is><t>12345678901234567890</t></is></c></row></sheetData></worksheet>',
+    );
+    const bytes = zipSync(zip);
+    for (const wb of [importXlsx(bytes), (await importXlsxAsync(bytes, { inline: true })).workbook]) {
+      const c = calc(wb.sheets[0].cells);
+      expect(["A1", "B1", "C1", "D1"].map((ref) => c.valueOf(ref))).toEqual([
+        "123",
+        "00123",
+        "=1+1",
+        "12345678901234567890",
+      ]);
+      const exported = strFromU8(unzipSync(workbookToXlsx(wb))["xl/worksheets/sheet1.xml"]);
+      expect(exported).not.toContain("<f>");
+      expect(exported.match(/t="inlineStr"/g)).toHaveLength(4);
+    }
+  });
   it.each([
     ["ROUND(1.005;2)", 1.01],
     ["ROUND(-2.5;0)", -3],

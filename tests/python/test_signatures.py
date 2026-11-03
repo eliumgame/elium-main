@@ -65,3 +65,16 @@ def test_malformed_proof_returns_invalid():
     for proof in ({}, {"fingerprint": None}, {"signedDocId": None},
                   {"signedContentHash": "x"}):
         assert verify_proof({"id": "s", "signer": {}, "proof": proof}, {}) == "invalid"
+
+
+def test_modified_proof_takes_priority_over_untrusted_key():
+    from elium.format.document import create_document_model, text_to_doc
+    from elium.format.proof import create_proof, generate_identity, verify_proof
+
+    model = create_document_model(text_to_doc("original"))
+    identity = generate_identity()
+    proof = create_proof("s", model, {}, identity["privateKeyHex"])
+    signature = {"id": "s", "signer": {}, "proof": proof}
+    assert verify_proof(signature, model, "00" * 32) == "unknown_key"
+    altered = create_document_model(text_to_doc("altered"))
+    assert verify_proof(signature, altered, "00" * 32) == "modified"

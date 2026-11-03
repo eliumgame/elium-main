@@ -453,7 +453,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="[DÉPRÉCIÉ] Clé privée P-256 (hex) en clair en argument ; préférez --recipient-kid")
     p.add_argument("--recipient-kid", dest="recipient_kid", metavar="KID",
                    help="Clé de réception du trousseau (`elium keys list`) ; le mot de passe est demandé sans écho")
-    p.add_argument("--trusted", help="Clé publique de confiance (hex) pour l'attribution")
+    p.add_argument("--trusted", help="Clé publique de confiance (hex) du sceau ; les preuves sont vérifiées indépendamment")
     p.add_argument("--report", help="Écrire un rapport de preuve JSON")
     p.set_defaults(func=cmd_doc_verify)
 

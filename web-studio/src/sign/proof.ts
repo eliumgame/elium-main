@@ -135,16 +135,15 @@ export async function verifyProof(
   if (proof.fingerprint !== undefined && proof.fingerprint !== (await fingerprintOf(proof.publicKeyHex)))
     return "invalid";
 
-  if (trustedKeyHex && trustedKeyHex.trim().toLowerCase() !== proof.publicKeyHex.toLowerCase()) {
-    return "unknown_key";
-  }
-
   if ((await computeContentHash(model)) !== proof.signedContentHash) return "modified";
   // A v2 proof also detects the signature being moved or its appearance altered.
   if (proof.signedPlacement && canonicalJSON(signature.placement) !== canonicalJSON(proof.signedPlacement))
     return "modified";
   if (proof.signedVisual && canonicalJSON(signature.visual) !== canonicalJSON(proof.signedVisual)) return "modified";
   if (docId !== undefined && proof.signedDocId !== undefined && proof.signedDocId !== docId) return "modified";
+  if (trustedKeyHex && trustedKeyHex.trim().toLowerCase() !== proof.publicKeyHex.toLowerCase()) {
+    return "unknown_key";
+  }
   return "valid";
 }
 

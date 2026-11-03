@@ -98,6 +98,7 @@ describe("signature proof binds placement + visual (v2)", () => {
       page: { ...model.page, numberedHeadings: !model.page.numberedHeadings },
     } as EliumDocumentModel;
     expect(await verifyProof(sig(proof, PLACEMENT, { text: "Bob" }), changed)).toBe("modified");
+    expect(await verifyProof(sig(proof, PLACEMENT, { text: "Bob" }), changed, "00".repeat(32))).toBe("modified");
   });
 
   it("legacy proof (no snapshots) does NOT cover placement/visual (backward compat)", async () => {

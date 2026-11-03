@@ -147,9 +147,6 @@ def verify_proof(
     if fp is not None and fp != hashlib.sha256(bytes.fromhex(proof["publicKeyHex"])).hexdigest():
         return "invalid"
 
-    if trusted_key_hex and trusted_key_hex.strip().lower() != proof["publicKeyHex"].lower():
-        return "unknown_key"
-
     if compute_content_hash(model) != proof["signedContentHash"]:
         return "modified"
     # A v2 proof also detects the signature being moved or its appearance altered.
@@ -161,4 +158,6 @@ def verify_proof(
         return "modified"
     if doc_id is not None and "signedDocId" in proof and proof["signedDocId"] != doc_id:
         return "modified"
+    if trusted_key_hex and trusted_key_hex.strip().lower() != proof["publicKeyHex"].lower():
+        return "unknown_key"
     return "valid"

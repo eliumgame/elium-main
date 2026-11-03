@@ -1,3 +1,4 @@
+import { bordersCss, type ParagraphBorders } from "../editor/paragraphFormat";
 /**
  * Export pipeline. A self-contained ProseMirror-JSON serializer (no extra deps)
  * produces HTML and Markdown; PDF is delivered through the browser print dialog
@@ -264,6 +265,21 @@ function inlineHtml(node: ProseMirrorNode): string {
 
 function blockStyle(node: ProseMirrorNode): string {
   const parts: string[] = [];
+  const attrs = node.attrs ?? {};
+  for (const [key, css] of [
+    ["spaceBefore", "margin-top"],
+    ["spaceAfter", "margin-bottom"],
+    ["firstLineIndent", "text-indent"],
+  ]) {
+    const value = attrs[key];
+    if (value != null && Number.isFinite(Number(value))) parts.push(css + ":" + Number(value) + "px");
+  }
+  const border = bordersCss(attrs.borders as ParagraphBorders | undefined);
+  if (border) parts.push(border);
+  if (Number(attrs.firstLineIndent) < 0) parts.push("padding-left:" + -Number(attrs.firstLineIndent) + "px");
+  if (attrs.shading) parts.push("background-color:" + safeCss(String(attrs.shading)));
+  if (attrs.dropCap === "drop" || attrs.dropCap === "margin")
+    parts.push("--elium-dropcap:" + (clampDropLines(attrs.dropCapLines) * 1.5).toFixed(2) + "em");
   const a = node.attrs?.textAlign;
   if (a && a !== "left") parts.push(`text-align:${esc(String(a))}`);
   const indent = Number(node.attrs?.indent) || 0;
@@ -320,10 +336,7 @@ function blockHtml(node: ProseMirrorNode, ctx: HtmlCtx): string {
       // La lettrine passe par un attribut et une variable CSS : `::first-letter`
       // ne peut pas être stylé en ligne, donc la règle vit dans la feuille.
       const drop = node.attrs?.dropCap;
-      const dropAttr =
-        drop === "drop" || drop === "margin"
-          ? ` data-drop-cap="${drop}" style="--elium-dropcap:${(clampDropLines(node.attrs?.dropCapLines) * 1.5).toFixed(2)}em"`
-          : "";
+      const dropAttr = drop === "drop" || drop === "margin" ? ` data-drop-cap="${drop}"` : "";
       return `<p${dropAttr}${blockStyle(node)}>${kids || "<br>"}</p>`;
     }
     case "heading": {
@@ -528,7 +541,18 @@ function nodeHtml(node: ProseMirrorNode, ctx: HtmlCtx): string {
   return blockHtml(node, ctx);
 }
 
+/** Export the accepted view, including headings, notes and generated indexes. */
+function finalView(node: ProseMirrorNode): ProseMirrorNode {
+  return {
+    ...node,
+    ...(node.content
+      ? { content: node.content.filter((c) => !c.marks?.some((m) => m.type === "deletion")).map(finalView) }
+      : {}),
+  };
+}
+
 export function docToHtml(model: EliumDocumentModel): string {
+  model = { ...model, doc: finalView(model.doc) };
   return blockHtml(model.doc, {
     headings: collectHeadings(model.doc),
     hi: 0,
@@ -760,6 +784,7 @@ function tableMd(table: ProseMirrorNode, ctx: FlatCtx): string {
 }
 
 export function docToMarkdown(model: EliumDocumentModel): string {
+  model = { ...model, doc: finalView(model.doc) };
   return (
     nodeMd(model.doc, emptyFlatCtx(model.doc))
       .replace(/\n{3,}/g, "\n\n")
@@ -888,6 +913,7 @@ function nodeText(node: ProseMirrorNode, ctx: FlatCtx): string {
 }
 
 export function docToText(model: EliumDocumentModel): string {
+  model = { ...model, doc: finalView(model.doc) };
   return (
     nodeText(model.doc, emptyFlatCtx(model.doc))
       .replace(/\n{3,}/g, "\n\n")

@@ -221,7 +221,8 @@ export function planPages(blocks: MeasuredBlock[], metrics: PageMetrics | Sectio
     // page and must simply spill (Word does the same).
     while (used > m.pageContentPx) {
       used -= m.pageContentPx;
-      closePage(m);
+      // No internal spacer was inserted: advance by actual flowing content.
+      top += m.pageContentPx;
       index += 1;
       display += 1;
       openPage(section, m, display);

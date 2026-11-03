@@ -59,14 +59,23 @@ export interface JournalVerdict {
 }
 
 export async function verifyJournal(journal: Journal): Promise<JournalVerdict> {
+  if (!journal || !Array.isArray(journal.events)) return { valid: false, brokenAt: 0, count: 0 };
   let prevHash = ZERO_HASH;
   for (let i = 0; i < journal.events.length; i++) {
     const e = journal.events[i];
-    if (e.seq !== i || e.prevHash !== prevHash) {
+    const objectOrAbsent = (value: unknown) => value === undefined ||
+      (value !== null && typeof value === "object" && !Array.isArray(value));
+    if (!e || e.seq !== i || e.prevHash !== prevHash || typeof e.type !== "string" || typeof e.at !== "string" ||
+        !objectOrAbsent(e.actor) || !objectOrAbsent(e.data)) {
       return { valid: false, brokenAt: i, count: journal.events.length };
     }
     const payload = buildPayload(e.seq, e.type, e.at, { actor: e.actor, data: e.data });
-    const expected = await sha256Hex(prevHash + canonicalJSON(payload));
+    let expected: string;
+    try {
+      expected = await sha256Hex(prevHash + canonicalJSON(payload));
+    } catch {
+      return { valid: false, brokenAt: i, count: journal.events.length };
+    }
     if (expected !== e.hash) {
       return { valid: false, brokenAt: i, count: journal.events.length };
     }

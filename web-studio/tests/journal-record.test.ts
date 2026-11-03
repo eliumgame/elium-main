@@ -6,6 +6,15 @@ import { verifySeal } from "../src/sign/seal";
 import { generateIdentity } from "../src/sign/keys";
 
 describe("Journal — recordSave (tracking gate)", () => {
+  it("rejette les champs mal formés même si leur omission laisserait le hash valide", async () => {
+    const file = await createEliumFile({ title: "Doc", profile: "tracked" });
+    for (const extra of [{ actor: true }, { data: 5 }, { actor: null }, { seq: false }]) {
+      const journal = { ...file.journal, events: [{ ...file.journal.events[0], ...extra }] };
+      expect((await verifyJournal(journal as never)).valid).toBe(false);
+    }
+    expect((await verifyJournal([] as never)).valid).toBe(false);
+    expect((await verifyJournal({ events: [null] } as never)).valid).toBe(false);
+  });
   it("does nothing when tracking is off and no journal exists (standard profile)", async () => {
     const f = await createEliumFile({ title: "Doc", profile: "standard" });
     expect(tracksJournal(f)).toBe(false);

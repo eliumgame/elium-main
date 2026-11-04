@@ -17,7 +17,7 @@ La connexion est un **défi-réponse** :
 | 2 | `POST /login/verify` | Le client renvoie la **signature** du défi, le serveur vérifie |
 | 3 | `POST /login/mfa` | Seulement si un second facteur est actif |
 
-Tous les échecs de l'étape 2 renvoient le **même message**. Un compte inconnu reçoit de faux paramètres de dérivation, de forme identique à un vrai compte (route `prelogin`). On ne peut donc ni deviner qu'un e-mail existe, ni verrouiller le compte de quelqu'un par essais répétés.
+Tous les échecs de l'étape 2 renvoient le **même message**. Un compte inconnu reçoit de faux paramètres de dérivation, de forme identique à un vrai compte (route `prelogin`). Cette protection concerne le parcours de connexion : l'inscription peut signaler qu'un compte existe déjà, et l'annuaire accessible aux membres permet une recherche exacte. Le second facteur applique également le verrouillage temporaire par compte décrit ci-dessous.
 
 > Limite résiduelle, identique à SRP : si la clé publique d'authentification fuit, une attaque par dictionnaire hors ligne reste possible, au coût d'un Argon2id par essai. C'est ce coût qui protège un mot de passe faible.
 
@@ -28,7 +28,7 @@ Tous les échecs de l'étape 2 renvoient le **même message**. Un compte inconnu
 - `POST /logout` révoque la session.
 - Les sessions expirées, ou révoquées depuis plus de 7 jours, sont purgées automatiquement.
 
-Les routes `GET /api/users/me/sessions` et `DELETE /api/users/me/sessions/:id` permettent de lister et de révoquer ses sessions. **Aucun écran** ne les expose pour l'instant.
+L'onglet **Sécurité** permet de lister et de révoquer ses sessions via les routes `GET /api/users/me/sessions` et `DELETE /api/users/me/sessions/:id`.
 
 ### Changer son mot de passe
 
@@ -69,7 +69,7 @@ L'extension **PRF** fait produire à la clé d'accès un secret stable de 32 oct
 
 ### SSO (OpenID Connect)
 
-L'administrateur configure, par organisation, l'émetteur (`issuer`), l'identifiant client, les clés publiques (en ligne par `jwksUri`, ou saisies), et les domaines autorisés. L'API vérifie la signature du jeton d'identité (RS256, ES256 ou EdDSA), l'émetteur, l'audience et l'expiration.
+Le propriétaire configure l'émetteur (`issuer`), l'identifiant client, les clés publiques (en ligne par `jwksUri`, ou saisies), et les domaines autorisés, après ré-authentification. Le SSO est disponible uniquement en mode mono-Drive avec une seule organisation : une organisation ne peut ainsi imposer son fournisseur d'identité aux membres d'autres organisations. L'API vérifie la signature du jeton d'identité (RS256, ES256 ou EdDSA), l'émetteur, l'audience et l'expiration.
 
 - Le jeton est **refusé** si le fournisseur n'a pas vérifié l'e-mail (`email_verified`). Cela ferme une prise de contrôle de compte.
 - Le compte doit **déjà exister** et être membre actif de l'organisation. Le `sub` est lié à la première connexion, puis comparé.
@@ -115,5 +115,5 @@ Avec Redis, les compteurs sont **partagés** entre instances. Voir le chapitre s
 ### Limites connues de l'authentification
 
 - Le Drive ne propose **pas de bouton de connexion SSO** : le serveur vérifie le jeton d'identité, mais l'interface n'organise pas la redirection vers le fournisseur. La partie administration (configuration, jeton SCIM) existe.
-- Pas de liste de sessions dans l'interface.
+- Les sessions peuvent être consultées et révoquées dans l'onglet Sécurité.
 - Perdre mot de passe, appareils et recouvrement rend les fichiers définitivement illisibles.

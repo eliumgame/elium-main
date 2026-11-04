@@ -32,7 +32,7 @@ La protection tient si ces conditions sont vraies :
 
 | Scénario | Couvert ? | Mécanisme et réserve |
 |---|:---:|---|
-| Lecteur sans mot de passe d'un profil chiffré | Oui | Argon2id et AES-256-GCM. Réserve : métadonnées en clair par défaut |
+| Lecteur sans mot de passe d'un profil chiffré | Oui | Argon2id et AES-256-GCM. Métadonnées sensibles chiffrées par défaut sur les nouveaux documents ; certains champs techniques restent publics |
 | Altération d'un fichier **scellé** (contenu, journal, signatures, profil) | Détectée | Le sceau casse. Elium n'empêche pas l'ouverture : il l'affiche |
 | Altération d'un fichier **non scellé** | Non | `contentHash` n'est pas une clé : un attaquant le recalcule. **Scellez** |
 | Altération d'un document signé | Détectée | Le statut devient `modified` |
@@ -60,10 +60,11 @@ pas d'écraser.
 **Mot de passe faible.** Argon2id ralentit les essais hors ligne, il ne les empêche
 pas. Le trousseau n'exige que 4 caractères au minimum.
 
-**Métadonnées lisibles sans mot de passe.** Par défaut, un document chiffré expose son
-titre, ses signataires, son journal (qui a fait quoi, quand), la liste des
-destinataires, le profil et les dates. L'option « Chiffrer aussi les métadonnées » en
-cache une partie, pas tout (voir « Chiffrement optionnel des métadonnées »). La taille
+**Métadonnées lisibles sans mot de passe.** Les nouveaux documents chiffrés masquent
+par défaut le titre, les signatures et le journal. Les empreintes des destinataires,
+le profil et les dates restent visibles. Désactiver « Chiffrer aussi les métadonnées »
+expose également le titre, les signatures et le journal ; les anciens fichiers peuvent
+conserver ce réglage (voir « Chiffrement optionnel des métadonnées »). La taille
 du fichier et les noms des entrées de l'archive restent visibles. Le **nom du fichier
 sur le disque** est choisi par vous : Elium le propose d'après le titre.
 
@@ -110,6 +111,10 @@ préparées (voir « Elium Keys »).
 - **Pas une PKI.** La confiance s'établit hors bande (on fournit la clé publique
   attendue, on compare des mots de sécurité) ou par épinglage TOFU des sceaux. Il n'y a
   pas d'autorité de certification.
+  L'épinglage signale un changement ou un retrait de sceau pour un document déjà
+  mémorisé. Une première ouverture ne prouve pas l'identité du scelleur. Un fichier
+  dont tous les identifiants ont changé peut apparaître comme nouveau : comparez
+  sa clé par un canal de confiance avant de l'attribuer à une personne.
 - **Pas de signature électronique qualifiée au sens d'eIDAS.** La preuve Ed25519
   atteste qu'un détenteur de la clé a signé un état donné du document. Une signature
   qualifiée exige un prestataire de services de confiance qualifié. La signature PDF
@@ -134,7 +139,7 @@ tenu et `[PWNED]` quand l'attaque a réussi.
 | | 2. Réécrire tout le journal | Sceau `broken` |
 | | 3. Forger une signature avec la clé de l'attaquant | Rejetée si la clé de la victime est fournie |
 | | 4. Retirer une signature | Sceau `broken` |
-| | 5. Fuite de métadonnées d'un fichier chiffré | Fuite par défaut constatée ; aucune fuite avec le chiffrement des métadonnées |
+| | 5. Fuite de métadonnées d'un fichier chiffré | Métadonnées sensibles chiffrées par défaut pour les nouveaux fichiers ; champs techniques et anciennes copies à prendre en compte |
 | | 6. Mauvais mot de passe, octet de chiffré modifié | Refusés |
 | | 7. Écart des bornes KDF entre Python et Web | Bornes identiques |
 | `poc_dos_spoof.py` | 8. Promouvoir un fichier simple en `secure_max` | Possible sans sceau : le script le constate sans échouer |

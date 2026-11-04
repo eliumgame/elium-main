@@ -100,17 +100,17 @@ irrécupérable** : le réinitialiser supprime aussi ces contenus.
 - Le **mot de passe d'archive** est facultatif (Argon2id + AES-256-GCM). Sans lui, le fichier est lisible par quiconque le détient. Avec le coffre actif, l'archive contient les données **déchiffrées** : Elium vous avertit.
 - La **restauration** montre le contenu avant d'agir. Pour un élément déjà présent : « Garder les deux », « Remplacer par la version de la sauvegarde » ou « Ignorer ».
 - Un **rappel de sauvegarde** (7, 14 ou 30 jours) peut être activé.
-- Limites de lecture : 256 Mo par entrée, 50 000 entrées.
+- Limites de lecture : 256 Mo par entrée, 1 Go décompressé au total, 50 000 entrées.
 
 ### Sauvegarde de l'espace de travail dans le Drive
 
 Avec un serveur Elium, Réglages → Espace de travail → Sauvegarde propose d'envoyer **tout l'espace de travail** (documents, tableurs, présentations, PDF et dossiers) dans le Drive entreprise.
 
-- C'est la même archive `.elium-workspace` que la sauvegarde manuelle, déposée à la racine du Drive sous le nom « Espace-de-travail-Elium.elium-workspace ». Le Drive la chiffre de bout en bout et le serveur en garde les versions successives. Les clés et l'identité de l'appareil n'y sont jamais incluses.
-- **Sur demande** : « Sauvegarder maintenant » et « Restaurer depuis le Drive » (la restauration passe par le même dialogue que la restauration d'un fichier, avec choix en cas de conflit).
-- **Automatique** : en cochant « Sauvegarder automatiquement », l'archive est renvoyée une minute après la dernière modification d'un élément, tant que la session Drive est déverrouillée. Elle l'est avec le mot de passe du Drive, saisi dans cette même section ; les clés ne sont jamais conservées, il faut donc la redéverrouiller après chaque rechargement de la page.
-- Si une sauvegarde plus récente existe dans le Drive (autre appareil), l'envoi s'arrête : on peut la consulter ou l'écraser. L'automatique reste suspendu jusqu'à une action manuelle.
-- Chaque envoi renvoie l'archive entière : avec de gros PDF, préférez la sauvegarde manuelle espacée.
+- La sauvegarde utilise un dossier « Sauvegarde Elium » propre au compte, avec un fichier par élément, un catalogue et des pièces complémentaires pour les brouillons, versions, polices et données du Passeport. Le Drive chiffre ces fichiers de bout en bout et conserve leurs versions. Les clés privées et l'identité de l'appareil ne sont pas envoyées.
+- **Sur demande** : « Sauvegarder maintenant » et « Restaurer depuis le Drive », avec choix en cas de conflit. Une ancienne archive « Espace-de-travail-Elium.elium-workspace » reste lisible pour migrer une sauvegarde historique.
+- **Automatique** : les changements sont regroupés pendant environ quinze secondes, tant que la session Drive est déverrouillée. Seuls les éléments et pièces modifiés sont renvoyés. Une politique de l'organisation peut imposer cette sauvegarde.
+- Avant le premier envoi, Elium compare l'espace local à la sauvegarde existante. Les conflits et les changements d'organisation nécessitent une décision explicite ; ils ne sont pas écrasés silencieusement.
+- Les préférences du Détecteur et ses racines C2PA font partie de cette sauvegarde Drive. Les ancres de confiance sont proposées séparément à la restauration et demandent une validation explicite. La clé API de recherche reste sur l'appareil.
 
 ### Ouvrir et enregistrer en place
 
@@ -150,12 +150,12 @@ La restauration ne fait qu'**ajouter** : elle n'écrase jamais.
 
 **Utiliser un Drive d'entreprise depuis l'application Windows.** Par défaut le lanceur interdit à la page tout accès réseau externe (CSP `connect-src 'self'`). Quand vous saisissez l'URL de votre serveur dans Drive, Serveur, Elium déclare **cette seule origine** au lanceur (route protégée par le jeton de session) : elle est ajoutée à `connect-src` (et son équivalent WebSocket) et la page se recharge une fois. Seul `https` est accepté (`http` uniquement en boucle locale, pour un essai) ; aucune autre directive n'est élargie. Le serveur doit autoriser l'origine de l'application (`CORS_ORIGINS=http://127.0.0.1:<port>`) : épinglez le port dans Réglages pour qu'elle reste stable.
 
-Limites : les réglages du Détecteur ne sont pas miroités ; un fichier modifié à la main n'est pris en compte qu'au démarrage et seulement s'il manque dans la base.
+Le miroir inclut les préférences du Détecteur. Pour les éléments du catalogue, un fichier modifié à la main n'est pris en compte qu'au démarrage et seulement si l'élément manque dans la base. Les pièces complémentaires (brouillons, versions, polices…) sont fusionnées séparément ; leur version la plus récente est retenue.
 
 ### Limites connues de l'espace de travail
 
-- Le travail vit dans la base de ce profil et, dans l'application Windows, dans `Documents\Elium` (voir ci-dessus). Aucune synchronisation entre PC.
+- Le travail vit dans la base de ce profil et, dans l'application Windows, dans `Documents\Elium` (voir ci-dessus). Le miroir local ne synchronise pas les PC entre eux ; la sauvegarde Drive permet de transférer et restaurer les travaux.
 - La recherche n'a pas de syntaxe avancée et plafonne à 200 résultats.
 - Le remplacement en lot ne traite pas les tableurs et les PDF.
-- La sauvegarde ne contient pas l'historique de versions locales.
+- L'archive manuelle `.elium-workspace` ne contient pas l'historique de versions locales. La sauvegarde Drive et le miroir Windows incluent cet historique.
 - Un mot de passe de coffre ou d'archive perdu ne se récupère pas.

@@ -212,8 +212,9 @@ titre, les signatures, le journal et le circuit de signature dans une enveloppe
 `elium-secure/1`, **à l'intérieur** du corps chiffré. Les entrées en clair sont
 vidées : titre « Document chiffré », signatures et journal vides.
 
-C'est une option, désactivée par défaut : les métadonnées en clair permettent de
-lister et de rechercher sans ouvrir le fichier.
+C'est une option activée par défaut pour les nouveaux documents chiffrés.
+La désactiver rend ces métadonnées lisibles sans ouvrir le fichier. Les anciens
+fichiers conservent leur réglage jusqu'à une nouvelle sauvegarde avec cette option.
 
 Même avec l'option, **ces éléments restent lisibles sans mot de passe** :
 

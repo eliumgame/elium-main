@@ -68,7 +68,8 @@ racine… » supprime une entrée. Sans racine, toute signature valide est « é
 non reconnu ».
 
 La liste est conservée dans le stockage de l'application. Elle n'est **pas**
-incluse dans la sauvegarde `.elium-workspace`.
+incluse dans l'archive manuelle `.elium-workspace`. La sauvegarde incrémentale
+Drive l'inclut ; sa restauration demande une validation explicite des ancres de confiance.
 
 ### Analyse par lot
 
@@ -107,4 +108,4 @@ extraits. Aucune base académique n'est consultée.
 - Révocation des certificats, horodatage RFC 3161, usages de clé et `c2pa.hash.bmff` ne sont **pas** vérifiés.
 - La vidéo n'est pas acceptée à l'import : seuls les formats listés plus haut le sont.
 - L'absence de manifeste C2PA est non concluante.
-- Les réglages de sensibilité et les racines de confiance ne voyagent pas avec les sauvegardes.
+- Les signaux désactivés, le moteur de recherche et les racines de confiance sont sauvegardés dans le Drive, mais pas dans l'archive manuelle `.elium-workspace`. La clé API de recherche reste locale ; les racines restaurées demandent une validation explicite.

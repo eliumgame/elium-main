@@ -31,8 +31,8 @@ L'accueil propose une section **Modèles de documents** : 13 modèles, onglets
 Tous, Général, Courrier, Professionnel, Réunion, Finance. Un clic crée un
 document. Les modèles sont : Document vierge, Contrat, Attestation, Rapport,
 Facture, Courrier, Fiche technique, CV, Lettre de motivation, Compte rendu de
-réunion, Mémo, Procès-verbal, Devis. Seuls le Compte rendu et le Procès-verbal
-ont une mise en page propre (en-tête ou pied, numéros de page).
+réunion, Mémo, Procès-verbal, Devis. Les modèles disposent de contenus et de
+mises en forme adaptés à leur usage ; leur aperçu permet de choisir avant de créer le document.
 
 ### Graphiques dans un document
 
@@ -128,9 +128,10 @@ d'impression. Il inclut la page « Signatures », le filigrane et les polices.
 
 ### Limites connues des Documents
 
+- La pagination à l'écran garde les grands blocs, notamment les tableaux, d'un seul tenant. Un bloc plus haut qu'une page peut déborder ; le découpage à l'impression dépend du navigateur. Vérifiez l'aperçu avant impression pour ces documents.
 - Le fond de page, la bordure de page et les numéros de ligne ne sont **pas** appliqués dans l'export PDF et HTML. Ils le sont dans le DOCX.
 - Le DOCX perd les réponses aux commentaires et leur état « résolu ».
-- Les notes de bas de page et les polices incorporées d'un `.docx` ne sont pas relues à l'import (non confirmé : à tester sur vos fichiers).
+- Le texte des notes de bas de page et de fin est relu à l'import DOCX ; leur mise en forme complexe peut être simplifiée. Une note référencée dont le contenu manque est signalée. Les polices incorporées au DOCX ne sont pas importées.
 - Pas de champs CITATION ou BIBLIOGRAPHY de Word.
 - Filigrane en texte seulement ; bordure de page identique sur les quatre côtés ; pas de redémarrage des numéros de ligne par section.
 - Le vérificateur d'accessibilité ne corrige pas et ne contrôle pas le titre du document.

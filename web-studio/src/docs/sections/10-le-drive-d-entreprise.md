@@ -2,14 +2,14 @@
 
 Le Drive est un service **auto-hébergé** : une équipe y partage, co-édite et signe des fichiers. La suite locale fonctionne sans lui. Le Drive est un ajout, jamais un prérequis.
 
-Le principe tient en une phrase : **le serveur ne voit que du chiffré**. Il ne reçoit jamais de mot de passe, de clé privée ni de contenu en clair.
+Les contenus, noms et métadonnées descriptives sont **chiffrés côté client**. Le serveur conserve aussi les informations nécessaires aux accès et au fonctionnement du Drive, détaillées ci-dessous.
 
 ### Architecture du serveur
 
 | Brique | Rôle |
 |---|---|
 | **Caddy** | Point d'entrée : HTTPS automatique (Let's Encrypt), en-têtes de sécurité, route `/api/*` vers l'API et le reste vers l'interface |
-| **API** | Fastify 5 (Node 20, TypeScript). REST, relais WebSocket de collaboration, image non root |
+| **API** | Fastify 5, TypeScript, version Node épinglée dans le Dockerfile. REST, relais WebSocket de collaboration, image non root |
 | **Web** | Interface statique servie par un conteneur non root, système de fichiers en lecture seule |
 | **PostgreSQL 16** | Métadonnées, droits, clés emballées, versions, journal d'audit |
 | **Blobs** | Contenu chiffré : volume local (`fs`) ou S3 / MinIO (`s3`) |
@@ -22,12 +22,12 @@ Les migrations SQL sont **versionnées** (table `schema_migrations`) et jouées 
 ### Ce que le serveur stocke
 
 - Le contenu des fichiers, **chiffré** et rembourré (Padmé), donc sans taille exacte.
-- Les noms et les métadonnées, **chiffrés**.
+- Les noms et les métadonnées descriptives, **chiffrés**. Le type applicatif (`appKind` : document, tableur, présentation, PDF…) est transmis en clair pour l'ouverture et le classement.
 - Les clés de contenu (CEK) **emballées** pour chaque destinataire.
 - La clé publique de chaque compte et un paquet de clés privées déjà chiffré côté client.
 - Les droits (qui peut quoi), les versions et le journal d'audit.
 
-Le serveur connaît donc la **structure** (arbre, dates, tailles approximatives, qui a accès à quoi). Il ignore les noms et les contenus. Voir le chapitre sur le modèle de menace pour les limites.
+Le serveur connaît donc la **structure** (arbre, dates, tailles approximatives, type applicatif, qui a accès à quoi). Il ignore les noms et les contenus. Voir le chapitre sur le modèle de menace pour les limites.
 
 ### Chiffrement de bout en bout
 
@@ -47,18 +47,20 @@ Le catalogue compte **37 permissions**, regroupées en six domaines : contenu, p
 | Propriétaire | Tout, y compris le transfert de propriété et la clé de recouvrement |
 | Administrateur | Toutes les permissions |
 | Gestionnaire | Personnes, groupes, partages et rôles dans son périmètre |
-| Éditeur | Crée et modifie le contenu, partage en interne |
+| Éditeur | Crée et modifie le contenu, partage en interne et peut créer une demande de signature par lien |
 | Commentateur | Consulte et commente |
 | Lecteur | Voit et télécharge |
 | Invité | Voit seulement (accès par lien) |
 
-Les droits réels d'une personne sur un nœud sont l'**union** de son rôle d'organisation, des rôles de ses équipes et des accès hérités des dossiers parents. Le partage est **profond** : un accès donné sur un dossier vaut pour tout son sous-arbre. Les permissions sont vérifiées **côté serveur** à chaque requête.
+Le rôle d'organisation gouverne l'administration et la création. Il ne donne pas, à lui seul, accès à tous les fichiers. Les droits sur un nœud viennent des accès attribués à la personne ou à ses équipes, des dossiers parents et des droits implicites du propriétaire du nœud. Le partage est **profond** : un accès donné sur un dossier vaut pour tout son sous-arbre. Les permissions sont vérifiées **côté serveur** à chaque requête.
 
 ### Partage
 
 - **Membre ou équipe** : la clé du nœud est emballée pour la personne ou l'équipe.
 - **Lien externe** : lien chiffré dont la clé est dans le fragment de l'URL (jamais envoyée au serveur). Options : mot de passe, date d'expiration, nombre maximal de téléchargements. Une page publique l'ouvre.
 - **Demande de signature par lien** : un lien à usage de signature, par partie, séquentiel ou non. Voir le chapitre sur les signatures.
+
+La permission de demander une signature externe (`node.sign.request`) est distincte du partage par lien libre. Elle est accordée au rôle Éditeur par défaut ; retirez-la d'un rôle personnalisé si ces invitations doivent être réservées à d'autres personnes.
 
 ### Révocation d'un accès et rotation de clé
 
@@ -111,7 +113,7 @@ Authentification et invitation par lien, explorateur chiffré, partage, rôles e
 
 ### Limites connues du Drive
 
-- **Aucune interface** pour lister ou révoquer ses sessions : les routes existent (`GET` et `DELETE /api/users/me/sessions`), l'écran non.
+- L'onglet **Sécurité** permet de lister et de révoquer ses sessions.
 - La co-édition n'existe pas pour les PDF.
-- Le serveur voit les métadonnées de structure (arbre, dates, tailles arrondies, membres).
+- Le serveur voit les métadonnées de structure (arbre, dates, tailles arrondies, type applicatif, membres).
 - Un compte dont la phrase de passe est perdue ne peut pas être récupéré par le serveur. Seul le recouvrement d'organisation permet de rendre l'accès à des fichiers.

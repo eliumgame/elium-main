@@ -113,6 +113,13 @@ export const config = {
   // monopoliser une des 10 connexions du pool. 0 = sans limite. Les migrations s'en affranchissent.
   dbStatementTimeoutMs: num("DB_STATEMENT_TIMEOUT_MS", 30_000),
 
+  // COMPATIBILITÉ TRANSITOIRE pour UNE version (variable LEGACY_CLIENT_COMPAT) : accepte les anciens
+  // clients (onglets ouverts, application de bureau dont l'overlay web est ancien) qui n'envoient pas
+  // x-base-version-id/x-key-epoch, orgKeyEpoch ni groupPublicHex ; le serveur déduit alors la base de
+  // l'état courant (sous verrou), conserve TOUJOURS l'historique et répond x-elium-deprecated.
+  // À passer à false quand les anciens clients ont disparu (alors 428 `client_outdated`).
+  legacyClientCompat: env("LEGACY_CLIENT_COMPAT", "true").trim().toLowerCase() !== "false",
+
   // Défaut : ne faire confiance qu'aux proxys privés/loopback — voir parseTrustProxy.
   trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
 

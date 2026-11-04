@@ -244,7 +244,7 @@ describe("coffre local : rien en clair sur disque", () => {
     const ok = machine(secret);
     expect((await ok.make(backend).start()).restored).toBe(3);
     expect(dec(ok.maps.drive.get("d1"))).toBe("SECRET-DOC");
-  });
+  }, 120_000); // Argon2id sous charge parallèle : la marge globale de 30 s peut être dépassée
 
   it("activer le coffre après coup : les copies en clair sont effacées définitivement", async () => {
     const a = machine();

@@ -23,6 +23,7 @@ import { assertCanCreateOrg, claimSiteOrg, getSiteState } from "../lib/site-sett
 import { consumeActivation, isActivationRequired, verifyActivation } from "../lib/activation.js";
 import { kickUser, kickRoom } from "../collab/relay.js";
 import { markRequiredNodeRotations } from "../lib/group-rotation.js";
+import { requireNewClientBody } from "../lib/content-preconditions.js";
 
 const hex = (len?: number) =>
   len ? z.string().regex(new RegExp(`^[0-9a-f]{${len}}$`)) : z.string().regex(/^[0-9a-f]+$/);
@@ -666,6 +667,7 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
   // housekeeping sweep can only check the precondition, never invoke this.
   app.post("/:orgId/recovery/rotate-org", async (req) => {
     const { orgId } = z.object({ orgId: z.string().uuid() }).parse(req.params);
+    requireNewClientBody(req.body, ["expectedEpoch"]);
     const b = z
       .object({
         newOrgPublicHex: hex(130),

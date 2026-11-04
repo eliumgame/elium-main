@@ -16,6 +16,7 @@ import { audit } from "../lib/audit.js";
 import { kickUser, kickRoom, notifyOrg } from "../collab/relay.js";
 import { groupRotationSchema, applyGroupKeyRotation, markRequiredNodeRotations } from "../lib/group-rotation.js";
 import { assertFreshPrincipalKeys } from "../lib/key-share-policy.js";
+import { requireNewClientBody } from "../lib/content-preconditions.js";
 
 const envelope = z.record(z.string(), z.unknown()); // recipients envelope (opaque JSON)
 
@@ -236,6 +237,7 @@ export default async function groupRoutes(app: FastifyInstance): Promise<void> {
   app.post("/:orgId/groups/:groupId/members", async (req) => {
     const { orgId, groupId } = z.object({ orgId: z.string().uuid(), groupId: z.string().uuid() }).parse(req.params);
     const ctx = await requireOrgPerm(req, orgId, "group.manage");
+    requireNewClientBody(req.body, ["expectedGroupPublicHex"]);
     const b = addMemberSchema.parse(req.body);
     const user = requireUser(req);
 
@@ -302,6 +304,7 @@ export default async function groupRoutes(app: FastifyInstance): Promise<void> {
     const { orgId, groupId } = z.object({ orgId: z.string().uuid(), groupId: z.string().uuid() }).parse(req.params);
     const ctx = await requireOrgPerm(req, orgId, "group.manage");
     const user = requireUser(req);
+    requireNewClientBody(req.body, ["expectedGroupPublicHex", "groupPublicHex", "members", "nodeKeys"]);
     const b = groupRotationSchema.parse(req.body);
     const rotationRequiredNodeIds = await withTx(c => applyGroupKeyRotation(c, orgId, groupId, user.id, ctx.isOwner, b));
     for (const id of rotationRequiredNodeIds) kickRoom(id, "key-rotation-required");
@@ -317,6 +320,7 @@ export default async function groupRoutes(app: FastifyInstance): Promise<void> {
       .parse(req.params);
     const ctx = await requireOrgPerm(req, orgId, "group.manage");
     const user = requireUser(req);
+    requireNewClientBody(req.body, ["expectedGroupPublicHex", "groupPublicHex", "members", "nodeKeys"]);
     const b = groupRotationSchema.parse(req.body);
     const rotationRequiredNodeIds = await withTx(c => applyGroupKeyRotation(c, orgId, groupId, user.id, ctx.isOwner, b, userId));
     for (const id of rotationRequiredNodeIds) kickRoom(id, "key-rotation-required");

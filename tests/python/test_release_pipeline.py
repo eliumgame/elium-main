@@ -141,9 +141,11 @@ def test_compose_has_no_default_passwords():
     assert "S3_SECRET_KEY:-" not in COMPOSE
     assert "CORS_ORIGINS:-" not in COMPOSE
     required = ("POSTGRES_PASSWORD", "S3_SECRET_KEY", "CORS_ORIGINS", "REDIS_PASSWORD",
-                "TOKEN_SECRET", "POSTGRES_APP_PASSWORD")
+                "TOKEN_SECRET")
     for var in required:
         assert f"{var}:?" in COMPOSE, var
+    # POSTGRES_APP_PASSWORD : repli explicite sur TOKEN_SECRET (transition d'un ancien install.sh)
+    assert "POSTGRES_APP_PASSWORD:-${TOKEN_SECRET:?" in COMPOSE
     assert "--requirepass" in COMPOSE
 
 
@@ -180,8 +182,8 @@ def test_preupdate_backup_is_mandatory_and_rollback_restores_the_database():
     assert "mise à jour ABANDONNÉE" in INSTALL_SH
     assert "db_schema_version" in INSTALL_SH and "restore_db_dump" in INSTALL_SH
     assert "--clean --if-exists" in INSTALL_SH
-    # le rollback ne restaure la base QUE si la version de schéma a changé
-    assert '"$schema_after" != "$schema_before"' in INSTALL_SH
+    # le rollback restaure la base si la version de schéma a changé OU si un état est illisible
+    assert '[ "$before" != "$after" ]' in INSTALL_SH and "rollback_needs_db_restore" in INSTALL_SH
 
 
 def test_updater_systemd_unit_is_unprivileged_and_hardened():

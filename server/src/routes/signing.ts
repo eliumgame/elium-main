@@ -32,7 +32,7 @@ import { storage } from "../storage/adapter.js";
 import { config } from "../config.js";
 import { assertDiskSpace } from "../lib/disk.js";
 import { assertUserQuota } from "../lib/site-settings.js";
-import { contentPreconditions, assertContentBase } from "../lib/content-preconditions.js";
+import { contentPreconditions, assertContentBase, DEPRECATION_HEADER, DEPRECATION_VALUE } from "../lib/content-preconditions.js";
 import { audit } from "../lib/audit.js";
 import { kickRoom, notifyOrg } from "../collab/relay.js";
 
@@ -268,7 +268,7 @@ export default async function signingRoutes(app: FastifyInstance): Promise<void>
   app.post(
     "/links/:token/sign",
     { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } },
-    async (req: FastifyRequest) => {
+    async (req: FastifyRequest, reply) => {
       const { token } = z.object({ token: z.string().min(1).max(512) }).parse(req.params);
 
       const nonceHex = String(req.headers["x-content-nonce"] ?? "");
@@ -338,6 +338,7 @@ export default async function signingRoutes(app: FastifyInstance): Promise<void>
 
       const { node_id: nodeId, org_id: orgId } = link;
       const base = contentPreconditions(req.headers);
+      if (base.legacy) reply.header(DEPRECATION_HEADER, DEPRECATION_VALUE);
 
       // Flux direct vers le stockage (borné + comptabilisé), comme PUT content.
       await assertDiskSpace(Number(req.headers["content-length"]) || 0);

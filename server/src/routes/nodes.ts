@@ -17,7 +17,7 @@ import { config } from "../config.js";
 import { ApiError } from "../lib/errors.js";
 import { assertUserQuota, getSiteSettings } from "../lib/site-settings.js";
 import { assertDiskSpace } from "../lib/disk.js";
-import { contentPreconditions, assertContentBase } from "../lib/content-preconditions.js";
+import { contentPreconditions, assertContentBase, DEPRECATION_HEADER, DEPRECATION_VALUE } from "../lib/content-preconditions.js";
 import { assertFreshPrincipalKeys } from "../lib/key-share-policy.js";
 import type { Readable } from "node:stream";
 
@@ -143,7 +143,7 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
   app.addHook("preHandler", authenticate);
 
   // --- Create a folder or file (metadata + key shares) ---------------------
-  app.post("/", async (req) => {
+  app.post("/", async (req, reply) => {
     const b = createSchema.parse(req.body);
     const user = requireUser(req);
 
@@ -162,8 +162,9 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
     }
     for (const s of b.keyShares) await validateRole(s.roleId, b.orgId);
 
+    let legacyShares = false;
     const created = await withTx(async (c) => {
-      await assertFreshPrincipalKeys(c, b.orgId, b.keyShares, b.orgKeyEpoch);
+      legacyShares = (await assertFreshPrincipalKeys(c, b.orgId, b.keyShares, b.orgKeyEpoch)).legacy;
       const { rows } = await c.query(
         `INSERT INTO nodes (org_id, parent_id, kind, owner_user_id, name_encrypted, name_nonce,
                             meta_encrypted, meta_nonce, app_kind, modified_by)
@@ -202,6 +203,7 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
 
     await audit(b.orgId, user.id, "node.create", b.kind, created.id, { parentId: b.parentId }, req.ip);
     notifyOrg(b.orgId);
+    if (legacyShares) reply.header(DEPRECATION_HEADER, DEPRECATION_VALUE);
     return { node: nodeMetaDto(created) };
   });
 
@@ -503,7 +505,7 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
     expectedEpoch: z.number().int().positive().optional(),
     keyShares: z.array(keyShareSchema).min(1).max(256),
   });
-  app.post("/:id/rotate", async (req) => {
+  app.post("/:id/rotate", async (req, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const b = rotateSchema.parse(req.body);
     const user = requireUser(req);
@@ -527,8 +529,9 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
       throw badRequest("Rôle invalide pour cette organisation.");
     }
 
+    let legacyShares = false;
     const { node, revokedLinks } = await withTx(async (c) => {
-      await assertFreshPrincipalKeys(c, access.orgId, b.keyShares, b.orgKeyEpoch);
+      legacyShares = (await assertFreshPrincipalKeys(c, access.orgId, b.keyShares, b.orgKeyEpoch)).legacy;
       const { rows: cur } = await c.query(`SELECT key_epoch FROM nodes WHERE id = $1 FOR UPDATE`, [id]);
       if (!cur[0]) throw notFound();
       if (b.expectedEpoch !== undefined && cur[0].key_epoch !== b.expectedEpoch) {
@@ -600,6 +603,7 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
       { keyEpoch: node.key_epoch, revokedLinks },
       req.ip,
     );
+    if (legacyShares) reply.header(DEPRECATION_HEADER, DEPRECATION_VALUE);
     return { node: nodeMetaDto(node), revokedLinks };
   });
 
@@ -611,7 +615,7 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
   app.put(
     "/:id/content",
     { config: { rateLimit: { max: 120, timeWindow: "1 minute" } } },
-    async (req: FastifyRequest) => {
+    async (req: FastifyRequest, reply) => {
       const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
       const access = await requireNodePerm(req, id, "node.edit");
       const user = requireUser(req);
@@ -623,6 +627,7 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
       if (!body || typeof body.pipe !== "function")
         throw badRequest("Corps binaire attendu (application/octet-stream).");
       const base = contentPreconditions(req.headers);
+      if (base.legacy) reply.header(DEPRECATION_HEADER, DEPRECATION_VALUE);
 
       // Disque presque plein : refus AVANT d'écrire (taille annoncée), puis re-contrôle sur la taille réelle.
       await assertDiskSpace(Number(req.headers["content-length"]) || 0);
@@ -696,7 +701,7 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
         throw err;
       });
 
-      await audit(access.orgId, user.id, "node.content.update", "file", id, { size }, req.ip);
+      await audit(access.orgId, user.id, "node.content.update", "file", id, base.legacy ? { size, legacyClient: true } : { size }, req.ip);
       notifyOrg(access.orgId);
       return { node: nodeMetaDto(updated) };
     },

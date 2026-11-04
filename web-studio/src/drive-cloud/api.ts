@@ -259,6 +259,12 @@ export class DriveApi {
       code = "server_unreachable";
       message = `Serveur Drive injoignable à « ${this.baseUrl} » (HTTP ${res.status}). Le Drive entreprise nécessite un serveur déployé — vérifiez l'URL du serveur.`;
     }
+    // Client trop ancien pour le serveur (code stable `client_outdated`, ou 428 de
+    // précondition) : message clair, non trompeur. La saisie locale reste dans l'onglet.
+    if (code === "client_outdated" || res.status === 428) {
+      code = "client_outdated";
+      message = "Mise à jour requise : rechargez la page — vos modifications locales ne sont pas perdues tant que cet onglet reste ouvert.";
+    }
     throw new ApiError(res.status, code, message, details);
   }
 

@@ -24,6 +24,7 @@ import { audit } from "../lib/audit.js";
 import { kickRoom } from "../collab/relay.js";
 import { LIVE_SHARE_POLICY } from "../lib/live-share-policy.js";
 import { assertFreshPrincipalKeys } from "../lib/key-share-policy.js";
+import { DEPRECATION_HEADER, DEPRECATION_VALUE } from "../lib/content-preconditions.js";
 
 const envelope = z.record(z.string(), z.unknown()); // recipients envelope (opaque)
 
@@ -194,7 +195,7 @@ export default async function shareRoutes(app: FastifyInstance): Promise<void> {
     wrappedKey: envelope,
     inheritedFrom: z.string().uuid().nullable().optional(),
   });
-  app.post("/nodes/:id/shares", { preHandler: authenticate }, async (req) => {
+  app.post("/nodes/:id/shares", { preHandler: authenticate }, async (req, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const b = createShareSchema.parse(req.body);
     const user = requireUser(req);
@@ -234,7 +235,7 @@ export default async function shareRoutes(app: FastifyInstance): Promise<void> {
         await requireNodePerm(req, id, "node.share.manage");
       }
       row = await withTx(async c => {
-        await assertFreshPrincipalKeys(c, access.orgId, [b], b.orgKeyEpoch);
+        if ((await assertFreshPrincipalKeys(c, access.orgId, [b], b.orgKeyEpoch)).legacy) reply.header(DEPRECATION_HEADER, DEPRECATION_VALUE);
         const { rows } = await c.query<{ id: string }>(existing
           ? `UPDATE node_keys SET role_id = $4, wrapped_key = $5, granted_by = $6, inherited_from = $7
                WHERE node_id = $1 AND principal_type = $2 AND principal_type = 'group' AND principal_id = $3 RETURNING id`

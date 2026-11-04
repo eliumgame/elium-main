@@ -72,7 +72,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(cors, {
     origin: config.corsOrigins.length ? config.corsOrigins : true,
     credentials: true,
-    exposedHeaders: ["x-content-nonce", "x-content-version-id", "x-key-epoch"],
+    exposedHeaders: ["x-content-nonce", "x-content-version-id", "x-key-epoch", "x-elium-deprecated"],
   });
   // Toute réponse d'API peut porter des données de compte (profil, organisation,
   // ACL…) : jamais mise en cache par le navigateur ni un intermédiaire partagé, y

@@ -377,7 +377,7 @@ describe("assertFreshPrincipalKeys — partage vers une équipe dont la clé a t
   const share = (hex?: string) => [{ principalType: "group", principalId: GROUP, groupPublicHex: hex }];
 
   it("accepte un partage chiffré pour la clé courante", async () => {
-    await expect(assertFreshPrincipalKeys(client({ group_public_hex: NEW_HEX, rotation_required: false }), ORG, share(NEW_HEX))).resolves.toBeUndefined();
+    await expect(assertFreshPrincipalKeys(client({ group_public_hex: NEW_HEX, rotation_required: false }), ORG, share(NEW_HEX))).resolves.toEqual({ legacy: false });
   });
 
   it("409 si le partage utilise l'ancienne clé de l'équipe (après rotation)", async () => {
@@ -390,9 +390,19 @@ describe("assertFreshPrincipalKeys — partage vers une équipe dont la clé a t
       .rejects.toMatchObject({ statusCode: 409 });
   });
 
-  it("428 si la clé publique d'équipe utilisée n'est pas fournie", async () => {
-    await expect(assertFreshPrincipalKeys(client({ group_public_hex: NEW_HEX, rotation_required: false }), ORG, share(undefined)))
-      .rejects.toMatchObject({ statusCode: 428 });
+  it("428 client_outdated si la clé publique d'équipe est absente et la compat désactivée", async () => {
+    await expect(assertFreshPrincipalKeys(client({ group_public_hex: NEW_HEX, rotation_required: false }), ORG, share(undefined), undefined, false))
+      .rejects.toMatchObject({ statusCode: 428, code: "client_outdated" });
+  });
+
+  it("compat : clé publique absente -> clé courante en base, legacy=true", async () => {
+    await expect(assertFreshPrincipalKeys(client({ group_public_hex: NEW_HEX, rotation_required: false }), ORG, share(undefined), undefined, true))
+      .resolves.toEqual({ legacy: true });
+  });
+
+  it("compat : clé publique absente mais équipe à rotation requise -> 409", async () => {
+    await expect(assertFreshPrincipalKeys(client({ group_public_hex: NEW_HEX, rotation_required: true }), ORG, share(undefined), undefined, true))
+      .rejects.toMatchObject({ statusCode: 409 });
   });
 
   it("400 si l'équipe n'appartient pas à l'organisation", async () => {

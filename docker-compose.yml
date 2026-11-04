@@ -43,7 +43,12 @@ services:
       PGUSER: elium
       PGDATABASE: elium
       PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
-      APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD in .env}
+      # TRANSITION : si POSTGRES_APP_PASSWORD manque (première montée pilotée par un ANCIEN install.sh,
+      # qui ne le génère pas), repli sur TOKEN_SECRET (déjà obligatoire, 32+ caractères) plutôt qu'un
+      # échec en boucle à chaque cycle de l'auto-update. Le nouvel install.sh génère ensuite un mot de
+      # passe dédié (ensure_env_secrets) ; db-init le ré-applique à chaque `up`. Repli valable pour un
+      # TOKEN_SECRET généré par install.sh (alphanumérique) ; sinon définissez POSTGRES_APP_PASSWORD.
+      APP_PASSWORD: ${POSTGRES_APP_PASSWORD:-${TOKEN_SECRET:?Set POSTGRES_APP_PASSWORD (or at least TOKEN_SECRET) in .env}}
     volumes:
       - ./deploy/init-app-role.sql:/init-app-role.sql:ro
     command: ["psql", "-v", "ON_ERROR_STOP=1", "-f", "/init-app-role.sql"]
@@ -64,7 +69,7 @@ services:
       ELIUM_VERSION: ${ELIUM_VERSION:-dev}
       HOST: 0.0.0.0
       PORT: "8787"
-      DATABASE_URL: postgres://elium_app:${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD in .env}@db:5432/elium
+      DATABASE_URL: postgres://elium_app:${POSTGRES_APP_PASSWORD:-${TOKEN_SECRET:?Set POSTGRES_APP_PASSWORD (or at least TOKEN_SECRET) in .env}}@db:5432/elium
       TOKEN_SECRET: ${TOKEN_SECRET:?Set a strong TOKEN_SECRET in .env}
       # Portail du propriétaire : un déploiement = un Drive ; OWNER_EMAIL (optionnel) réserve
       # l'inscription du premier compte (le propriétaire) à cette adresse.
@@ -77,7 +82,10 @@ services:
       WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-localhost}
       WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-Elium Drive}
       TRUST_PROXY: ${TRUST_PROXY:-loopback,linklocal,uniquelocal}
-      WS_ALLOW_QUERY_TOKEN: ${WS_ALLOW_QUERY_TOKEN:-false}
+      # TRANSITION : `true` tant que d'anciens clients (onglets déjà ouverts, application de bureau)
+      # authentifient le WebSocket collaboratif par la query string ; `false` les refuserait et ferait
+      # PERDRE leur saisie. À passer à false quand les anciens clients ont disparu.
+      WS_ALLOW_QUERY_TOKEN: ${WS_ALLOW_QUERY_TOKEN:-true}
       ACCESS_TOKEN_TTL_SECONDS: ${ACCESS_TOKEN_TTL_SECONDS:-900}
       REFRESH_TOKEN_TTL_SECONDS: ${REFRESH_TOKEN_TTL_SECONDS:-2592000}
       # Storage: "fs" (blobs volume) by default, or "s3" to use the MinIO service

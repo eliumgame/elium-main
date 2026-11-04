@@ -54,6 +54,7 @@ import { assertUserQuota } from "../src/lib/site-settings.js";
 import { audit } from "../src/lib/audit.js";
 import { notifyOrg } from "../src/collab/relay.js";
 import { ApiError } from "../src/lib/errors.js";
+import { config } from "../src/config.js";
 import signingRoutes from "../src/routes/signing.js";
 
 const mQuery = vi.mocked(query);
@@ -98,6 +99,7 @@ function txDispatch(map: Array<[RegExp, { rows: unknown[] }]>, sink?: string[]) 
 
 beforeEach(() => {
   vi.clearAllMocks();
+  (config as { legacyClientCompat: boolean }).legacyClientCompat = true;
   store.putStream.mockResolvedValue(123);
   vi.mocked(assertDiskSpace).mockReset().mockResolvedValue(undefined);
   vi.mocked(assertUserQuota).mockReset().mockResolvedValue(undefined);
@@ -233,13 +235,57 @@ describe("POST /api/links/:token/sign (écriture-retour anonyme)", () => {
     expect(sqls.some(s => /INSERT INTO node_versions|SET status = 'signed'/.test(s))).toBe(false);
     await app.close();
   });
-  it("requires a base before storing anonymous ciphertext", async () => {
+  it("compat désactivée : sans base -> 428 client_outdated avant tout stockage", async () => {
+    (config as { legacyClientCompat: boolean }).legacyClientCompat = false;
     mQueryOne.mockResolvedValueOnce(signLink());
     const app = await makeApp();
     const res = await app.inject({ method: "POST", url: "/api/links/token/sign", payload: Buffer.from("ciphertext"),
       headers: { "content-type": "application/octet-stream", "x-content-nonce": NONCE } });
     expect(res.statusCode).toBe(428);
+    expect(res.json().error.code).toBe("client_outdated");
     expect(store.putStream).not.toHaveBeenCalled();
+    await app.close();
+  });
+  it("un seul en-tête de base -> 428 même en compat (client incohérent)", async () => {
+    mQueryOne.mockResolvedValueOnce(signLink());
+    const app = await makeApp();
+    const res = await app.inject({ method: "POST", url: "/api/links/token/sign", payload: Buffer.from("ciphertext"),
+      headers: { "content-type": "application/octet-stream", "x-content-nonce": NONCE, "x-key-epoch": "1" } });
+    expect(res.statusCode).toBe(428);
+    expect(store.putStream).not.toHaveBeenCalled();
+    await app.close();
+  });
+  const compatTx = (sqls: string[], over: Record<string, unknown> = {}) => txDispatch([
+    [/AS party_status/, { rows: [{ party_status: "pending", link_revoked_at: null }] }],
+    [/SELECT key_epoch, current_version_id/, { rows: [{ key_epoch: 3, current_version_id: VER, owner_user_id: USER, ...over }] }],
+    [/storage_quota_bytes/, { rows: [{ quota: null, used: 0 }] }],
+    [/MAX\(version_no\)/, { rows: [{ next: 7 }] }],
+    [/INSERT INTO node_versions/, { rows: [{ id: VER }] }],
+    [/UPDATE signature_request_parties[\s\S]*status = 'signed'/, { rows: [{ id: PARTY }] }],
+  ], sqls);
+  it("compat : sans en-têtes -> 200, nouvelle version depuis l'état courant, en-tête de dépréciation, historique intact", async () => {
+    mQueryOne.mockResolvedValueOnce(signLink());
+    const sqls: string[] = [];
+    mWithTx.mockImplementation(compatTx(sqls) as never);
+    const app = await makeApp();
+    const res = await app.inject({ method: "POST", url: "/api/links/token/sign", payload: Buffer.from("ciphertext"),
+      headers: { "content-type": "application/octet-stream", "x-content-nonce": NONCE } });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["x-elium-deprecated"]).toBe("client-outdated");
+    expect(sqls.some(s => /INSERT INTO node_versions/.test(s))).toBe(true);
+    expect(sqls.some(s => /DELETE FROM node_versions|UPDATE node_versions/.test(s))).toBe(false);
+    await app.close();
+  });
+  it("compat : key_rotation_required reste un 409 sans écriture", async () => {
+    mQueryOne.mockResolvedValueOnce(signLink());
+    const sqls: string[] = [];
+    mWithTx.mockImplementation(compatTx(sqls, { key_rotation_required: true }) as never);
+    const app = await makeApp();
+    const res = await app.inject({ method: "POST", url: "/api/links/token/sign", payload: Buffer.from("ciphertext"),
+      headers: { "content-type": "application/octet-stream", "x-content-nonce": NONCE } });
+    expect(res.statusCode).toBe(409);
+    expect(sqls.some(s => /INSERT INTO node_versions/.test(s))).toBe(false);
+    expect(store.del).toHaveBeenCalledWith("blob-key");
     await app.close();
   });
   const signLink = (over: Record<string, unknown> = {}) => ({

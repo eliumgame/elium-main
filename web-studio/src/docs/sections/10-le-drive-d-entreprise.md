@@ -118,6 +118,21 @@ La co-édition utilise des CRDT **Yjs** pour Documents, Tableur et Présentation
 
 Authentification et invitation par lien, explorateur chiffré, partage, rôles et permissions, membres, équipes, versions, corbeille, journal d'audit, pages publiques (ouverture d'un lien, signature). Onglet **Sécurité** (mot de passe, 2FA, clés d'accès, suppression du compte), onglet **SSO et SCIM**, onglet **Recouvrement**.
 
+### Compatibilité des anciens clients (période transitoire)
+
+Les durcissements récents exigent des nouveaux clients des préconditions : version et époque de clé de base sur l'écriture d'un fichier (`x-base-version-id`, `x-key-epoch`) et sur la signature par lien, époque de la clé d'organisation et clé publique d'équipe sur la création, la rotation et le partage, corps complets pour les équipes et la rotation d'organisation. Les anciens clients (onglets restés ouverts, application de bureau dont l'interface web n'est pas à jour) ne les envoient pas.
+
+Pendant **une version**, le serveur les tolère (`LEGACY_CLIENT_COMPAT`, vrai par défaut) :
+
+- **Écriture et signature sans en-têtes** : la base est déduite de l'état courant du fichier, sous verrou. Une nouvelle version est **toujours** créée, l'historique n'est jamais supprimé. La réponse porte `x-elium-deprecated: client-outdated`.
+- **Partage et création sans époque d'organisation ou clé d'équipe** : le serveur utilise l'état courant lu sous verrou.
+- **Toujours refusé**, même en compatibilité : un fichier dont la clé doit être renouvelée (`409`), une organisation ou une équipe à rotation requise (`409`), un seul des deux en-têtes (`428`, client incohérent), et toutes les vérifications de droits et de quota.
+- **Équipes et rotation d'organisation** : un ancien client ne peut pas produire ces corps (le serveur n'a jamais les clés). Refus `400` de code `client_outdated`, sans écriture partielle.
+
+**Ce que la compatibilité ne protège plus.** Sans en-tête, le serveur ne sait pas quelle version l'ancien client a ouverte : une écriture d'un client périmé peut devenir la version courante au-dessus d'une modification plus récente d'un collègue. Elle ne la détruit pas (elle reste dans les versions et peut être restaurée) mais la détection de conflit n'existe plus pour ces clients.
+
+**Calendrier recommandé.** Gardez la compatibilité pour cette version, laissez les utilisateurs recharger leurs onglets et mettre à jour l'application de bureau, puis passez `LEGACY_CLIENT_COMPAT=false` à la version suivante. Les anciens clients reçoivent alors `428` avec le code `client_outdated` et le message « Cette version de l'application est trop ancienne : rechargez la page ou mettez l'application à jour. »
+
 ### Limites connues du Drive
 
 - L'onglet **Sécurité** permet de lister et de révoquer ses sessions.

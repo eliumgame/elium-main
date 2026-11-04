@@ -38,6 +38,25 @@ function annot(kind: Annot["kind"], pageId: string): Annot {
 }
 
 describe("fullRewriteReasons", () => {
+  it("rewrites removed or replaced original images, but can append added images", () => {
+    const s = base();
+    for (const action of ["delete", "replace"] as const)
+      expect(
+        fullRewriteReasons(
+          { ...s, imageEdits: [{ id: "im", pageId: s.pages[0].id, occurrence: 0, action }] },
+          off,
+          3,
+        ).join(" "),
+      ).toContain("image d'origine");
+    expect(
+      fullRewriteReasons(
+        { ...s, imageEdits: [{ id: "im", pageId: s.pages[0].id, occurrence: -1, action: "add" }] },
+        off,
+        3,
+      ),
+    ).toEqual([]);
+  });
+
   it("is empty for comments, form values, rotation and reordering", () => {
     const s = base();
     const st: PdfState = {

@@ -316,6 +316,10 @@ export function fullRewriteReasons(
   if (opts.applyRedactions && state.annots.some((a) => a.kind === "redact")) {
     reasons.push("caviardage : le contenu masqué est retiré définitivement, révisions précédentes comprises");
   }
+  if (state.contentEdits.some((edit) => !edit.isNew))
+    reasons.push("texte d'origine modifié ou supprimé : révisions précédentes retirées du fichier");
+  if (state.imageEdits.some((edit) => edit.action === "delete" || edit.action === "replace"))
+    reasons.push("image d'origine supprimée ou remplacée : révisions précédentes retirées du fichier");
   const used = new Set(
     state.pages.filter((p) => (opts.keepSkipped || !p.skipped) && p.from != null).map((p) => p.from),
   );

@@ -316,7 +316,7 @@ describe("savePdf — digitally signed documents", () => {
     const after = await verifyPdfSignatures(r.bytes);
     expect(after).toHaveLength(1);
     expect(after[0].digestMatches).toBe(true);
-    expect(after[0].valid).toBe(true);
+    expect(after[0].valid, JSON.stringify(after[0].changes)).toBe(true);
     expect(after[0].coversWholeDocument).toBe(false); // a later revision exists — as Acrobat reports it
     const js = await openJs(r.bytes);
     expect(await annotationTexts(js, 2)).toContain("Text:Vu");
@@ -341,7 +341,8 @@ describe("savePdf — digitally signed documents", () => {
     const state = { ...stateFor(1), formValues: { nom: "Dupont" } };
     const r = await savePdf({ source: signed, state });
     expect(r.report.mode).toBe("incremental");
-    expect((await verifyPdfSignatures(r.bytes))[0].valid).toBe(true);
+    const [verdict] = await verifyPdfSignatures(r.bytes);
+    expect(verdict.valid, JSON.stringify(verdict.changes)).toBe(true);
     const js = await openJs(r.bytes);
     const fields = (await js.getFieldObjects()) as Record<string, { value: unknown }[]>;
     expect(fields.nom.find((f) => f.value !== undefined)?.value).toBe("Dupont");
@@ -494,6 +495,41 @@ describe("certificationLevel (DocMDP)", () => {
 });
 
 describe("savePdf — structure", () => {
+  it("rewrites Ctrl+S text edits so the original cannot be recovered from a previous revision", async () => {
+    const src = await makePdf({ pages: 1, text: "ORIGINALSECRET" });
+    const state = stateFor(1);
+    state.contentEdits.push({
+      id: "edit",
+      pageId: state.pages[0].id,
+      blockKey: "B0",
+      original: "ORIGINALSECRET 1",
+      text: "Texte remplace",
+      rect: { x: 18, y: 65, w: 240, h: 26 },
+      fontSize: 14,
+      leading: 17,
+      align: "left",
+    });
+    const saved = await savePdf({ source: src, state });
+    expect(saved.report.mode).toBe("full");
+    expect(saved.report.textBlocksNative + saved.report.textBlocksSubstituted).toBe(1);
+    expect(saved.report.fullReasons.join(" ")).toContain("texte d'origine");
+    expect(startsWith(saved.bytes, src)).toBe(false);
+    expect(revisionCount(saved.bytes)).toBe(1);
+    const out = await openJs(saved.bytes);
+    expect(await pageText(out, 1)).toContain("Texte remplace");
+    expect(await pageText(out, 1)).not.toContain("ORIGINALSECRET");
+    await out.destroy();
+    const parsed = await PDFDocument.load(saved.bytes);
+    for (const [, object] of parsed.context.enumerateIndirectObjects()) {
+      const text =
+        object instanceof PDFRawStream
+          ? Buffer.from(decodePDFRawStream(object).decode()).toString("latin1")
+          : object.toString();
+      expect(text).not.toContain("ORIGINALSECRET");
+      expect(text.toLowerCase()).not.toContain(Buffer.from("ORIGINALSECRET").toString("hex"));
+    }
+  });
+
   it("falls back to a full rewrite (and repairs) when the file's tail is unusable", async () => {
     const src = await makePdf({ pages: 2 });
     const broken = new Uint8Array(

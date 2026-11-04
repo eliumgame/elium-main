@@ -1528,6 +1528,38 @@ export function diffRevisions(
       add("disallowed", "Ressource du contenu signé modifiée");
       continue;
     }
+    // An existing Info dictionary may update its standard scalar metadata.
+    // Its identity comes from the signed trailer; no referenced object gets
+    // an exemption, and shared page resources were checked above.
+    if (
+      k === String(rev.context.trailerInfo.Info) &&
+      k === String(fin.context.trailerInfo.Info) &&
+      old instanceof PDFDict &&
+      obj instanceof PDFDict
+    ) {
+      const keys = new Set([
+        "/Title",
+        "/Author",
+        "/Subject",
+        "/Keywords",
+        "/Creator",
+        "/Producer",
+        "/CreationDate",
+        "/ModDate",
+        "/Trapped",
+      ]);
+      const scalars = (dict: PDFDict) =>
+        dict
+          .entries()
+          .every(
+            ([key, value]) =>
+              !keys.has(key.asString()) ||
+              value instanceof PDFString ||
+              value instanceof PDFHexString ||
+              (key.asString() === "/Trapped" && value instanceof PDFName),
+          );
+      if (scalars(old) && scalars(obj) && dictWithout(old, keys) === dictWithout(obj, keys)) continue;
+    }
     const d =
       obj instanceof PDFDict ? obj : obj instanceof PDFStream ? (obj as unknown as { dict: PDFDict }).dict : undefined;
     const claimed = owner.get(k);

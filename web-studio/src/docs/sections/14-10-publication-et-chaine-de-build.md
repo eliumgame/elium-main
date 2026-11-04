@@ -36,7 +36,7 @@ Le job `build` enchaîne :
 4. **SBOM** CycloneDX pour npm et pour Python ;
 5. découpage de l'interface : `web-core.zip` (léger), `assets-<empreinte>.zip` (polices, pdf.js, OCR, qui changent rarement) et `web.zip` (archive complète, pour les anciens clients) ;
 6. exécutable `Elium.exe` (PyInstaller) ;
-7. signature **Authenticode** facultative : étape présente, **inactive** tant que les secrets `SIGN_CERT` et `SIGN_CERT_PASSWORD` n'existent pas (aucun certificat à ce jour) ;
+7. signature **Authenticode** facultative : étape présente, **inactive** tant que les secrets `SIGN_CERT` (fichier `.pfx` encodé en base64) et `SIGN_CERT_PASSWORD` n'existent pas. Un certificat **auto-signé** permet de tester l'étape, mais Windows ne lui fait pas confiance : SmartScreen avertit toujours. Seul un certificat émis par une autorité reconnue (ou un service de signature géré) supprime l'avertissement. Le fichier `.pfx` et son mot de passe ne doivent jamais être versionnés (`*.pfx`, `*.p12` sont ignorés par Git) ;
 8. **test de fumée** de l'exécutable gelé (version, CSP stricte, aucune URL externe, contrôle d'hôte) ;
 9. WiX 3.14 (archive officielle, empreinte vérifiée) : **deux MSI**, pour tous les utilisateurs et sans droits administrateur. Les deux sont bloquants.
 

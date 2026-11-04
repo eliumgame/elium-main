@@ -86,6 +86,8 @@ export interface ChartData {
   /** Additional series (2nd and later), additive: old clients ignore it and keep
    *  showing the first series. Each `values` is index-aligned with `labels`. */
   series?: ChartSeries[];
+  /** Barres uniquement : empilées au lieu de groupées (additif ; absent = groupées). */
+  stacked?: boolean;
 }
 export interface ChartSeries {
   name: string;

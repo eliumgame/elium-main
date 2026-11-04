@@ -929,6 +929,13 @@ function parseChart(xml: string): { data: ChartData | null; unsupportedLabel?: s
     warnings.push(`Graphique : plus de ${MAX_CHART_POINTS} points, les points excédentaires sont ignorés.`);
   }
   const data: ChartData = { kind, labels, values, ...(title ? { title } : {}) };
+  if (kind === "bar") {
+    const grouping = /<c:grouping\b[^>]*\bval="(\w+)"/.exec(
+      /<c:bar(?:3D)?Chart\b[\s\S]*?<\/c:bar(?:3D)?Chart>/.exec(xml)?.[0] ?? "",
+    )?.[1];
+    if (grouping === "stacked" || grouping === "percentStacked") data.stacked = true;
+    if (grouping === "percentStacked") warnings.push("Graphique : pourcentage empilé approximé en empilé.");
+  }
   if (multi) {
     const kept = parsed.slice(1, MAX_CHART_SERIES);
     if (parsed.length > MAX_CHART_SERIES)

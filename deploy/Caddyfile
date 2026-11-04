@@ -2,10 +2,10 @@
 # Set SITE_ADDRESS to your domain (e.g. drive.example.com) in prod to get
 # automatic HTTPS. Defaults to :80 locally.
 
-# Global options. ACME_EMAIL is optional: when unset/empty, Caddy just skips
-# registering an ACME account email (no error) and still issues certs fine.
+# Global options. docker-compose fournit toujours ACME_EMAIL (jamais vide). La valeur par défaut ci-dessous
+# ne couvre que le cas « variable absente » : une variable définie mais VIDE ferait refuser « email » sans argument.
 {
-	email {$ACME_EMAIL}
+	email {$ACME_EMAIL:noreply@localhost.invalid}
 }
 
 # En-têtes de sécurité communs (HSTS n'a de sens qu'en HTTPS : Caddy l'ignore côté HTTP clair

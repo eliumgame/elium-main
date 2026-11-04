@@ -849,8 +849,9 @@ function chartXml(data: ChartData, onWarning?: (w: string) => void): string {
       `<c:marker val="1"/><c:axId val="${AX_CAT}"/><c:axId val="${AX_VAL}"/></c:lineChart>${axes}`;
   } else {
     plot =
-      `<c:barChart><c:barDir val="col"/><c:grouping val="clustered"/><c:varyColors val="0"/>` +
+      `<c:barChart><c:barDir val="col"/><c:grouping val="${data.stacked ? "stacked" : "clustered"}"/><c:varyColors val="0"/>` +
       sers("", "") +
+      (data.stacked ? `<c:overlap val="100"/>` : "") +
       `<c:axId val="${AX_CAT}"/><c:axId val="${AX_VAL}"/></c:barChart>${axes}`;
   }
   const legend = valueSets.length > 1 ? `<c:legend><c:legendPos val="b"/><c:overlay val="0"/></c:legend>` : "";

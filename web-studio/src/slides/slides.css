@@ -763,6 +763,7 @@
 /* Chart data editor popover */
 .sv-chart-pop {
   min-width: 250px;
+  max-width: min(92vw, 640px);
   gap: 8px;
   padding: 12px;
 }
@@ -785,6 +786,77 @@
 .sv-chart-row .sv-num {
   width: 66px;
   max-width: 66px;
+}
+
+/* Tableau de données du graphique (étiquettes × séries) */
+.sv-chart-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sv-chart-scroll {
+  max-height: 260px;
+  overflow: auto;
+}
+.sv-chart-table {
+  border-collapse: separate;
+  border-spacing: 4px;
+}
+.sv-chart-table th {
+  font-weight: 500;
+  text-align: left;
+  vertical-align: top;
+}
+.sv-chart-table .input {
+  min-width: 90px;
+}
+.sv-chart-table .input.sv-num {
+  width: 80px;
+  min-width: 70px;
+  max-width: 80px;
+}
+.sv-chart-table .input[aria-invalid="true"] {
+  border-color: #dc2626;
+}
+.sv-chart-table :is(.input, .icon-btn):focus-visible,
+.sv-chart-check input:focus-visible {
+  outline: 2px solid var(--accent, #2563eb);
+  outline-offset: 1px;
+}
+.sv-chart-tools {
+  display: flex;
+  gap: 2px;
+  margin-top: 2px;
+}
+.sv-chart-actions {
+  display: flex;
+  gap: 6px;
+}
+.sv-chart-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+.sv-chart-note,
+.sv-chart-status {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.sv-chart-status:empty {
+  display: none;
+}
+.sv-chart-status {
+  color: #b45309;
+}
+.sv-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 /* --- Stage ---------------------------------------------------------------- */

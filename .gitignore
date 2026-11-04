@@ -58,6 +58,12 @@ update-private-key.hex
 *update-private*.hex
 *update-private*.pem
 update_signing_key*
+# Certificat Authenticode : JAMAIS dans le dépôt (secrets du CI SIGN_CERT / SIGN_CERT_PASSWORD)
+*.pfx
+*.p12
+SIGN_CERT*
+# Scripts jetables des tests navigateur (peuvent contenir des identifiants de test)
+web-studio/scripts/_tmp/
 web.zip
 latest.json
 latest.json.sig

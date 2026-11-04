@@ -91,7 +91,6 @@ import {
   type ShapeKind,
   type AnimEffect,
   type ChartKind,
-  type ChartData,
 } from "./model";
 import { ANIM_EFFECTS, ANIM_TRIGGERS, revealAt, maxStep } from "./playback";
 import { SLIDE_TEMPLATES, GRADIENT_PRESETS, SOLID_PRESETS, gradientCss } from "./templates";
@@ -108,6 +107,7 @@ import HScroll from "./HScroll";
 import MasterEditor from "./MasterEditor";
 import HandoutsDialog from "./HandoutsDialog";
 import DiagramDialog from "./DiagramDialog";
+import ChartDataPanel from "./ChartDataPanel";
 import {
   TABLE_STYLES,
   deleteCol as tDeleteCol,
@@ -431,37 +431,6 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
     else addEl({ ...newTableElement(), table: t });
     setTsvOpen(false);
     setTsvText("");
-  };
-
-  const setChart = (patch: Partial<ChartData>) => {
-    if (!sel?.chart) return;
-    store.updateEl(sel.id, { chart: { ...sel.chart, ...patch } }, true);
-  };
-  const setPoint = (i: number, label: string, value: number) => {
-    if (!sel?.chart) return;
-    const labels = sel.chart.labels.slice();
-    const values = sel.chart.values.slice();
-    labels[i] = label;
-    values[i] = value;
-    setChart({ labels, values });
-  };
-  const addPoint = () => {
-    if (!sel?.chart) return;
-    setChart({
-      labels: [...sel.chart.labels, "?"],
-      values: [...sel.chart.values, 0],
-      ...(sel.chart.series ? { series: sel.chart.series.map((s) => ({ ...s, values: [...s.values, 0] })) } : {}),
-    });
-  };
-  const delPoint = (i: number) => {
-    if (!sel?.chart) return;
-    setChart({
-      labels: sel.chart.labels.filter((_, k) => k !== i),
-      values: sel.chart.values.filter((_, k) => k !== i),
-      ...(sel.chart.series
-        ? { series: sel.chart.series.map((s) => ({ ...s, values: s.values.filter((_, k) => k !== i) })) }
-        : {}),
-    });
   };
 
   // --- slide background + templates ---
@@ -1391,46 +1360,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                     onClose={() => setChartMenu(false)}
                     triggerRef={chartMenuBtnRef}
                   >
-                    <label className="sv-anim-row">
-                      <span>Type</span>
-                      <select
-                        className="input"
-                        value={sel!.chart.kind}
-                        onChange={(e) => setChart({ kind: e.target.value as ChartKind })}
-                      >
-                        <option value="bar">Barres</option>
-                        <option value="line">Courbe</option>
-                        <option value="pie">Camembert</option>
-                      </select>
-                    </label>
-                    <div className="sv-chart-points">
-                      {sel!.chart.labels.map((lb, i) => (
-                        <div key={i} className="sv-chart-row">
-                          <input
-                            className="input"
-                            value={lb}
-                            placeholder="Libellé"
-                            onChange={(e) => setPoint(i, e.target.value, sel!.chart!.values[i] ?? 0)}
-                          />
-                          <input
-                            className="input sv-num"
-                            type="number"
-                            value={sel!.chart!.values[i] ?? 0}
-                            onChange={(e) => setPoint(i, sel!.chart!.labels[i] ?? "", Number(e.target.value))}
-                          />
-                          <button
-                            className="icon-btn icon-btn--danger"
-                            title="Retirer le point"
-                            onClick={() => delPoint(i)}
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                    <button className="eb eb--sm eb--outline" onClick={addPoint}>
-                      <PlusIcon size={13} /> Point
-                    </button>
+                    <ChartDataPanel chart={sel!.chart} onChange={(c) => store.updateEl(sel!.id, { chart: c }, true)} />
                   </ToolbarPopover>
                 )}
               </div>

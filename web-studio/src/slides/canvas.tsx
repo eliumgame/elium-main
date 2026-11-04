@@ -401,7 +401,12 @@ function ElementView({
   if (el.type === "chart") {
     return el.chart ? (
       <div className="ce-chart">
-        <SheetChart type={el.chart.kind} labels={el.chart.labels} series={chartSeriesOf(el.chart)} />
+        <SheetChart
+          type={el.chart.kind}
+          labels={el.chart.labels}
+          series={el.chart.kind === "pie" ? chartSeriesOf(el.chart).slice(0, 1) : chartSeriesOf(el.chart)}
+          opts={el.chart.kind === "bar" && el.chart.stacked ? { grouping: "stacked" } : undefined}
+        />
       </div>
     ) : (
       <div className="ce-imgph">Graphique</div>

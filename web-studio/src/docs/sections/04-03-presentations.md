@@ -57,7 +57,7 @@ A4 uniquement.
 | Export PPTX | Import PPTX |
 |---|---|
 | Formes, texte riche, images, tableaux, notes, diapositives masquées | Disposition et masque hérités, couleurs du thème, groupes, tableaux, notes, diapositives masquées |
-| Graphiques natifs : barres, courbe, camembert | Graphiques natifs |
+| Graphiques natifs : barres (groupées ou empilées), courbe, camembert, multi-séries | Graphiques natifs |
 | Masque et dispositions, médias, schémas en formes | Dégradés simplifiés et SmartArt **ignorés** ; médias importés (plafond 40 Mo par média, 256 Mo au total, fichier 400 Mo maximum — les médias écartés sont signalés) |
 
 ### Raccourcis de l'éditeur
@@ -77,9 +77,9 @@ A4 uniquement.
 ### Limites connues des Présentations
 
 - Les **animations, transitions et sections** ne sont pas écrites dans le PPTX : elles sont perdues à l'export.
-- Les graphiques exportés sont limités à barres, courbe et camembert.
+- Les graphiques sont limités à barres (groupées ou empilées), courbe et camembert ; les graphiques PowerPoint combinés, aire, nuage de points, radar, etc. ne sont pas importés (avertissement).
 - Les médias sont relus à l'import PPTX, avec un plafond de 40 Mo par média et 256 Mo au total ; les éléments écartés sont signalés.
-- Les graphiques à barres et en courbes sont **multi-séries** (import, export, rendu avec légende et couleurs distinctes par série), jusqu'à 12 séries et 500 points à l'import (avertissement au-delà). Le camembert n'utilise que la première série (avertissement). L'éditeur de données du panneau ne modifie que la première série ; les autres sont conservées et alignées lors de l'ajout ou de la suppression de points.
+- Les graphiques à barres et en courbes sont **multi-séries** (import, export, rendu avec légende et couleurs distinctes par série), jusqu'à 12 séries et 500 points (avertissement à l'import au-delà). Le panneau « Données » du graphique est un tableau étiquettes × séries : modification des étiquettes et de chaque valeur (virgule française acceptée, saisie invalide refusée avec message), ajout, suppression, renommage, duplication et réordonnancement des séries, ajout et suppression de points. Les barres peuvent être **empilées** (export `stacked` + `overlap 100`, import `stacked` ; un graphique « pourcentage empilé » est importé comme empilé avec avertissement, sans normalisation à 100 %). Le camembert n'utilise que la première série : passer en camembert avertit mais conserve les autres séries pour pouvoir revenir à barres ou courbe, et elles ne sont ni affichées ni exportées en camembert.
 - Les SmartArt PowerPoint sont ignorés à l'import.
 - Les animations sont des effets d'entrée uniquement.
 - Aucun export d'images des diapositives : le PDF passe par l'impression.

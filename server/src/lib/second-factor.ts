@@ -12,7 +12,7 @@
  * Une réussite remet le compteur à zéro.
  */
 import { queryOne } from "../db/pool.js";
-import { decryptServerSecret, sha256Hex } from "./crypto-server.js";
+import { decryptServerSecret, backupCodeHash } from "./crypto-server.js";
 import { matchTotpStep } from "./totp.js";
 import { ApiError } from "./errors.js";
 import { audit } from "./audit.js";
@@ -97,7 +97,7 @@ async function checkCode(userId: string, code: string): Promise<boolean> {
     `UPDATE mfa_backup_codes SET used_at = now()
       WHERE user_id = $1 AND code_hash = $2 AND used_at IS NULL
       RETURNING id`,
-    [userId, sha256Hex(normalizeBackupCode(norm))],
+    [userId, backupCodeHash(userId, normalizeBackupCode(norm))],
   );
   return !!used;
 }

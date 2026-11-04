@@ -118,8 +118,16 @@ describe("claim validation", () => {
   });
 
   it("accepts an audience array that contains the client id", () => {
-    const token = makeToken("ES256", priv, defaultPayload({ aud: ["x", CLIENT] }));
+    const token = makeToken("ES256", priv, defaultPayload({ aud: ["x", CLIENT], azp: CLIENT }));
     expect(verifyIdToken(token, cfg([pub])).aud).toBe(CLIENT);
+  });
+
+  it.each([undefined, nowSec() - 361, nowSec() + 61, "today", 1.5])("rejects a missing, stale or invalid iat (%s)", iat => {
+    expect(() => verifyIdToken(makeToken("ES256", priv, defaultPayload({ iat })), cfg([pub]))).toThrow(/iat/);
+  });
+
+  it("requires azp for multiple audiences", () => {
+    expect(() => verifyIdToken(makeToken("ES256", priv, defaultPayload({ aud: [CLIENT, "other"] })), cfg([pub]))).toThrow(/azp/);
   });
 
   it("rejects an expired token", () => {

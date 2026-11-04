@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { pool, query, withTx, closePool } from "./pool.js";
 import { SYSTEM_ROLE_TEMPLATES } from "../rbac/roles.js";
+import { hardenBackupCodes } from "./backup-code-migration.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(here, "migrations");
@@ -134,6 +135,7 @@ async function seedSystemRoles(): Promise<void> {
  */
 export async function migrate(): Promise<void> {
   const n = await runMigrations();
+  await hardenBackupCodes();
   await seedSystemRoles();
   console.log(
     `[migrate] up to date (${n} migration${n === 1 ? "" : "s"} applied this run), ` +

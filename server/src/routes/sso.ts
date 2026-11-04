@@ -276,6 +276,14 @@ export default async function ssoRoutes(app: FastifyInstance): Promise<void> {
     if (row.sso_subject && row.sso_subject !== claims.sub) {
       throw unauthorized("L'identité SSO ne correspond pas au compte lié.");
     }
+    // Fingerprint the signed input, not its malleable base64url signature spelling.
+    // Consume atomically before either a full session or an MFA challenge is issued.
+    const fresh = await queryOne<{ token_hash: string }>(
+      `INSERT INTO oidc_used_assertions (token_hash, expires_at)
+       VALUES ($1, to_timestamp($2)) ON CONFLICT DO NOTHING RETURNING token_hash`,
+      [sha256Hex(b.idToken.split(".").slice(0, 2).join(".")), claims.issuedAt + 420],
+    );
+    if (!fresh) throw unauthorized("Ce jeton d'identité a déjà été utilisé : reconnectez-vous au fournisseur.");
     // Un compte qui a un second facteur LOCAL (TOTP/clé d'accès) ne s'ouvre pas sur le seul jeton
     // d'identité : on renvoie le même défi que la connexion par mot de passe (et on ne lie pas
     // le `sub` sans ce second facteur). Un fournisseur d'identité faux ou compromis ne contourne donc pas la 2FA.

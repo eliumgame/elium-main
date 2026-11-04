@@ -82,6 +82,36 @@ const USER_ROW = (pubHex: string) => ({
 });
 
 describe("SSO : frontière de confiance du déploiement", () => {
+  it("consumes a valid ID token once before issuing MFA and rejects replay", async () => {
+    config.site.singleDrive = true;
+    const orgId = randomUUID();
+    const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+    const enc = (v: unknown) => Buffer.from(JSON.stringify(v)).toString("base64url");
+    const input = `${enc({ alg: "EdDSA" })}.${enc({ iss: "https://idp.example", aud: "app", sub: "alice", email: "alice@example.org", email_verified: true, iat: Math.floor(Date.now()/1000), exp: Math.floor(Date.now()/1000)+3600 })}`;
+    const idToken = `${input}.${edSign(null, Buffer.from(input), privateKey).toString("base64url")}`;
+    const used = new Set<string>();
+    mockedQuery.mockImplementation(async sql => sql.includes("SELECT id FROM organizations") ? [{ id: orgId }] : []);
+    mockedQueryOne.mockImplementation(async (sql, params) => {
+      if (sql.includes("SELECT sso_config")) return { sso_config: { issuer: "https://idp.example", clientId: "app", jwks: [publicKey.export({ format: "jwk" })] } };
+      if (sql.includes("SELECT u.*")) return { ...USER_ROW("a".repeat(64)), membership_status: "active", mfa_enabled: true, sso_subject: "alice" };
+      if (sql.includes("INSERT INTO oidc_used_assertions")) {
+        const hash = params![0] as string;
+        if (used.has(hash)) return null;
+        used.add(hash); return { token_hash: hash };
+      }
+      return null;
+    });
+    const app = await buildTestApp();
+    const request = { method: "POST" as const, url: "/api/auth/sso/verify", payload: { orgId, idToken } };
+    const first = await app.inject(request);
+    expect(first.statusCode).toBe(200);
+    expect(first.json().mfaRequired).toBe(true);
+    const replay = await app.inject(request);
+    expect(replay.statusCode).toBe(401);
+    expect(replay.json().error.message).toMatch(/déjà été utilisé/);
+    expect(used.size).toBe(1);
+    await app.close();
+  });
   it.each([false, true])("refuse plusieurs organisations (singleDrive=%s) avant toute vérification OIDC", async (singleDrive) => {
     config.site.singleDrive = singleDrive;
     const orgId = randomUUID();

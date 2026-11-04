@@ -73,7 +73,7 @@ describe("sweepEphemeralTables", () => {
     });
     const app = fakeApp();
     await expect(sweepEphemeralTables(app)).resolves.toBeUndefined();
-    expect(call).toBe(5); // login/webauthn/webauthn_login/sessions/invites
+    expect(call).toBe(6); // login/OIDC/webauthn/webauthn_login/sessions/invites
     expect(app.log.warn).toHaveBeenCalledWith(
       expect.objectContaining({ table: "webauthn_challenges" }),
       expect.any(String),

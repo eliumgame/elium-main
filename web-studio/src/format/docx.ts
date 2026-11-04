@@ -21,7 +21,8 @@
  * renumbers and updates them itself.
  */
 
-import { unzipSync, zipSync, strToU8, strFromU8 } from "fflate";
+import { zipSync, strToU8, strFromU8 } from "fflate";
+import { unzipBoundedSync } from "./coop-zip";
 import type { EliumFile, PageSettings, ProseMirrorNode } from "./types";
 import { abstractNumXml, matchSchemeId, schemeById, type ListScheme } from "../editor/listSchemes";
 import { collectTargetsJson, referenceLabel, type RefDisplay, type RefTarget } from "../editor/crossref";
@@ -199,6 +200,9 @@ export const DOCX_LIMITS = {
   fileBytes: 200 * 1024 * 1024,
   /** `word/document.xml` décompressé (le texte ; analysé en arbre mémoire x5 à x10). */
   documentXmlBytes: 48 * 1024 * 1024,
+  partBytes: 64 * 1024 * 1024,
+  totalBytes: 400 * 1024 * 1024,
+  entries: 10_000,
   /** Une image. */
   imageBytes: 12 * 1024 * 1024,
   /** Cumul des images conservées. */
@@ -1772,6 +1776,26 @@ function commentsFor(zip: Record<string, Uint8Array>): Map<number, { author: str
   return out;
 }
 
+const notesCache = new WeakMap<object, Map<string, string>>();
+function importedNotes(zip: Record<string, Uint8Array>): Map<string, string> {
+  const cached = notesCache.get(zip);
+  if (cached) return cached;
+  const out = new Map<string, string>();
+  for (const kind of ["footnote", "endnote"] as const) {
+    const raw = zip["word/" + kind + "s.xml"];
+    if (!raw) continue;
+    const root = parseXml(normalizeWordXml(strFromU8(raw)));
+    for (const note of descendants(root, "w:" + kind)) {
+      if (note.attrs["w:type"] && note.attrs["w:type"] !== "normal") continue;
+      const id = note.attrs["w:id"];
+      if (id == null) continue;
+      out.set(kind + ":" + id, descendants(note, "w:p").map(runText).join("\n").trim());
+    }
+  }
+  notesCache.set(zip, out);
+  return out;
+}
+
 function inlineFromParagraph(
   p: XmlEl,
   rels: Record<string, string>,
@@ -1822,11 +1846,6 @@ function inlineFromParagraph(
     for (const br of descendants(r, "w:br")) {
       if (br.attrs["w:type"] === "page") pageBreak = true;
     }
-    // Une tabulation devient le nœud `tab`, pas un caractère : sa largeur se
-    // recalcule depuis les taquets du paragraphe. Word écrit presque toujours la
-    // tabulation seule dans son run (`<w:r><w:tab/></w:r>`), donc la pousser
-    // avant le texte du run respecte l'ordre du document.
-    for (const _t of children(r, "w:tab")) nodes.push({ type: "tab" });
     // embedded image?
     const blip = firstDescendant(r, "a:blip");
     if (blip && !figure) {
@@ -1846,8 +1865,29 @@ function inlineFromParagraph(
         }
       }
     }
-    const text = runText(r);
-    if (text) pushText(text, [...runMarks(r), ...extra, ...commentMarksNow()]);
+    const marks = [...runMarks(r), ...extra, ...commentMarksNow()];
+    // Keep text, tabs and note references in their original run order.
+    const appendRun = (node: XmlEl) => {
+      for (const child of node.children) {
+        if (!isEl(child)) continue;
+        if (child.name === "w:footnoteReference" || child.name === "w:endnoteReference") {
+          const kind = child.name === "w:footnoteReference" ? "footnote" : "endnote";
+          const id = child.attrs["w:id"] ?? "";
+          nodes.push({
+            type: kind,
+            attrs: {
+              id: "docx-" + kind + "-" + id,
+              text: importedNotes(zip).get(kind + ":" + id) ?? "[Note absente du fichier DOCX]",
+            },
+            ...(marks.length ? { marks } : {}),
+          });
+        } else if (child.name === "w:t" || child.name === "w:delText") pushText(te(child), marks);
+        else if (child.name === "w:tab") nodes.push({ type: "tab" });
+        else if (child.name === "w:br" || child.name === "w:cr") pushText("\n", marks);
+        else appendRun(child);
+      }
+    };
+    appendRun(r);
   };
 
   // Word fields come in two shapes: the self-contained <w:fldSimple>, and the
@@ -2532,13 +2572,15 @@ export function docxToDoc(bytes: Uint8Array): {
   let mediaTotal = 0;
   let skippedImages = 0;
   let xmlTooBig = false;
-  const zip = unzipSync(bytes, {
-    filter: (f) => {
+  const zip = unzipBoundedSync(
+    bytes,
+    (f) => {
       if (f.name === "word/document.xml" && f.originalSize > DOCX_LIMITS.documentXmlBytes) {
         xmlTooBig = true;
         return false;
       }
-      if (!f.name.startsWith("word/media/")) return true;
+      if (!f.name.startsWith("word/media/"))
+        return /^(?:docProps\/core\.xml|word\/(?:[^/]+\.xml|_rels\/[^/]+\.rels|charts\/[^/]+\.xml))$/.test(f.name);
       if (f.originalSize > DOCX_LIMITS.imageBytes || mediaTotal + f.originalSize > DOCX_LIMITS.mediaTotalBytes) {
         skippedImages += 1;
         return false;
@@ -2546,7 +2588,8 @@ export function docxToDoc(bytes: Uint8Array): {
       mediaTotal += f.originalSize;
       return true;
     },
-  });
+    { entryBytes: DOCX_LIMITS.partBytes, totalBytes: DOCX_LIMITS.totalBytes, entries: DOCX_LIMITS.entries },
+  );
   if (xmlTooBig) {
     throw new Error(
       `Le texte de ce .docx est trop volumineux pour être importé (plus de ${DOCX_LIMITS.documentXmlBytes / 1048576} Mo de contenu).`,
@@ -2567,6 +2610,16 @@ export function docxToDoc(bytes: Uint8Array): {
   const sty = buildStyleResolver(zip);
   const root = parseXml(normalizeWordXml(strFromU8(docRaw)));
   const body = firstDescendant(root, "w:body");
+  const notes = importedNotes(zip);
+  for (const kind of ["footnote", "endnote"] as const) {
+    const missing = descendants(root, "w:" + kind + "Reference").filter(
+      (ref) => !notes.has(kind + ":" + (ref.attrs["w:id"] ?? "")),
+    ).length;
+    if (missing)
+      warnings.push(
+        `${missing} note(s) ${kind === "footnote" ? "de bas de page" : "de fin"} absente(s) du fichier DOCX.`,
+      );
+  }
   const content: ProseMirrorNode[] = [];
 
   // Blocks of the section currently being read; flushed into `content` when the

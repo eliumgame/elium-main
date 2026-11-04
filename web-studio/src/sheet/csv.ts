@@ -130,3 +130,10 @@ export async function csvToWorkbookAsync(text: string): Promise<Workbook> {
   }
   return { sheets: [{ name: "Importé", rows: Math.max(20, rows.length), cols: maxCol + 1, cells }], active: 0 };
 }
+
+/** RFC 4180 escaping plus spreadsheet formula neutralisation. */
+export function csvSafeCell(value: string): string {
+  const numeric = /^[+-]?(?:\d+(?:[.,]\d*)?|[.,]\d+)(?:[eE][+-]?\d+)?$/.test(value);
+  const safe = /^[\t\r\n]/.test(value) || (/^\s*[=+@-]/.test(value) && !numeric) ? "'" + value : value;
+  return /[",\r\n]/.test(safe) ? '"' + safe.replace(/"/g, '""') + '"' : safe;
+}

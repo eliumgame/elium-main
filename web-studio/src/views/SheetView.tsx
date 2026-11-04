@@ -1,3 +1,4 @@
+import { csvSafeCell } from "../sheet/csv";
 /**
  * Tableur local — une coque fine autour du <SheetEditor> partagé. Elle fournit le
  * backend local (useLocalSheetStore : annuler/rétablir + IndexedDB) et le chrome
@@ -91,7 +92,7 @@ export default function SheetView({
       const row: string[] = [];
       for (let col = 0; col < sheet.cols; col++) {
         const disp = cellDisplay(cellRef(col, r));
-        row.push(/[",\n]/.test(disp) ? `"${disp.replace(/"/g, '""')}"` : disp);
+        row.push(csvSafeCell(disp));
       }
       lines.push(row.join(","));
     }

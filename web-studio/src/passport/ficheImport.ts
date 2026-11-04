@@ -415,24 +415,27 @@ export async function withReadableCheckboxes(file: File): Promise<File> {
   // Fiche démesurée : on ne la décompresse pas ici (le lecteur du Détecteur applique ses propres plafonds).
   if (file.size > MAX_CHECKBOX_SCAN_BYTES) return file;
   try {
-    const { unzipSync, strFromU8, strToU8 } = await import("fflate");
-    const { unzipCooperative, zipCooperative } = await import("../format/coop-zip");
+    const { strFromU8, strToU8 } = await import("fflate");
+    const { unzipBoundedSync, unzipCooperative, zipCooperative } = await import("../format/coop-zip");
     const bytes = new Uint8Array(await file.arrayBuffer());
     // 1. Seul document.xml est extrait pour voir si le fichier contient des cases à convertir (le cas général : non).
-    const doc = unzipSync(bytes, {
-      filter: (f) => f.name === "word/document.xml" && f.originalSize <= MAX_DOCUMENT_XML,
-    })["word/document.xml"];
+    const limits = { entryBytes: 64 * 1024 * 1024, totalBytes: 400 * 1024 * 1024, entries: 10_000 };
+    const doc = unzipBoundedSync(
+      bytes,
+      (f) => f.name === "word/document.xml" && f.originalSize <= MAX_DOCUMENT_XML,
+      limits,
+    )["word/document.xml"];
     if (!doc) return file;
     const probe = strFromU8(doc);
     if (!probe.includes("<w14:checkbox") && !probe.includes("<w:checkBox>") && !probe.includes("<w:sym")) return file;
     const x = convertCheckboxXml(probe); // parcours linéaire (voir checkboxXml.ts)
     if (x === probe) return file;
     // 2. Des cases ont été converties : on relit tout le paquet et on le recompresse par tranches.
-    const files = await unzipCooperative(bytes);
+    const files = await unzipCooperative(bytes, () => true, undefined, limits);
     files["word/document.xml"] = strToU8(x);
     return new File([(await zipCooperative(files, 6)) as BlobPart], file.name, { type: file.type });
-  } catch {
-    return file;
+  } catch (err) {
+    throw new Error(`Impossible de lire les cases du DOCX : ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 

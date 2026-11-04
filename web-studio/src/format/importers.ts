@@ -32,38 +32,50 @@ export function textToDoc(input: string): ProseMirrorNode {
 
 // --- Markdown -------------------------------------------------------------
 
-const INLINE: Array<{ re: RegExp; make: (m: RegExpExecArray) => ProseMirrorNode }> = [
-  { re: /^`([^`]+)`/, make: (m) => t(m[1], [{ type: "code" }]) },
-  { re: /^\*\*([^*]+)\*\*/, make: (m) => t(m[1], [{ type: "bold" }]) },
-  { re: /^__([^_]+)__/, make: (m) => t(m[1], [{ type: "bold" }]) },
-  { re: /^~~([^~]+)~~/, make: (m) => t(m[1], [{ type: "strike" }]) },
-  { re: /^\*([^*]+)\*/, make: (m) => t(m[1], [{ type: "italic" }]) },
-  { re: /^_([^_]+)_/, make: (m) => t(m[1], [{ type: "italic" }]) },
-  { re: /^\[([^\]]+)\]\(([^)]+)\)/, make: (m) => t(m[1], [{ type: "link", attrs: { href: safeImportHref(m[2]) } }]) },
-];
-
+/** Cache delimiter searches: a failed opener must not rescan the remaining line. */
 function parseInline(s: string): ProseMirrorNode[] {
   const out: ProseMirrorNode[] = [];
-  let buf = "";
-  const flush = () => {
-    if (buf) {
-      out.push(t(buf));
-      buf = "";
-    }
+  const cache = new Map<string, { from: number; at: number }>();
+  const next = (char: string, from: number): number => {
+    const prev = cache.get(char);
+    if (prev && from >= prev.from && (prev.at < 0 || prev.at >= from)) return prev.at;
+    const at = s.indexOf(char, from);
+    cache.set(char, { from, at });
+    return at;
   };
-  let i = 0;
+  let i = 0,
+    plain = 0;
   while (i < s.length) {
-    const rest = s.slice(i);
-    const hit = INLINE.map((p) => ({ p, m: p.re.exec(rest) })).find((x) => x.m);
-    if (hit && hit.m) {
-      flush();
-      out.push(hit.p.make(hit.m));
-      i += hit.m[0].length;
-    } else {
-      buf += s[i++];
+    const c = s[i];
+    let end = -1,
+      width = 1,
+      mark: Mark | undefined;
+    if (c === "[") {
+      const close = next("]", i + 1);
+      if (close > i + 1 && s[close + 1] === "(") {
+        const urlEnd = next(")", close + 2);
+        if (urlEnd > close + 2) {
+          if (i > plain) out.push(t(s.slice(plain, i)));
+          out.push(
+            t(s.slice(i + 1, close), [{ type: "link", attrs: { href: safeImportHref(s.slice(close + 2, urlEnd)) } }]),
+          );
+          i = plain = urlEnd + 1;
+          continue;
+        }
+      }
+    } else if (c === "\x60" || c === "*" || c === "_" || (c === "~" && s[i + 1] === "~")) {
+      width = c !== "\x60" && s[i + 1] === c ? 2 : 1;
+      end = next(c, i + width);
+      if (end > i + width && (width === 1 || s[end + 1] === c))
+        mark = { type: c === "\x60" ? "code" : c === "~" ? "strike" : width === 2 ? "bold" : "italic" };
     }
+    if (mark) {
+      if (i > plain) out.push(t(s.slice(plain, i)));
+      out.push(t(s.slice(i + width, end), [mark]));
+      i = plain = end + width;
+    } else i++;
   }
-  flush();
+  if (plain < s.length) out.push(t(s.slice(plain)));
   return out;
 }
 

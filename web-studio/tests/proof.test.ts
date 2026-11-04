@@ -155,6 +155,8 @@ describe("CORE-09 : la preuve lie le docId du document", () => {
     const s = sig(proof, PLACEMENT, { text: "Bob" });
     expect(await verifyProof(s, model, undefined, DOC_A)).toBe("valid");
     expect(await verifyProof(s, model, undefined, DOC_B)).toBe("modified");
+    // UI callers pass an empty current id for a file whose id was removed.
+    expect(await verifyProof(s, model, undefined, "")).toBe("modified");
     // docId courant non fourni : pas de contrôle (appelants historiques)
     expect(await verifyProof(s, model)).toBe("valid");
   });

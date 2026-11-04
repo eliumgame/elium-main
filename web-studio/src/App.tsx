@@ -159,7 +159,8 @@ async function computeVerdicts(
   const attributions: Record<string, string> = {};
   await Promise.all(
     f.signatures.map(async (s) => {
-      verdicts[s.id] = await verifyProof(s, f.document);
+      // An absent current id must not disable verification of a bound proof.
+      verdicts[s.id] = await verifyProof(s, f.document, undefined, f.manifest.docId ?? "");
       const contact = s.proof ? findContact(book, s.proof.publicKeyHex) : undefined;
       if (contact) attributions[s.id] = contact.name;
     }),
@@ -484,6 +485,7 @@ export default function App() {
   // merely viewing a sealed document never mutates and breaks its seal.
   const pendingJournalRef = useRef<PendingJournalEvent[]>([]);
   const validatedSigRef = useRef<Set<string>>(new Set()); // sig ids already logged this session
+  const firstSeenSeals = useRef(new Set<string>());
   const queueJournal = useCallback((ev: PendingJournalEvent) => {
     pendingJournalRef.current.push(ev);
   }, []);
@@ -514,14 +516,16 @@ export default function App() {
     // TOFU: pin the seal key on first authentic sight; flag a key change otherwise.
     if (sv === "valid" || sv === "unknown_key") {
       const check = checkSealPin(f.manifest);
+      const sessionKey = `${f.manifest.createdAt}:${check.current?.publicKeyHex}`;
       if (check.status === "new") {
         pinSeal(f.manifest);
-        setSealPin({ ...check, status: "pinned" });
-      } else {
-        setSealPin(check);
+        firstSeenSeals.current.add(sessionKey);
       }
+      setSealPin(
+        check.status === "pinned" && firstSeenSeals.current.has(sessionKey) ? { ...check, status: "new" } : check,
+      );
     } else {
-      setSealPin(null);
+      setSealPin(sv === "unsealed" ? checkSealPin(f.manifest) : null);
     }
   }, []);
 
@@ -529,6 +533,7 @@ export default function App() {
   const trustSealKey = useCallback(() => {
     if (!file) return;
     repinSeal(file.manifest);
+    firstSeenSeals.current.delete(`${file.manifest.createdAt}:${file.manifest.seal?.publicKeyHex}`);
     setSealPin(checkSealPin(file.manifest));
     setToast("Nouvelle clé de sceau épinglée pour ce document");
   }, [file]);
@@ -1423,6 +1428,9 @@ export default function App() {
   const createSignature = useCallback(
     async (draft: SignatureDraft) => {
       if (!file) return;
+      const signingFile = file.manifest.docId
+        ? file
+        : { ...file, manifest: { ...file.manifest, docId: crypto.randomUUID() } };
       setBusy(true);
       try {
         const id = randomId("sig");
@@ -1444,6 +1452,7 @@ export default function App() {
             proof = await createProof({
               signatureId: id,
               model: file.document,
+              docId: signingFile.manifest.docId,
               signer: draft.signer,
               privateKeyHex: pk,
               placement,
@@ -1460,7 +1469,7 @@ export default function App() {
           level: proof ? "advanced" : "visual",
           createdAt: new Date().toISOString(),
         };
-        const nf = await addSignature(file, sig);
+        const nf = await addSignature(signingFile, sig);
         setFile(nf);
         setCreatorOpen(false);
         setSelectedSig(id);
@@ -1485,13 +1494,15 @@ export default function App() {
     async (id: string) => {
       const pk = identity?.privateKeyHex;
       if (!pk || !identity) return;
-      const current = file;
+      const current =
+        file && !file.manifest.docId ? { ...file, manifest: { ...file.manifest, docId: crypto.randomUUID() } } : file;
       const sig = current?.signatures.find((s) => s.id === id);
       if (!current || !sig?.proof) return;
       if (identity.publicKeyHex.toLowerCase() !== sig.proof.publicKeyHex.toLowerCase()) return;
       const proof = await createProof({
         signatureId: id,
         model: current.document,
+        docId: current.manifest.docId,
         signer: sig.signer,
         privateKeyHex: pk,
         placement: sig.placement,
@@ -1511,6 +1522,9 @@ export default function App() {
   const signAsParty = useCallback(
     async (party: { name: string; role?: string }): Promise<{ signatureId: string; publicKeyHex: string } | null> => {
       if (!file) return null;
+      const signingFile = file.manifest.docId
+        ? file
+        : { ...file, manifest: { ...file.manifest, docId: crypto.randomUUID() } };
       if (!identity) {
         setError("Générez d'abord une identité de signature (Paramètres).");
         return null;
@@ -1535,6 +1549,7 @@ export default function App() {
         const proof = await createProof({
           signatureId: id,
           model: file.document,
+          docId: signingFile.manifest.docId,
           signer,
           privateKeyHex: pk,
           placement,
@@ -1550,7 +1565,7 @@ export default function App() {
           level: "advanced",
           createdAt: new Date().toISOString(),
         };
-        const nf = await addSignature(file, sig);
+        const nf = await addSignature(signingFile, sig);
         setFile(nf);
         setSelectedSig(id);
         await recompute(nf);

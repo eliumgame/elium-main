@@ -55,6 +55,17 @@ describe("seal TOFU pinning", () => {
     expect(check.current?.publicKeyHex).toBe("bb".repeat(32));
   });
 
+  it("flags removal of a previously observed seal even after a profile downgrade", () => {
+    const original = manifest("aa".repeat(32));
+    pinSeal(original);
+    const stripped = { ...original, profile: "standard" } as EliumManifest;
+    delete stripped.seal;
+    const check = checkSealPin(stripped);
+    expect(check.status).toBe("missing");
+    expect(check.pinned?.publicKeyHex).toBe(original.seal!.publicKeyHex);
+    expect(checkSealPin(original).status).toBe("pinned");
+  });
+
   it("a genuinely different document (new createdAt) is 'new', not 'changed'", () => {
     pinSeal(manifest("aa".repeat(32), "2026-01-01T00:00:00Z"));
     expect(checkSealPin(manifest("cc".repeat(32), "2026-09-09T09:09:09Z")).status).toBe("new");

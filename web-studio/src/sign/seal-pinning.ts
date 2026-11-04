@@ -24,7 +24,7 @@ import { currentKeyTrustState, type KeyTrustState } from "./trust-book";
 
 const STORAGE_KEY = "elium_seal_pins";
 
-export type SealPinStatus = "none" | "new" | "pinned" | "changed";
+export type SealPinStatus = "none" | "new" | "pinned" | "changed" | "missing";
 
 export interface SealPin {
   fingerprint: string;
@@ -35,7 +35,7 @@ export interface SealPin {
 
 export interface SealPinCheck {
   status: SealPinStatus;
-  /** The previously pinned key (present for "pinned" and "changed"). */
+  /** The previously pinned key (present for "pinned", "changed" and "missing"). */
   pinned?: SealPin;
   /** The seal key currently presented by the file (present unless "none"). */
   current?: { fingerprint: string; publicKeyHex: string };
@@ -55,19 +55,19 @@ function storePins(pins: Record<string, SealPin>): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(pins));
 }
 
-function pinKey(manifest: EliumManifest): string | null {
-  return manifest.seal ? `seal:${manifest.createdAt}` : null;
+function pinKey(manifest: EliumManifest): string {
+  return `seal:${manifest.createdAt}`;
 }
 
 /** Compare the file's seal key against any previously pinned key. */
 export function checkSealPin(manifest: EliumManifest): SealPinCheck {
   const seal = manifest.seal;
   const key = pinKey(manifest);
-  if (!seal || !key) return { status: "none" };
+  const pinned = loadPins()[key];
+  if (!seal) return pinned ? { status: "missing", pinned } : { status: "none" };
   const current = { fingerprint: seal.fingerprint, publicKeyHex: seal.publicKeyHex };
   // Révocation / expiration : dimension distincte du TOFU, affichée à côté.
   const keyState = currentKeyTrustState(seal.publicKeyHex);
-  const pinned = loadPins()[key];
   if (!pinned) return { status: "new", current, keyState };
   if (pinned.publicKeyHex.toLowerCase() === seal.publicKeyHex.toLowerCase()) {
     return { status: "pinned", pinned, current, keyState };

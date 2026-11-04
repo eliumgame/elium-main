@@ -30,6 +30,7 @@ export default function VerificationBanner({ studio }: { studio: Studio }) {
   const journalBad = journalVerdict && journalVerdict.count > 0 && !journalVerdict.valid;
   const sealBroken = sealVerdict === "broken";
   const sealKeyChanged = sealPin?.status === "changed";
+  const sealRemoved = sealPin?.status === "missing";
   const expiresAt = file.manifest.accessExpiresAt;
   const expired = !!expiresAt && Date.now() > Date.parse(expiresAt);
 
@@ -53,7 +54,13 @@ export default function VerificationBanner({ studio }: { studio: Studio }) {
   const sealKeyState = sealed ? describeKeyState(sealPin?.keyState) : null;
 
   const overallBad =
-    integrityBad || sigBad || journalBad || sealBroken || sealKeyChanged || sealKeyState?.severity === "danger";
+    integrityBad ||
+    sigBad ||
+    journalBad ||
+    sealBroken ||
+    sealKeyChanged ||
+    sealRemoved ||
+    sealKeyState?.severity === "danger";
   const overallWarn = sigModified || unverifiedTrust || expired || missingSeal || !!sealKeyState;
 
   const tone = overallBad ? "danger" : overallWarn ? "warning" : "success";
@@ -102,7 +109,9 @@ export default function VerificationBanner({ studio }: { studio: Studio }) {
               : sealAttribution
                 ? ` · scellé par ${sealAttribution}`
                 : " · sceau valide (clé non vérifiée)")}
-          {sealPin?.status === "pinned" && !sealKeyChanged && !sealAttribution && " · clé du sceau reconnue"}
+          {sealPin?.status === "new" && " · première ouverture de ce sceau"}
+          {sealPin?.status === "pinned" && !sealAttribution && " · même clé que lors d'une ouverture précédente"}
+          {sealRemoved && " · sceau absent alors qu'un sceau était mémorisé pour ce document"}
           {sealKeyState && ` · ${sealKeyState.text}`}
           {expired && ` · accès expiré le ${new Date(expiresAt!).toLocaleDateString()}`}
           {unverifiedTrust && !overallBad && " · clé non vérifiée (ajoutez-la au carnet de confiance)"}

@@ -158,6 +158,10 @@ secondes, redirections jamais suivies, adresses **publiques** uniquement (le nom
 résolu une seule fois et la connexion se fait vers l'adresse vérifiée, contre le
 rebond DNS). L'autorité proposée par défaut est un service public gratuit ; vous pouvez
 indiquer la vôtre.
+Pour le relais du Drive, l'administrateur doit aussi autoriser l'URL exacte de cette
+TSA dans `TSA_ALLOWED_URLS` : plusieurs URL se séparent par une virgule, et la valeur
+par défaut est `https://freetsa.org/tsr`. Seuls les ports 80 et 443 sont admis ; le
+serveur contrôle le DER, les types MIME et les tailles des requêtes et réponses.
 
 À la vérification, une heure d'horodatage n'est retenue que si l'autorité qui l'a
 émise est elle-même de confiance ; sinon elle est affichée, sans servir de preuve de

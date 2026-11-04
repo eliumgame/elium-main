@@ -152,7 +152,7 @@ class SectionParser extends PDFParser {
       )
         throw new Error("dimensions du prédicteur xref invalides");
       const expected = count * (rowBytes + (predictor === 1 ? 0 : 1));
-      let data = new Uint8Array(decodePDFRawStream(stream).getBytes(expected + 1));
+      let data: Uint8Array = new Uint8Array(decodePDFRawStream(stream).getBytes(expected + 1));
       if (data.length !== expected) throw new Error("longueur xref incohérente");
       if (predictor !== 1) {
         for (let row = 0; row < count; row++)

@@ -71,6 +71,7 @@ import {
 import type { Certificate, HashName, Tlv } from "./der";
 import { fingerprint, readXrefTail, serializeObject, trailerId0, writeIncrementalUpdate } from "./incremental";
 import { openCrypt } from "./security";
+import { xrefRevisionProblem } from "./pades-xref";
 
 export type { Certificate } from "./der";
 
@@ -1841,8 +1842,11 @@ export async function verifyPdfSignatures(
     }
 
     // Changes after this signature.
-    if (!out.coversWholeDocument && fin) {
-      const raw = rev ? diffRevisions(rev, fin) : [{ kind: "disallowed" as const, label: "Révision signée illisible" }];
+    if (!out.coversWholeDocument) {
+      const raw =
+        rev && fin ? diffRevisions(rev, fin) : [{ kind: "disallowed" as const, label: "Révision signée illisible" }];
+      const xrefProblem = xrefRevisionProblem(bytes, c + d);
+      if (xrefProblem) raw.push({ kind: "disallowed", label: xrefProblem });
       // A later signature's own field counts as the signature it is.
       const locks = [...activeLocks, ...(lock ? [lock] : [])];
       out.changes = judge(raw, certification, locks).filter((ch) => ch.kind !== "neutral");

@@ -290,7 +290,10 @@ async function redactOps(ops: readonly Op[], scope: Scope, rects: readonly Rect[
     const subtype = xo.dict.lookup(PDFName.of("Subtype"))?.toString();
     if (subtype === "/Form") {
       const renamed = await redactForm(xo, target, place.ctm, scope, rects);
-      if (renamed) replacements.set(place.opIndex, { op: "Do", args: [{ t: "name", v: renamed }] });
+      if (renamed === false) {
+        replacements.set(place.opIndex, null);
+        result.imagesRemoved++;
+      } else if (renamed) replacements.set(place.opIndex, { op: "Do", args: [{ t: "name", v: renamed }] });
       continue;
     }
     if (!hit) continue;
@@ -607,21 +610,20 @@ async function redactForm(
   ctm: Mat,
   scope: Scope,
   rects: readonly Rect[],
-): Promise<string | null> {
+): Promise<string | null | false> {
   const copy = await redactFormCopy(xo, ref, ctm, scope, rects);
-  return copy ? addXObject(scope, copy) : null;
+  return copy === false ? false : copy ? addXObject(scope, copy) : null;
 }
 
-/** A form (or a soft-mask group) drawn with `ctm`, redacted in a copy; null when untouched. */
+/** A form redacted in a copy; null when untouched, false when it must be removed whole. */
 async function redactFormCopy(
   xo: PDFRawStream,
   ref: unknown,
   ctm: Mat,
   scope: Scope,
   rects: readonly Rect[],
-): Promise<PDFRef | null> {
+): Promise<PDFRef | null | false> {
   const key = ref instanceof PDFRef ? `${ref.objectNumber} ${ref.generationNumber}` : "";
-  if (scope.depth >= MAX_FORM_DEPTH || (key && scope.seen.has(key))) return null;
   const inner = mul(matrixOf(xo.dict), ctm);
   // Its box on the page: nothing to do when no area reaches it.
   const bb = bboxOf(xo.dict);
@@ -634,8 +636,14 @@ async function redactFormCopy(
     ]);
     if (!rects.some((r) => intersects(box, r))) return null;
   }
-  const ops = streamOps(xo);
-  if (!ops) return null;
+  const ops = scope.depth >= MAX_FORM_DEPTH || (key && scope.seen.has(key)) ? null : streamOps(xo);
+  if (!ops) {
+    warn(
+      scope.result,
+      "Une forme touchée par le caviardage ne peut pas être analysée (filtre, cycle ou profondeur) : elle est retirée entière.",
+    );
+    return false;
+  }
   const ownRes = xo.dict.lookup(PDFName.of("Resources"));
   const resources = (ownRes instanceof PDFDict ? ownRes : scope.resources).clone(scope.doc.context);
   const sub: Scope = {
@@ -851,6 +859,21 @@ async function redactSoftMasks(ops: readonly Op[], scope: Scope, rects: readonly
     for (const at of ctms) {
       if (!(group instanceof PDFRawStream)) break;
       const copy = await redactFormCopy(group, ref, at, scope, rects);
+      if (copy === false) {
+        // An empty transparency group cannot retain or reveal the unreadable
+        // group's content. Never copy its dictionary or resource references.
+        ref = scope.doc.context.register(
+          scope.doc.context.stream("", {
+            Type: "XObject",
+            Subtype: "Form",
+            BBox: [0, 0, 0, 0],
+            Resources: {},
+            Group: { S: "Transparency" },
+          }),
+        );
+        copied = true;
+        break;
+      }
       if (!copy) continue;
       ref = copy;
       group = scope.doc.context.lookup(copy);

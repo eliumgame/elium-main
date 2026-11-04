@@ -67,6 +67,81 @@ async function leftovers(bytes: Uint8Array, needles: string[]): Promise<string[]
 }
 
 describe("redaction", () => {
+  it.each(["filter", "depth", "cycle"] as const)(
+    "removes an unreadable or recursive form under the area (%s)",
+    async (failure) => {
+      const doc = await PDFDocument.create();
+      const page = doc.addPage([W, H]);
+      const form = (data: string, resources = doc.context.obj({})) =>
+        doc.context.stream(data, {
+          Type: "XObject",
+          Subtype: "Form",
+          BBox: [0, 0, 100, 100],
+          Resources: resources,
+        });
+      const leaf = form("BT (FORMSECRET) Tj ET");
+      if (failure === "filter") leaf.dict.set(PDFName.of("Filter"), PDFName.of("UnsupportedDecode"));
+      let ref = doc.context.register(leaf);
+      if (failure === "depth") {
+        for (let i = 0; i < 10; i++)
+          ref = doc.context.register(form("/Nested Do", doc.context.obj({ XObject: { Nested: ref } })));
+      }
+      if (failure === "cycle") {
+        const cyclic = form("/Self Do");
+        ref = doc.context.register(cyclic);
+        cyclic.dict.set(PDFName.of("Resources"), doc.context.obj({ XObject: { Self: ref } }));
+      }
+      page.node.setXObject(PDFName.of("Bad"), ref);
+      page.node.set(PDFName.of("Contents"), doc.context.register(doc.context.stream("/Bad Do")));
+      const { bytes, report } = await buildPdf(
+        await doc.save({ useObjectStreams: false }),
+        mark(baseState(1), 0, 0, 0, 50, 50),
+        { applyRedactions: true },
+      );
+      expect(report.warnings.some((w) => /forme.*retirée entière/.test(w))).toBe(true);
+      expect(await leftovers(bytes, ["FORMSECRET", "/Self Do", "UnsupportedDecode"])).toEqual([]);
+    },
+  );
+
+  it("keeps an unreadable form outside the redaction area", async () => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([W, H]);
+    const xo = doc.context.stream("OUTSIDESECRET", {
+      Type: "XObject",
+      Subtype: "Form",
+      BBox: [0, 0, 100, 100],
+      Filter: "UnsupportedDecode",
+    });
+    page.node.setXObject(PDFName.of("Outside"), doc.context.register(xo));
+    page.node.set(PDFName.of("Contents"), doc.context.register(doc.context.stream("/Outside Do")));
+    const { bytes, report } = await buildPdf(await doc.save(), mark(baseState(1), 0, 200, 200, 20, 20), {
+      applyRedactions: true,
+    });
+    expect(await leftovers(bytes, ["OUTSIDESECRET"])).toEqual(["OUTSIDESECRET"]);
+    expect(report.warnings.some((w) => /forme.*retirée entière/.test(w))).toBe(false);
+  });
+
+  it("replaces an unreadable soft-mask group without retaining its resources", async () => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([W, H]);
+    const group = doc.context.register(
+      doc.context.stream("MASKSECRET", {
+        Type: "XObject",
+        Subtype: "Form",
+        BBox: [0, 0, 100, 100],
+        Filter: "UnsupportedDecode",
+        Group: { S: "Transparency" },
+      }),
+    );
+    page.node.set(PDFName.of("Resources"), doc.context.obj({ ExtGState: { GS: { SMask: { S: "Alpha", G: group } } } }));
+    page.node.set(PDFName.of("Contents"), doc.context.register(doc.context.stream("q /GS gs 0 0 100 100 re f Q")));
+    const { bytes, report } = await buildPdf(await doc.save(), mark(baseState(1), 0, 10, 10, 20, 20), {
+      applyRedactions: true,
+    });
+    expect(report.warnings.some((w) => /forme.*retirée entière/.test(w))).toBe(true);
+    expect(await leftovers(bytes, ["MASKSECRET", "UnsupportedDecode"])).toEqual([]);
+  });
+
   it("removes text inside form XObjects (the page's other text stays)", async () => {
     const doc = await PDFDocument.create();
     const font = await doc.embedFont(StandardFonts.Helvetica);

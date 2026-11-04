@@ -22,6 +22,32 @@ function lie(bytes: Uint8Array) {
   return bytes;
 }
 describe("F-00 bounded ZIP imports", () => {
+  it("skips a streamed entry and still reads the following entry", async () => {
+    const bytes = await zipCooperative({ ignored: strToU8("x".repeat(50000)), kept: strToU8("kept") });
+    const sync = unzipBoundedSync(bytes, (f) => f.name === "kept");
+    const asyncResult = await unzipCooperative(bytes, (f) => f.name === "kept");
+    expect(Object.keys(sync)).toEqual(["kept"]);
+    expect(strFromU8(sync.kept)).toBe("kept");
+    expect(asyncResult).toEqual(sync);
+  });
+  it("rejects an excessive entry count before decompression", () => {
+    expect(() =>
+      unzipBoundedSync(pkg({ one: "a", two: "b" }), () => true, { entryBytes: 100, totalBytes: 100, entries: 1 }),
+    ).toThrow(/entrées/);
+  });
+  it("converts legitimate checkbox documents while preserving other parts", async () => {
+    const checkbox = xml.replace("<w:t>Text</w:t>", '<w:sym w:font="Wingdings" w:char="F0FE"/>');
+    const bytes = pkg({
+      "word/document.xml": checkbox,
+      "docProps/core.xml": "<core/>",
+      "word/media/a.png": "image-data",
+    });
+    const converted = await withReadableCheckboxes(new File([bytes as BlobPart], "check.docx"));
+    const parts = unzipBoundedSync(new Uint8Array(await converted.arrayBuffer()));
+    expect(strFromU8(parts["word/document.xml"])).toContain("☒");
+    expect(strFromU8(parts["docProps/core.xml"])).toBe("<core/>");
+    expect(strFromU8(parts["word/media/a.png"])).toBe("image-data");
+  });
   it("rejects oversized non-document parts before extracting", () => {
     DOCX_LIMITS.partBytes = 1024;
     expect(() => docxToDoc(pkg({ "word/document.xml": xml, "word/styles.xml": "x".repeat(2048) }))).toThrow(

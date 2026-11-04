@@ -14,8 +14,8 @@
  * Separate database from the Drive and version stores to avoid IndexedDB
  * version coordination between independent features.
  */
-import type { EliumProfile, PageSettings, ProseMirrorNode } from "./types";
-import { encryptAtRest, decryptAtRest, hasVaultSecret, type VaultSecret } from "../crypto/local-vault";
+import type { EliumProfile, PageSettings, ProseMirrorNode, EliumFile, EliumDocumentModel } from "./types";
+import { encryptAtRest, decryptAtRest, hasVaultSecret, toB64, type VaultSecret } from "../crypto/local-vault";
 
 import { openMigrated } from "./idb-migrate";
 import { readProjected } from "./idb-cursor";
@@ -23,9 +23,42 @@ import { DRAFTS_SPEC } from "./db-specs";
 import { markDirty } from "../workspace/sync-dirty";
 const STORE = "drafts";
 
+/** JSON-safe full document state, excluding the legacy doc/page fields below. */
+export type DraftSnapshot = Omit<EliumFile, "document" | "resources"> & {
+  document: Omit<EliumDocumentModel, "doc" | "page">;
+  resources: [string, string][];
+};
+
+export function snapshotDraftFile(file: EliumFile): DraftSnapshot {
+  const { doc: _doc, page: _page, ...document } = file.document;
+  return { ...file, document, resources: [...file.resources].map(([id, bytes]) => [id, toB64(bytes)]) };
+}
+
+/** Shared by recovery and recovery DOCX export; old drafts remain readable. */
+export async function restoreDraftFile(
+  meta: Pick<DraftDoc, "id" | "title" | "profile">,
+  content: DraftContent,
+): Promise<EliumFile> {
+  const { createEliumFile } = await import("./document");
+  const saved = content.snapshot;
+  const file = saved
+    ? {
+        ...saved,
+        manifest: { ...saved.manifest, title: meta.title, profile: meta.profile, docId: meta.id },
+        document: { ...saved.document, doc: content.doc, page: content.page },
+        resources: new Map(
+          saved.resources.map(([id, base64]) => [id, Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))]),
+        ),
+      }
+    : await createEliumFile({ title: meta.title, profile: meta.profile, doc: content.doc, page: content.page });
+  file.manifest.docId = meta.id;
+  return file;
+}
+
 export interface DraftContent {
   doc: ProseMirrorNode;
   page: PageSettings;
+  snapshot?: DraftSnapshot;
 }
 
 export interface DraftDoc {
@@ -37,6 +70,7 @@ export interface DraftDoc {
   size: number; // estimated plaintext size (unprotected) or ciphertext byte length (protected)
   doc?: ProseMirrorNode; // plaintext snapshot — only when NOT protected
   page?: PageSettings; // plaintext page settings — only when NOT protected
+  snapshot?: DraftSnapshot; // complete state, only when NOT protected
   docx?: Uint8Array; // legacy: Word export pre-built by older versions — only when NOT protected (no longer written)
   enc?: string; // base64 salt+iv+ciphertext of { doc, page } — only when protected
   /** Aperçu d'une ligne du début du texte — seulement quand le brouillon n'est PAS chiffré. */
@@ -51,7 +85,7 @@ export interface DraftDoc {
  * but the UI surfaces them distinctly so the user can decide to remove one
  * that predates this fix.
  */
-export type DraftEntry = Omit<DraftDoc, "doc" | "page" | "docx" | "enc"> & { legacy: boolean };
+export type DraftEntry = Omit<DraftDoc, "doc" | "page" | "docx" | "enc" | "snapshot"> & { legacy: boolean };
 
 function openDb(): Promise<IDBDatabase> {
   return openMigrated(DRAFTS_SPEC);
@@ -63,9 +97,20 @@ function run<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBRequ
       new Promise<T>((resolve, reject) => {
         const t = db.transaction(STORE, mode);
         const req = fn(t.objectStore(STORE));
-        req.onsuccess = () => resolve(req.result);
+        let result: T;
+        req.onsuccess = () => {
+          result = req.result;
+        };
         req.onerror = () => reject(req.error);
-        t.oncomplete = () => db.close();
+        t.oncomplete = () => {
+          db.close();
+          resolve(result);
+        };
+        t.onabort = () => {
+          db.close();
+          reject(t.error ?? new Error("Enregistrement du brouillon annulé."));
+        };
+        t.onerror = () => reject(t.error);
       }),
   );
 }
@@ -86,6 +131,7 @@ export async function buildDraftRecord(input: {
   doc: ProseMirrorNode;
   page: PageSettings;
   docx?: Uint8Array;
+  snapshot?: DraftSnapshot;
   /** Taille estimée (octets) affichée dans la liste ; à défaut, celle du .docx fourni. */
   size?: number;
   /** Aperçu du texte (ignoré pour un brouillon chiffré : il ne doit rien révéler). */
@@ -101,12 +147,20 @@ export async function buildDraftRecord(input: {
       updatedAt: input.updatedAt,
       doc: input.doc,
       page: input.page,
+      ...(input.snapshot ? { snapshot: input.snapshot } : {}),
       docx: input.docx,
       preview: input.preview,
       size: input.size ?? input.docx?.length ?? 0,
     };
   }
-  const enc = await encryptAtRest({ doc: input.doc, page: input.page } satisfies DraftContent, input.secret!);
+  const enc = await encryptAtRest(
+    {
+      doc: input.doc,
+      page: input.page,
+      ...(input.snapshot ? { snapshot: input.snapshot } : {}),
+    } satisfies DraftContent,
+    input.secret!,
+  );
   return {
     id: input.id,
     title: input.title,
@@ -130,7 +184,7 @@ export async function listDrafts(): Promise<DraftEntry[]> {
   const all = await readProjected<DraftDoc, DraftEntry>(
     openDb,
     STORE,
-    ({ doc: _doc, page: _page, docx: _docx, enc: _enc, ...meta }) => ({
+    ({ doc: _doc, page: _page, docx: _docx, enc: _enc, snapshot: _snapshot, ...meta }) => ({
       ...meta,
       legacy: typeof meta.protected !== "boolean",
       protected: !!meta.protected,
@@ -155,5 +209,5 @@ export async function resolveDraft(d: DraftDoc, secret?: VaultSecret): Promise<D
     return decryptAtRest<DraftContent>(d.enc, secret!);
   }
   if (!d.doc || !d.page) throw new Error("Brouillon vide.");
-  return { doc: d.doc, page: d.page };
+  return { doc: d.doc, page: d.page, ...(d.snapshot ? { snapshot: d.snapshot } : {}) };
 }

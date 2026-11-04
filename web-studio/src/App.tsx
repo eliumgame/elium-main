@@ -108,7 +108,15 @@ import { fetchLauncherFile, watchLauncherInbox } from "./desktop/launcher-bridge
 import { putDriveDoc } from "./format/drive-store";
 import { flushPendingDocChange } from "./editor/doc-sync";
 import { draftSizeEstimate } from "./format/draft-size";
-import { putDraft, getDraft, resolveDraft, deleteDraft, type DraftContent } from "./format/drafts-store";
+import {
+  putDraft,
+  getDraft,
+  resolveDraft,
+  deleteDraft,
+  snapshotDraftFile,
+  restoreDraftFile,
+  type DraftContent,
+} from "./format/drafts-store";
 import { isVaultConfigured, setVaultPassword, verifyVaultPassword, removeVaultConfig } from "./format/vault-store";
 import { hasVaultSecret, type VaultSecret } from "./crypto/local-vault";
 import { type EliumIdentity } from "./sign/keys";
@@ -1603,7 +1611,7 @@ export default function App() {
     // available, instead of leaving the stale plaintext record untouched.
     const key = {
       t: file.manifest.title,
-      d: file.document as unknown,
+      d: file as unknown,
       p: needsSecret,
       s: hasVaultSecret(secret),
     };
@@ -1623,6 +1631,7 @@ export default function App() {
             updatedAt: new Date().toISOString(),
             doc: snapshot.document.doc,
             page: snapshot.document.page,
+            snapshot: snapshotDraftFile(snapshot),
             // Le .docx de récupération est reconstruit à la demande (downloadDraft) : le zipper à
             // chaque cycle bloquait le fil principal, et personne ne relisait cette copie.
             size: needsSecret ? undefined : draftSizeEstimate(snapshot.document.doc),
@@ -1669,9 +1678,7 @@ export default function App() {
           setError(t("recovery.wrong_password"));
           return;
         }
-        const f = await createEliumFile({ title: d.title, profile: d.profile, doc: content.doc });
-        f.manifest.docId = d.id; // reuse the stored draft's key so further autosaves update the same record
-        f.document.page = content.page;
+        const f = await restoreDraftFile(d, content);
         docHandleRef.current = undefined;
         lastDraft.current = null;
         setPassword(secret?.password ?? "");
@@ -1705,12 +1712,7 @@ export default function App() {
           setError("Mot de passe incorrect — impossible de déchiffrer ce brouillon.");
           return;
         }
-        // docToDocx only reads document.doc/document.page and manifest.title —
-        // a full EliumFile isn't needed just to render the recovery copy.
-        const shape = {
-          manifest: { title: d.title },
-          document: { doc: content.doc, page: content.page },
-        } as unknown as EliumFile;
+        const shape = await restoreDraftFile(d, content);
         downloadBlob(
           `${d.title || "document"}.docx`,
           "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

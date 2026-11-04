@@ -15,6 +15,7 @@
  */
 import * as Y from "yjs";
 import { syncYText } from "./collab-slides-crdt";
+import { cellRef } from "./collab-decode";
 
 /** La carte des cellules : valeurs `Y.Text` (nouveau) ou `string` (ancien). */
 export type YCells = Y.Map<Y.Text | string>;
@@ -32,18 +33,18 @@ function isYText(v: unknown): v is Y.Text {
  * suivant l'ancienneté du document.
  */
 export function cellText(cells: YCells | null | undefined, ref: string): string {
-  const v = cells?.get(ref);
+  const v = cells instanceof Y.Map ? cells.get(ref) : undefined;
   if (v == null) return "";
-  return isYText(v) ? v.toString() : String(v);
+  return isYText(v) ? v.toString() : typeof v === "string" ? v : "";
 }
 
 /** Toutes les cellules non vides, en objet simple. */
 export function cellsSnapshot(cells: YCells | null | undefined): Record<string, string> {
   const out: Record<string, string> = {};
-  if (!cells) return out;
+  if (!(cells instanceof Y.Map)) return out;
   for (const [ref, v] of cells.entries()) {
-    const text = isYText(v) ? v.toString() : String(v ?? "");
-    if (text !== "") out[ref] = text;
+    const text = isYText(v) ? v.toString() : typeof v === "string" ? v : "";
+    if (text !== "" && cellRef(ref)) out[ref] = text;
   }
   return out;
 }

@@ -197,10 +197,14 @@ def cmd_doc_verify(args: argparse.Namespace) -> None:
     rkey = _recipient_key(args)
     keyfile = _keyfile(args)
     try:
-        result = read_elium(blob, password=password, keyfile=keyfile, recipient_private_hex=rkey, trusted_key_hex=args.trusted)
+        result = read_elium(
+            blob, password=password, keyfile=keyfile, recipient_private_hex=rkey, trusted_key_hex=args.trusted
+        )
     except EliumPasswordRequired:
         password = getpass.getpass("Mot de passe du document: ")
-        result = read_elium(blob, password=password, keyfile=keyfile, recipient_private_hex=rkey, trusted_key_hex=args.trusted)
+        result = read_elium(
+            blob, password=password, keyfile=keyfile, recipient_private_hex=rkey, trusted_key_hex=args.trusted
+        )
 
     model = result["document"]
     integ = result["integrity"]
@@ -236,7 +240,8 @@ def cmd_doc_verify(args: argparse.Namespace) -> None:
                or seal.get("verdict") == "unknown_key"
                or any(v == "unknown_key" for _, v in signature_verdicts))
     overall = "altered" if bad else "warning" if warning else "ok"
-    print("Verdict global        :", {"altered": "ALTÉRÉ", "warning": "NON VÉRIFIABLE / AVERTISSEMENT", "ok": "OK"}[overall])
+    labels = {"altered": "ALTÉRÉ", "warning": "NON VÉRIFIABLE / AVERTISSEMENT", "ok": "OK"}
+    print("Verdict global        :", labels[overall])
     report = {
         "overall": overall,
         "integrity": integ,
@@ -453,7 +458,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="[DÉPRÉCIÉ] Clé privée P-256 (hex) en clair en argument ; préférez --recipient-kid")
     p.add_argument("--recipient-kid", dest="recipient_kid", metavar="KID",
                    help="Clé de réception du trousseau (`elium keys list`) ; le mot de passe est demandé sans écho")
-    p.add_argument("--trusted", help="Clé publique de confiance (hex) du sceau ; les preuves sont vérifiées indépendamment")
+    p.add_argument(
+        "--trusted", help="Clé publique de confiance (hex) du sceau ; les preuves sont vérifiées indépendamment"
+    )
     p.add_argument("--report", help="Écrire un rapport de preuve JSON")
     p.set_defaults(func=cmd_doc_verify)
 

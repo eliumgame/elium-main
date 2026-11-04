@@ -52,6 +52,7 @@ export interface PreloginResult {
 export type PrincipalType = "user" | "group" | "org";
 
 export interface KeyShareInput {
+  groupPublicHex?: string;
   principalType: PrincipalType;
   principalId: string;
   roleId: string;
@@ -74,6 +75,8 @@ export interface NodeMeta {
   sizeBytes: number;
   hasContent: boolean;
   contentNonce: string | null;
+  currentVersionId?: string | null;
+  rotationRequired?: boolean;
   trashedAt: string | null;
   /** CEK generation counter — bumped by every key rotation. */
   keyEpoch?: number;

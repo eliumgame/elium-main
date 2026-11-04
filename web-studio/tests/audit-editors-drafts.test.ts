@@ -7,7 +7,7 @@ describe("F-08 complete recovery", () => {
   it.each([false, true])("restores the complete file (encrypted=%s)", async (encrypted) => {
     const file = await createEliumFile({ title: "Recovery", profile: encrypted ? "encrypted" : "standard" });
     file.document.styles = [
-      { id: "custom", name: "Custom", fontFamily: "Garamond" } as NonNullable<typeof file.document.styles>[number],
+      { id: "custom", name: "Custom", kind: "paragraph", char: { fontFamily: "Garamond" } },
     ];
     file.document.theme = "ocean";
     file.document.watermark = {

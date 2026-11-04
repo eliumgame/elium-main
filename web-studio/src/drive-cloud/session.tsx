@@ -34,6 +34,15 @@ import {
 import { isMfaChallenge, type Tokens, type PublicUser, type RoleDef, type LoginResult } from "./types";
 import type { KdfParams, KeyBundle } from "./kdf";
 import { claimLocalWorkspace } from "../workspace/local-wipe";
+import {
+  authorizationEndpointFrom,
+  buildAuthorizationUrl,
+  consumeSsoReturn,
+  discoveryUrl,
+  parseSsoFragment,
+  randomState,
+  savePending,
+} from "./sso-flow";
 
 const STORAGE_KEY = "elium_drive_session_v1";
 
@@ -80,6 +89,10 @@ export interface DriveSession {
   mfaMethods: { totp: boolean; webauthn: boolean } | null;
   /** Abandon a pending MFA challenge and return to the login screen. */
   cancelMfa: () => void;
+  /** Connexion SSO : redirige vers le fournisseur d'identité de l'organisation (la session s'ouvrira verrouillée). */
+  ssoLogin: () => Promise<void>;
+  /** Vrai si le Drive a un SSO configuré (bouton affiché) ; `null` = sonde en cours. */
+  ssoAvailable: boolean | null;
   unlock: (password: string) => Promise<void>;
   /** Déverrouille la session verrouillée via une clé d'accès (PRF WebAuthn). */
   unlockWithPasskey: () => Promise<void>;
@@ -164,10 +177,12 @@ export function DriveProvider({ children }: { children: ReactNode }) {
   // we hold it in memory ONLY until the second factor completes the login.
   const mfaPendingRef = useRef<{
     mfaToken: string;
-    masterKey: Uint8Array;
+    /** `null` pour une connexion SSO : pas de phrase saisie, la session s'ouvre verrouillée après la 2FA. */
+    masterKey: Uint8Array | null;
     kdfSalt: string;
-    kdfParams: KdfParams;
+    kdfParams: KdfParams | null;
   } | null>(null);
+  const [ssoAvailable, setSsoAvailable] = useState<boolean | null>(null);
   const [mfaMethods, setMfaMethods] = useState<{ totp: boolean; webauthn: boolean } | null>(null);
 
   const persist = useCallback((patch: Partial<Persisted>) => {
@@ -351,6 +366,103 @@ export function DriveProvider({ children }: { children: ReactNode }) {
     [api, persist, finishAuth],
   );
 
+  // Connexion SSO / 2FA sans phrase : tokens + keyBundle en main, trousseau VERROUILLÉ. Le déverrouillage
+  // (phrase ou clé d'accès) reste le seul moyen d'obtenir les clés : le SSO ne contourne pas le chiffrement.
+  const enterLocked = useCallback(
+    async (res: LoginResult) => {
+      api.setTokens({
+        accessToken: res.accessToken,
+        accessTokenExpiresAt: res.accessTokenExpiresAt,
+        refreshToken: res.refreshToken,
+      });
+      let kdfSalt = res.kdfSalt;
+      let kdfParams = res.kdfParams as KdfParams | undefined;
+      if (!kdfSalt || !kdfParams) {
+        const pre = await api.prelogin(res.user.email); // sel/paramètres publics
+        kdfSalt = pre.kdfSalt;
+        kdfParams = pre.kdfParams as KdfParams;
+      }
+      snapshotRef.current = { user: res.user, keyBundle: res.keyBundle, kdfSalt, kdfParams };
+      persist({ snapshot: snapshotRef.current });
+      setUser(res.user);
+      setLockedEmail(res.user.email);
+      setStatus("locked");
+    },
+    [api, persist],
+  );
+
+  const ssoLogin = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const cfg = await api.ssoPublicConfig();
+      if (!cfg) throw new Error("Le SSO n'est pas configuré sur ce Drive.");
+      const { nonce } = await api.ssoNonce(cfg.orgId);
+      const resp = await fetch(discoveryUrl(cfg.issuer), { credentials: "omit" });
+      if (!resp.ok) throw new Error("Fournisseur d'identité injoignable.");
+      const endpoint = authorizationEndpointFrom(await resp.json(), cfg.issuer);
+      const state = randomState();
+      savePending(sessionStorage, { state, nonce, orgId: cfg.orgId, createdAt: Date.now() });
+      window.location.assign(
+        buildAuthorizationUrl({
+          authorizationEndpoint: endpoint,
+          clientId: cfg.clientId,
+          redirectUri: window.location.origin,
+          state,
+          nonce,
+        }),
+      );
+    } catch (e) {
+      setError(messageOf(e));
+      throw e;
+    } finally {
+      setBusy(false);
+    }
+  }, [api]);
+
+  // Sonde : bouton SSO visible seulement si le serveur expose une config publique.
+  useEffect(() => {
+    let live = true;
+    api
+      .ssoPublicConfig()
+      .then((c) => live && setSsoAvailable(!!c))
+      .catch(() => live && setSsoAvailable(false));
+    return () => {
+      live = false;
+    };
+  }, [api]);
+
+  // Retour du fournisseur : l'id_token est dans le FRAGMENT. On l'efface de l'URL AVANT tout traitement.
+  useEffect(() => {
+    let frag: ReturnType<typeof parseSsoFragment> = null;
+    try {
+      frag = parseSsoFragment(location.hash);
+      if (frag) history.replaceState(null, "", location.pathname + location.search);
+    } catch {
+      /* ignore */
+    }
+    if (!frag) return;
+    const f = frag;
+    void (async () => {
+      setBusy(true);
+      try {
+        const ret = consumeSsoReturn(f, sessionStorage);
+        const res = await api.ssoVerify(ret.orgId, ret.idToken, ret.nonce);
+        if (isMfaChallenge(res)) {
+          mfaPendingRef.current = { mfaToken: res.mfaToken, masterKey: null, kdfSalt: "", kdfParams: null };
+          setMfaMethods(res.methods ?? { totp: true, webauthn: false });
+          setStatus("mfa");
+          return;
+        }
+        await enterLocked(res);
+      } catch (e) {
+        setError(messageOf(e));
+      } finally {
+        setBusy(false);
+      }
+    })();
+  }, [api, enterLocked]);
+
   const login = useCallback(
     async (email: string, password: string) => {
       setBusy(true);
@@ -455,7 +567,11 @@ export function DriveProvider({ children }: { children: ReactNode }) {
       setError(null);
       try {
         const res = await api.loginMfa(pending.mfaToken, code.trim());
-        await finishLogin(res, pending.masterKey, pending.kdfSalt, pending.kdfParams);
+        if (pending.masterKey && pending.kdfParams) {
+          await finishLogin(res, pending.masterKey, pending.kdfSalt, pending.kdfParams);
+        } else {
+          await enterLocked(res);
+        }
         mfaPendingRef.current = null;
         setMfaMethods(null);
       } catch (e) {
@@ -465,7 +581,7 @@ export function DriveProvider({ children }: { children: ReactNode }) {
         setBusy(false);
       }
     },
-    [api, finishLogin],
+    [api, finishLogin, enterLocked],
   );
 
   // Second factor via WebAuthn passkey: fetch a challenge, run the browser
@@ -483,7 +599,11 @@ export function DriveProvider({ children }: { children: ReactNode }) {
       const options = await api.webauthnLoginOptions(pending.mfaToken);
       const assertion = await startAuthentication({ optionsJSON: options as never });
       const res = await api.webauthnLoginVerify(pending.mfaToken, assertion);
-      await finishLogin(res, pending.masterKey, pending.kdfSalt, pending.kdfParams);
+      if (pending.masterKey && pending.kdfParams) {
+        await finishLogin(res, pending.masterKey, pending.kdfSalt, pending.kdfParams);
+      } else {
+        await enterLocked(res);
+      }
       mfaPendingRef.current = null;
       setMfaMethods(null);
     } catch (e) {
@@ -495,7 +615,7 @@ export function DriveProvider({ children }: { children: ReactNode }) {
     } finally {
       setBusy(false);
     }
-  }, [api, finishLogin]);
+  }, [api, finishLogin, enterLocked]);
 
   const cancelMfa = useCallback(() => {
     mfaPendingRef.current = null;
@@ -660,6 +780,29 @@ export function DriveProvider({ children }: { children: ReactNode }) {
     setStatus("anonymous");
   }, [api]);
 
+  // Multi-onglets : si un AUTRE onglet se déconnecte (ou perd sa session : refresh refusé), l'entrée de
+  // session disparaît du localStorage ; cet onglet remet alors à zéro ses clés et son état React au lieu de
+  // continuer avec des jetons morts. (L'évènement `storage` ne se déclenche jamais dans l'onglet émetteur.)
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== STORAGE_KEY || e.newValue !== null) return;
+      masterKeyRef.current = null;
+      snapshotRef.current = null;
+      api.setTokens(null);
+      setUser(null);
+      setKeys(null);
+      setOrgs([]);
+      setCurrentOrgId(null);
+      setRoles([]);
+      setLockedEmail(null);
+      setIsOwner(false);
+      setMfaEnrollRequired(false);
+      setStatus("anonymous");
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [api]);
+
   const refreshSite = useCallback(async () => {
     try {
       setPolicy(await api.sitePolicy());
@@ -765,6 +908,8 @@ export function DriveProvider({ children }: { children: ReactNode }) {
     completeMfaWebauthn,
     mfaMethods,
     cancelMfa,
+    ssoLogin,
+    ssoAvailable,
     unlock,
     unlockWithPasskey,
     enrollPasskeyUnlock,

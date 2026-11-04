@@ -107,7 +107,7 @@ L'application de bureau sert l'interface sur `127.0.0.1` et expose quelques rout
 Protections communes :
 
 - **GET** : le contrôle d'**hôte** refuse tout nom autre que `127.0.0.1` ou `localhost` avec le bon port (contre le DNS rebinding).
-- **POST** : en plus, un **jeton de session** (en-tête `X-Elium-Token`, fourni à la page dans une balise `<meta>`) et un contrôle d'**origine**. Au plus 6 appels par fenêtre de 10 secondes (40 pour les polices).
+- **POST** : en plus, un **jeton de session** (en-tête `X-Elium-Token`, fourni à la page dans une balise `<meta>`) et un contrôle d'**origine**. Au plus 6 appels par fenêtre de 10 secondes (40 pour les polices, 600 pour `/__files__/`).
 
 | Route | Méthode | Rôle |
 |---|---|---|
@@ -124,7 +124,10 @@ Protections communes :
 | `/__update__/bundle` | POST | Reçoit un paquet `.eliumupdate` (420 Mio au plus), vérifié ensuite par signature |
 | `/__update__/restart` | POST | Redémarre l'application |
 | `/__rollback__?version=` | POST | Retour à une version précédente |
-| `/__rollback__/undo` | POST | Annule le dernier retour |
+| `/__rollback__/undo` | POST | Efface l'overlay de mise à jour (pointeur web, lanceur en attente, exe téléchargés) et revient à la version embarquée ; purement local |
+| `/__files__/info`, `/__files__/list`, `/__files__/read?p=` | GET | Stockage en fichiers locaux : infos (racine, taille maximale 512 Mio), liste, lecture. Jeton de session et contrôle Origin/Host exigés, y compris en lecture |
+| `/__files__/write?p=`, `/__files__/remove?p=` | POST | Écriture (en flux) et suppression dans ce dossier ; le client ne fournit jamais un chemin du disque. Limite propre : 600 appels par fenêtre de 10 secondes pour toutes les routes `/__files__/` |
+| `/__drive_origin__` | GET, POST | GET : origine du serveur Drive autorisée par la CSP. POST (corps JSON `{"origin": ...}`) : la déclare, forme `https://hôte[:port]` (http seulement en local) ; origine absente ou vide : l'efface. Prise en compte au prochain chargement de page |
 | `/__ports__/set` | POST | Change le port de lancement |
 | `/__tsa__` | POST | Relais d'horodatage RFC 3161 (8 Kio en entrée, 64 Kio en sortie, 15 s, adresses publiques) |
 | `/__keystore__/wrap`, `/__keystore__/unwrap` | POST | Protection par Windows (DPAPI), Windows seulement |

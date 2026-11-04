@@ -1,4 +1,4 @@
-import { literalCell } from "./numeric";
+import { parseCellNumber } from "./numeric";
 /** CSV parsing — RFC-4180-ish (quoted fields, "" escapes, , and newlines). */
 import { indexToCol } from "./formula";
 import type { Workbook } from "./model";
@@ -93,6 +93,17 @@ export function parseCsv(text: string, delim = ","): string[][] {
   return rows;
 }
 
+/**
+ * Valeur importée d'une cellule CSV. Les nombres valides (« 12 », « -3 », « +5 », « 12,5 », « 1 234,5 »)
+ * restent tels quels, donc des nombres sommables. Seul le texte qui commencerait comme une formule
+ * (= + - @, tabulation, retour chariot) sans être un nombre est neutralisé par une apostrophe
+ * (texte littéral : « =SUM(A1:A2) » ne s'exécute pas).
+ */
+export function csvImportCell(text: string): string {
+  if (parseCellNumber(text) !== null) return text;
+  return /^[=+\-@\t\r']/.test(text) ? "'" + text : text;
+}
+
 export function csvToWorkbook(text: string): Workbook {
   const rows = parseCsv(text, sniffDelim(text));
   const cells: Record<string, string> = {};
@@ -100,7 +111,7 @@ export function csvToWorkbook(text: string): Workbook {
   rows.forEach((r, ri) =>
     r.forEach((val, ci) => {
       if (val !== "") {
-        cells[indexToCol(ci) + (ri + 1)] = literalCell(val);
+        cells[indexToCol(ci) + (ri + 1)] = csvImportCell(val);
         maxCol = Math.max(maxCol, ci);
       }
     }),
@@ -119,7 +130,7 @@ export async function csvToWorkbookAsync(text: string): Promise<Workbook> {
     for (let ci = 0; ci < r.length; ci++) {
       const val = r[ci]!;
       if (val !== "") {
-        cells[indexToCol(ci) + (ri + 1)] = literalCell(val);
+        cells[indexToCol(ci) + (ri + 1)] = csvImportCell(val);
         if (ci > maxCol) maxCol = ci;
       }
     }

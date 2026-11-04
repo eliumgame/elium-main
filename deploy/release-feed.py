@@ -3,7 +3,7 @@
 
 Le site hébergé (accueil, carte « version / installer l'application Windows ») lit /release.json en
 même origine : la CSP interdit à la page de contacter GitHub. Ce script, lancé sur l'HÔTE (au
-déploiement puis par cron), interroge l'API publique de GitHub et réécrit le fichier servi.
+déploiement puis à chaque vérification planifiée), interroge l'API publique de GitHub.
 
     python3 deploy/release-feed.py --base web-dist/release.json --out release/release.json
 
@@ -48,12 +48,7 @@ def fetch_latest(repo: str, timeout: float = 15.0) -> dict | None:
 
 def write_out(path: str, text: str) -> None:
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    if os.path.exists(path):
-        # Écriture SUR PLACE : le fichier est monté tel quel dans le conteneur web (bind mount d'un seul
-        # fichier) ; un remplacement par renommage changerait d'inode et le conteneur garderait l'ancien.
-        with open(path, "w", encoding="utf8") as f:
-            f.write(text)
-        return
+    # Le dossier est monté dans Caddy : renommage atomique, sans JSON partiellement écrit.
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(os.path.abspath(path)), suffix=".tmp")
     with os.fdopen(fd, "w", encoding="utf8") as f:
         f.write(text)

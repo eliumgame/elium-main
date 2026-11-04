@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { PDFDocument, PDFName, PDFRawStream, type PDFContext, type PDFDict } from "pdf-lib";
+import { PDFDocument, PDFName, PDFRawStream, type PDFContext, PDFDict } from "pdf-lib";
 import { jpegComponentCount, isJpegSafeToRecompress } from "../src/pdf/ops/optimize";
 
 /**
@@ -12,7 +12,7 @@ import { jpegComponentCount, isJpegSafeToRecompress } from "../src/pdf/ops/optim
  */
 
 function makeImageDict(ctx: PDFContext, props: Record<string, unknown>): PDFDict {
-  return ctx.obj(props as never) as PDFDict;
+  return PDFDict.fromMapWithContext(new Map(Object.entries(props).map(([k, v]) => [PDFName.of(k), ctx.obj(v as number)])), ctx);
 }
 
 /** Builds a synthetic baseline-JPEG byte sequence with just enough of a real

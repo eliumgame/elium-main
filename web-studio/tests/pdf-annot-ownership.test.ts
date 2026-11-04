@@ -99,7 +99,7 @@ async function acrobatLike(): Promise<Uint8Array> {
 }
 
 async function imported(bytes: Uint8Array): Promise<PdfState> {
-  const task = pdfjsLib.getDocument({ data: bytes.slice(), isEvalSupported: false });
+  const task = pdfjsLib.getDocument({ data: bytes.slice() });
   const js = await task.promise;
   const raw = (await (await js.getPage(1)).getAnnotations()) as RawAnnotation[];
   await task.destroy();
@@ -319,7 +319,7 @@ describe("stamp library", () => {
     const d = doc.context.lookup((doc.getPage(0).node.Annots() as PDFArray).get(0), PDFDict);
     expect(d.lookup(PDFName.of("Name"), PDFName).decodeText()).toBe("#DReceived");
     // The appearance holds both lines.
-    const task = pdfjsLib.getDocument({ data: out.slice(), isEvalSupported: false });
+    const task = pdfjsLib.getDocument({ data: out.slice() });
     const js = await task.promise;
     const ops = await (await js.getPage(1)).getOperatorList({ annotationMode: pdfjsLib.AnnotationMode.ENABLE });
     const glyphs = ops.argsArray
@@ -521,7 +521,7 @@ describe("text boxes and stamps on a turned page", () => {
         replies: [],
       } as Annot;
       const out = (await buildPdf(bytes, { ...base, annots: [box] }, { interactiveAnnots: false })).bytes;
-      const task = pdfjsLib.getDocument({ data: out.slice(), isEvalSupported: false });
+      const task = pdfjsLib.getDocument({ data: out.slice() });
       const page = await (await task.promise).getPage(1);
       const tc = await page.getTextContent();
       const item = (tc.items as { str: string; transform: number[] }[]).find((i) => i.str.includes("Haut"))!;
@@ -641,7 +641,7 @@ describe("comments pane: checkmark, filters, replies, note icons", () => {
     const base: PdfState = { ...emptyState(), pages: D.pagesFromSource(1) };
     const s: PdfState = { ...base, annots: [note({ pageId: base.pages[0].id, icon: "Help" })] };
     const flat = (await buildPdf(await src.save(), s, { interactiveAnnots: false })).bytes;
-    const task = pdfjsLib.getDocument({ data: flat.slice(), isEvalSupported: false });
+    const task = pdfjsLib.getDocument({ data: flat.slice() });
     const tc = await (await (await task.promise).getPage(1)).getTextContent();
     expect((tc.items as { str: string }[]).map((i) => i.str).join("")).toContain("?");
     await task.destroy();
@@ -735,7 +735,7 @@ describe("file attachments", () => {
     } as Annot;
     const out = (await buildPdf(await src.save(), { ...base, annots: [att] })).bytes;
     // pdf.js sees a real attachment.
-    const task = pdfjsLib.getDocument({ data: out.slice(), isEvalSupported: false });
+    const task = pdfjsLib.getDocument({ data: out.slice() });
     const raw = (await (await (await task.promise).getPage(1)).getAnnotations()) as {
       subtype: string;
       file?: { filename: string };

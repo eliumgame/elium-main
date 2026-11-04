@@ -235,6 +235,40 @@ jobs:
       - name: Builder Elium.exe (PyInstaller one-file)
         run: python -m PyInstaller installer/elium.spec --noconfirm --distpath installer/staging --workpath installer/build
 
+      - name: Conserver l'empreinte du build Windows
+        shell: bash
+        run: python -c "import sys; sys.path.insert(0, 'installer'); import updater; print(updater.BUILD_CODE_HASH)" > code-hash.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: unsigned-build
+          path: |
+            installer/staging/Elium.exe
+            dist-zips/*.zip
+            sbom-*.cdx.json
+            code-hash.txt
+          if-no-files-found: error
+          retention-days: 1
+
+  package:
+    # Runner séparé : aucun npm/pip ni code de dépendance avant l'accès au certificat.
+    needs: [gate, build]
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    env:
+      VER: ${{ needs.gate.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4
+        with:
+          name: unsigned-build
+          path: .
+
       - name: Signature de code Authenticode (optionnelle — ignorée sans certificat)
         # Point d'accroche documenté : sans les secrets SIGN_CERT / SIGN_CERT_PASSWORD (le cas
         # aujourd'hui), cette étape ne fait rien. Avec eux, signe Elium.exe AVANT le test de fumée
@@ -248,9 +282,10 @@ jobs:
           $pfx = Join-Path $env:RUNNER_TEMP 'codesign.pfx'
           [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGN_CERT))
           $signtool = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName | Select-Object -Last 1).FullName
-          & $signtool sign /f $pfx /p $env:SIGN_CERT_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 installer/staging/Elium.exe
-          if ($LASTEXITCODE -ne 0) { throw "signtool a échoué" }
-          Remove-Item $pfx -Force
+          try {
+            & $signtool sign /f $pfx /p $env:SIGN_CERT_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 installer/staging/Elium.exe
+            if ($LASTEXITCODE -ne 0) { throw "signtool a échoué" }
+          } finally { Remove-Item -LiteralPath $pfx -Force }
 
       - name: Test de fumée de Elium.exe gelé (version, CSP, aucune URL externe, Host)
         run: python installer/smoke_test.py installer/staging/Elium.exe --version "$env:VER"
@@ -287,7 +322,7 @@ jobs:
           cp dist-zips/web.zip dist-zips/web-core.zip dist-zips/assets-*.zip out/
           cp installer/output/*.msi out/
           cp sbom-npm.cdx.json sbom-python.cdx.json out/
-          python -c "import sys; sys.path.insert(0, 'installer'); import updater; print(updater.BUILD_CODE_HASH)" > out/code-hash.txt
+          cp code-hash.txt out/code-hash.txt
           ls -l out
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
@@ -360,7 +395,7 @@ jobs:
           done
 
   publish:
-    needs: [gate, build, images]
+    needs: [gate, package, images]
     if: needs.gate.outputs.ok == 'true' && needs.gate.outputs.exists != 'true'
     runs-on: ubuntu-24.04
     permissions:

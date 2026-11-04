@@ -1,6 +1,6 @@
 # --- Elium Web Studio — static SPA image (multi-stage) ---------------------
 # Bases épinglées par DIGEST (tag conservé pour la lisibilité ; mises à jour par dependabot).
-FROM node:20.17-alpine@sha256:2d07db07a2df6830718ae2a47db6fedce6745f5bcd174c398f2acdda90a11c03 AS build
+FROM node:26-alpine@sha256:c6ad9e9c1d80f6eb607c26b4b0a132ff7a2344fad1c78ea3baa2a7d4c8de6d94 AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
@@ -11,7 +11,7 @@ ARG VITE_API_BASE=/api
 ENV VITE_API_BASE=$VITE_API_BASE
 RUN npm run build
 
-FROM caddy:2.8-alpine@sha256:af32e97399febea808609119bb21544d0265c58a02836576e32a2d082c262c17 AS runtime
+FROM caddy:2.11.7-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5 AS runtime
 # Ne tourne PLUS en root : le serveur statique écoute sur 8080 (port > 1024, aucune capacité
 # nécessaire) ; le caddy de bordure (docker-compose) fait le 80/443. Caddy écrit son état dans /tmp.
 COPY --from=build /app/dist /usr/share/caddy

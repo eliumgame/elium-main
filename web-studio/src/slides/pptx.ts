@@ -768,6 +768,7 @@ function slideXml(
 let _slideRels: { rId: string; target: string; type: string }[] = [];
 // Chart parts collected across the whole deck (global names chart1.xml, …).
 let _charts: { name: string; xml: string }[] = [];
+let _onWarning: ((w: string) => void) | undefined;
 /** Médias déjà décodés pour l'export en cours (clé : data URL) → nom du fichier dans le zip. */
 let _mediaNames = new Map<string, string>();
 /** Vignette d'affiche d'un média (PNG 1×1 sombre, étirée) : PowerPoint exige une image d'aperçu. */
@@ -794,7 +795,7 @@ function addImage(dataUrl: string, media: { name: string; bytes: Uint8Array }[])
 }
 function addChart(data: ChartData): string {
   const name = `chart${_charts.length + 1}.xml`; // global monotonic name
-  _charts.push({ name, xml: chartXml(data) });
+  _charts.push({ name, xml: chartXml(data, _onWarning) });
   const rId = `rId${_slideRels.length + 2}`; // rId1 is the layout (per-slide)
   _slideRels.push({ rId, target: `../charts/${name}`, type: T.chart });
   return rId;
@@ -804,10 +805,18 @@ function addChart(data: ChartData): string {
 // it renders natively in PowerPoint/LibreOffice with no embedded workbook, so
 // the part needs no relationships of its own. Categories/values are paired up to
 // the shorter of the two lists.
-function chartXml(data: ChartData): string {
+function chartXml(data: ChartData, onWarning?: (w: string) => void): string {
   const n = Math.min(data.labels?.length ?? 0, data.values?.length ?? 0);
   const cats = (data.labels ?? []).slice(0, n);
-  const vals = (data.values ?? []).slice(0, n);
+  const extra = data.kind === "pie" ? [] : Array.isArray(data.series) ? data.series : [];
+  if (data.kind === "pie" && Array.isArray(data.series) && data.series.length)
+    onWarning?.("Graphique secteur : seule la première série est exportée.");
+  // Single-series charts keep their historical series name (the chart title).
+  const names = [
+    extra.length ? data.seriesName || "Série 1" : data.seriesName || data.title || "Série 1",
+    ...extra.map((s, i) => s.name || `Série ${i + 2}`),
+  ];
+  const valueSets = [(data.values ?? []).slice(0, n), ...extra.map((s) => (s.values ?? []).slice(0, n))];
   const AX_CAT = 111111111,
     AX_VAL = 222222222;
   const strLit = (arr: string[]) =>
@@ -818,26 +827,33 @@ function chartXml(data: ChartData): string {
     `<c:numLit><c:formatCode>General</c:formatCode><c:ptCount val="${arr.length}"/>` +
     arr.map((v, i) => `<c:pt idx="${i}"><c:v>${Number.isFinite(v) ? v : 0}</c:v></c:pt>`).join("") +
     `</c:numLit>`;
-  const catVal = `<c:cat>${strLit(cats)}</c:cat><c:val>${numLit(vals)}</c:val>`;
-  const serHead = `<c:idx val="0"/><c:order val="0"/><c:tx><c:v>${xmlEsc(data.title || "Série 1")}</c:v></c:tx>`;
+  const sers = (head: string, tail: string) =>
+    valueSets
+      .map(
+        (vals, i) =>
+          `<c:ser><c:idx val="${i}"/><c:order val="${i}"/><c:tx><c:v>${xmlEsc(names[i]!)}</c:v></c:tx>${head}` +
+          `<c:cat>${strLit(cats)}</c:cat><c:val>${numLit(vals)}</c:val>${tail}</c:ser>`,
+      )
+      .join("");
   const axes =
     `<c:catAx><c:axId val="${AX_CAT}"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="b"/><c:crossAx val="${AX_VAL}"/></c:catAx>` +
     `<c:valAx><c:axId val="${AX_VAL}"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="l"/><c:crossAx val="${AX_CAT}"/></c:valAx>`;
 
   let plot: string;
   if (data.kind === "pie") {
-    plot = `<c:pieChart><c:varyColors val="1"/><c:ser>${serHead}${catVal}</c:ser></c:pieChart>`;
+    plot = `<c:pieChart><c:varyColors val="1"/>${sers("", "")}</c:pieChart>`;
   } else if (data.kind === "line") {
     plot =
       `<c:lineChart><c:grouping val="standard"/><c:varyColors val="0"/>` +
-      `<c:ser>${serHead}<c:marker><c:symbol val="circle"/></c:marker>${catVal}<c:smooth val="0"/></c:ser>` +
+      sers(`<c:marker><c:symbol val="circle"/></c:marker>`, `<c:smooth val="0"/>`) +
       `<c:marker val="1"/><c:axId val="${AX_CAT}"/><c:axId val="${AX_VAL}"/></c:lineChart>${axes}`;
   } else {
     plot =
       `<c:barChart><c:barDir val="col"/><c:grouping val="clustered"/><c:varyColors val="0"/>` +
-      `<c:ser>${serHead}${catVal}</c:ser>` +
+      sers("", "") +
       `<c:axId val="${AX_CAT}"/><c:axId val="${AX_VAL}"/></c:barChart>${axes}`;
   }
+  const legend = valueSets.length > 1 ? `<c:legend><c:legendPos val="b"/><c:overlay val="0"/></c:legend>` : "";
 
   const title = data.title
     ? `<c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>${xmlEsc(data.title)}</a:t></a:r></a:p></c:rich></c:tx><c:overlay val="0"/></c:title><c:autoTitleDeleted val="0"/>`
@@ -846,7 +862,7 @@ function chartXml(data: ChartData): string {
   return (
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
     `<c:chartSpace xmlns:c="${C}" xmlns:a="${A}" xmlns:r="${R}">` +
-    `<c:chart>${title}<c:plotArea><c:layout/>${plot}</c:plotArea>` +
+    `<c:chart>${title}<c:plotArea><c:layout/>${plot}</c:plotArea>${legend}` +
     `<c:plotVisOnly val="1"/><c:dispBlanksAs val="gap"/></c:chart></c:chartSpace>`
   );
 }
@@ -1040,7 +1056,8 @@ function notesSlideXml(text: string): string {
 }
 
 /** Serialise a deck to a .pptx byte array. */
-export function deckToPptx(deck: Deck): Uint8Array {
+export function deckToPptx(deck: Deck, onWarning?: (w: string) => void): Uint8Array {
+  _onWarning = onWarning;
   _slideRels = [];
   _charts = [];
   _mediaNames = new Map();

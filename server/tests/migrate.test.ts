@@ -55,7 +55,7 @@ describe("readMigrations", () => {
   it("lit le vrai dossier de migrations, trié, baseline en tête, checksums 64-hex", () => {
     const ms = readMigrations();
     expect(ms.length).toBeGreaterThanOrEqual(1);
-    expect(ms[0].version).toBe("0001_baseline");
+    expect(ms[0]!.version).toBe("0001_baseline");
     const versions = ms.map((m) => m.version);
     expect(versions).toEqual([...versions].sort((a, b) => a.localeCompare(b, "en")));
     for (const m of ms) expect(m.checksum).toMatch(/^[0-9a-f]{64}$/);

@@ -23,6 +23,7 @@ import { storage } from "../storage/adapter.js";
 import { audit } from "../lib/audit.js";
 import { kickRoom } from "../collab/relay.js";
 import { LIVE_SHARE_POLICY } from "../lib/live-share-policy.js";
+import { assertFreshPrincipalKeys } from "../lib/key-share-policy.js";
 
 const envelope = z.record(z.string(), z.unknown()); // recipients envelope (opaque)
 
@@ -43,6 +44,8 @@ function linkNodeMetaDto(n: Record<string, unknown>) {
     appKind: n.app_kind ?? null,
     sizeBytes: n.size_bytes ?? 0,
     hasContent: !!n.content_ref,
+    currentVersionId: n.current_version_id ?? null,
+    keyEpoch: n.key_epoch,
     contentNonce: n.content_nonce ? Buffer.from(n.content_nonce as Buffer).toString("hex") : null,
     createdAt: n.created_at,
     modifiedAt: n.modified_at,
@@ -89,6 +92,8 @@ async function resolveLink(token: string) {
     n_size_bytes: number;
     n_content_ref: string | null;
     n_content_nonce: Buffer | null;
+    n_current_version_id: string | null;
+    n_key_epoch: number;
     n_created_at: string;
     n_modified_at: string;
   }>(
@@ -100,6 +105,7 @@ async function resolveLink(token: string) {
             n.meta_encrypted AS n_meta_encrypted, n.meta_nonce AS n_meta_nonce,
             n.app_kind AS n_app_kind, n.size_bytes AS n_size_bytes,
             n.content_ref AS n_content_ref, n.content_nonce AS n_content_nonce,
+            n.current_version_id AS n_current_version_id, n.key_epoch AS n_key_epoch,
             n.created_at AS n_created_at, n.modified_at AS n_modified_at
        FROM share_links sl
        JOIN roles r ON r.id = sl.role_id
@@ -180,6 +186,8 @@ export default async function shareRoutes(app: FastifyInstance): Promise<void> {
   // `inheritedFrom` marks a share that was fanned out from an ancestor folder
   // (deep share): revoking the ancestor share then cleans these rows up too.
   const createShareSchema = z.object({
+    orgKeyEpoch: z.number().int().min(0).optional(),
+    groupPublicHex: z.string().regex(/^[0-9a-f]{130}$/).optional(),
     principalType: z.enum(["user", "group", "org"]),
     principalId: z.string().uuid(),
     roleId: z.string().uuid(),
@@ -220,7 +228,22 @@ export default async function shareRoutes(app: FastifyInstance): Promise<void> {
     }
 
     let row: { id: string } | null;
-    if (existing) {
+    if (b.principalType !== "user") {
+      if (existing) {
+        await requireNodePerm(req, id, "node.acl.manage");
+        await requireNodePerm(req, id, "node.share.manage");
+      }
+      row = await withTx(async c => {
+        await assertFreshPrincipalKeys(c, access.orgId, [b], b.orgKeyEpoch);
+        const { rows } = await c.query<{ id: string }>(existing
+          ? `UPDATE node_keys SET role_id = $4, wrapped_key = $5, granted_by = $6, inherited_from = $7
+               WHERE node_id = $1 AND principal_type = $2 AND principal_type = 'group' AND principal_id = $3 RETURNING id`
+          : `INSERT INTO node_keys (node_id, principal_type, principal_id, role_id, wrapped_key, granted_by, inherited_from)
+             VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (node_id, principal_type, principal_id) DO NOTHING RETURNING id`,
+          [id, b.principalType, b.principalId, b.roleId, JSON.stringify(b.wrappedKey), user.id, b.inheritedFrom ?? null]);
+        return rows[0] ?? null;
+      });
+    } else if (existing) {
       await requireNodePerm(req, id, "node.acl.manage");
       await requireNodePerm(req, id, "node.share.manage");
       row = await queryOne<{ id: string }>(
@@ -520,6 +543,8 @@ export default async function shareRoutes(app: FastifyInstance): Promise<void> {
       size_bytes: link.n_size_bytes,
       content_ref: link.n_content_ref,
       content_nonce: link.n_content_nonce,
+      current_version_id: link.n_current_version_id,
+      key_epoch: link.n_key_epoch,
       created_at: link.n_created_at,
       modified_at: link.n_modified_at,
     };
@@ -556,6 +581,8 @@ export default async function shareRoutes(app: FastifyInstance): Promise<void> {
       if (!counted) throw notFound("Lien introuvable, révoqué ou expiré.");
 
       reply.header("content-type", "application/octet-stream");
+      reply.header("x-content-version-id", link.n_current_version_id ?? "null");
+      reply.header("x-key-epoch", String(link.n_key_epoch));
       if (link.n_content_nonce) {
         reply.header("x-content-nonce", Buffer.from(link.n_content_nonce).toString("hex"));
       }

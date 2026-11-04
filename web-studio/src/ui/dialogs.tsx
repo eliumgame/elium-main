@@ -48,6 +48,11 @@ interface DialogsApi {
 
 const DialogsContext = createContext<DialogsApi | null>(null);
 
+/** Comme `useDialogs`, mais renvoie `null` hors d'un <DialogsProvider> au lieu de lever. */
+export function useOptionalDialogs(): DialogsApi | null {
+  return useContext(DialogsContext);
+}
+
 export function useDialogs(): DialogsApi {
   const ctx = useContext(DialogsContext);
   if (!ctx) throw new Error("useDialogs doit être utilisé dans un <DialogsProvider>");

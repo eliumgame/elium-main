@@ -19,7 +19,7 @@ export interface CollabHandlers {
    * `onRemoteUpdate` du rattrapage : l'appelant l'applique en UNE transaction (un seul rendu éditeur).
    */
   onBacklog?: (updates: Uint8Array[]) => void;
-  onAwareness?: (payload: unknown, from: string) => void;
+  onAwareness?: (payload: unknown, from: string, peerId: string) => void;
   onStatus?: (status: "connecting" | "open" | "closed" | "revoked") => void;
   /** A new peer joined the room — re-broadcast local presence so they see us. */
   onPeerJoin?: (userId: string) => void;
@@ -33,7 +33,22 @@ export interface CollabHandlers {
    *     revocation — NOT treated as revoked; retried like an ordinary reconnect.
    */
   refetchKey?: () => Promise<Uint8Array | null>;
+  /**
+   * Une mise à jour locale a été REFUSÉE de façon définitive (trop grosse, quota d'organisation
+   * dépassé…). Elle est retirée de la file de renvoi (aucune boucle de reconnexion) : l'interface doit
+   * en informer l'utilisateur (découper / réduire le contenu, contacter l'administrateur).
+   */
+  onUpdateRejected?: (info: {
+    code: "update_too_large" | "quota_exceeded";
+    maxBytes?: number;
+    update: Uint8Array | null;
+  }) => void;
 }
+
+/** Plafond par défaut d'un message chiffré (miroir de `MAX_COLLAB_MESSAGE_BYTES` côté serveur). */
+export const DEFAULT_MAX_COLLAB_MESSAGE_BYTES = 512 * 1024;
+/** Surcoût AES-GCM (tag d'authentification) ajouté au texte clair. */
+const GCM_TAG_BYTES = 16;
 
 /** Taille de page du serveur, utilisée si une réponse ancienne n'indique pas `hasMore`. */
 const COLLAB_PAGE_FALLBACK = 5000;
@@ -63,6 +78,8 @@ export class EncryptedCollabChannel {
   private lastSeq = 0;
   private closedByUser = false;
   private generation = 0;
+  private ready = false;
+  private maxMessageBytes = DEFAULT_MAX_COLLAB_MESSAGE_BYTES;
 
   constructor(
     private readonly api: DriveApi,
@@ -175,6 +192,7 @@ export class EncryptedCollabChannel {
   }
 
   private async open(): Promise<void> {
+    this.ready = false;
     this.handlers.onStatus?.("connecting");
     const gen = this.generation;
     let url: string;
@@ -195,10 +213,15 @@ export class EncryptedCollabChannel {
     const ws = new WebSocket(url);
     this.ws = ws;
     ws.onopen = () => {
-      this.handlers.onStatus?.("open");
-      this.flushOutbox();
+      // Wait for admission and a key refresh before sending buffered plaintext.
+      this.handlers.onStatus?.("connecting");
     };
     ws.onclose = (ev) => {
+      this.ready = false;
+      if (!this.closedByUser) {
+        this.outbox.push(...this.unacknowledged.values());
+        this.unacknowledged.clear();
+      }
       this.handlers.onStatus?.("closed");
       if (this.closedByUser) return;
       // 4001 = the relay rekeyed/revoked the room (key rotation): our key is
@@ -254,8 +277,11 @@ export class EncryptedCollabChannel {
       seq?: number;
       author?: string | null;
       from?: string;
+      peerId?: string;
       payload?: unknown;
       canWrite?: boolean;
+      code?: string;
+      maxBytes?: number;
     };
     try {
       msg = JSON.parse(data);
@@ -263,7 +289,47 @@ export class EncryptedCollabChannel {
       return;
     }
     if (msg.type === "ready") {
+      const ws = this.ws;
+      try {
+        if (this.handlers.refetchKey) {
+          const fresh = await this.handlers.refetchKey();
+          if (!fresh) { this.handlers.onStatus?.("revoked"); this.close(); return; }
+          this.nodeKey = fresh;
+          this.lastSeq = 0;
+          await this.catchUp();
+        }
+        if (this.closedByUser || ws !== this.ws || ws?.readyState !== WebSocket.OPEN) return;
+      } catch {
+        ws?.close(4001, "key-refresh-failed");
+        return;
+      }
+      this.ready = !!msg.canWrite;
       this.handlers.onReady?.(!!msg.canWrite);
+      this.handlers.onStatus?.("open");
+      if (this.ready) this.flushOutbox();
+    } else if (msg.type === "ack" && msg.nonce) {
+      this.unacknowledged.delete(msg.nonce);
+    } else if (msg.type === "error" && (msg.code === "update_too_large" || msg.code === "quota_exceeded")) {
+      // Refus DÉFINITIF : rejouer la même mise à jour échouerait à l'identique, en boucle. On la retire
+      // de la file, on prévient l'interface et on garde la connexion (les autres mises à jour continuent).
+      if (typeof msg.maxBytes === "number" && msg.maxBytes > 0) this.maxMessageBytes = msg.maxBytes;
+      let rejected: Uint8Array | null = null;
+      if (msg.nonce && this.unacknowledged.has(msg.nonce)) {
+        rejected = this.unacknowledged.get(msg.nonce)!;
+        this.unacknowledged.delete(msg.nonce);
+      } else if (!msg.nonce) {
+        // Trame hors limite : le serveur n'a pas pu lire le nonce, la dernière envoyée est la fautive.
+        const lastKey = [...this.unacknowledged.keys()].pop();
+        if (lastKey !== undefined) {
+          rejected = this.unacknowledged.get(lastKey)!;
+          this.unacknowledged.delete(lastKey);
+        }
+      }
+      this.handlers.onUpdateRejected?.({ code: msg.code, maxBytes: msg.maxBytes, update: rejected });
+    } else if (msg.type === "error") {
+      // Plaintext remains in the outbox until the server acknowledges durable storage.
+      this.ready = false;
+      this.ws?.close(msg.code === "key_rotation_required" ? 4001 : 4000, "update-rejected");
     } else if (msg.type === "update" && msg.ciphertext && msg.nonce) {
       if (typeof msg.seq === "number") this.lastSeq = Math.max(this.lastSeq, msg.seq);
       try {
@@ -278,7 +344,7 @@ export class EncryptedCollabChannel {
         if (raw?.c && raw?.n) {
           const plain = await decryptContent(this.nodeKey, raw.n, fromHex(raw.c));
           const parsed = JSON.parse(new TextDecoder().decode(plain)) as unknown;
-          this.deliver(() => this.handlers.onAwareness?.(parsed, msg.from ?? ""));
+          this.deliver(() => this.handlers.onAwareness?.(parsed, msg.from ?? "", msg.peerId ?? ""));
         }
       } catch {
         /* ignore */
@@ -294,6 +360,7 @@ export class EncryptedCollabChannel {
    * (le relais ne renvoie que le journal, jamais l'état local d'un client).
    */
   private outbox: Uint8Array[] = [];
+  private unacknowledged = new Map<string, Uint8Array>();
   /** Envois en cours de chiffrement : `close()` les attend avant de fermer le socket. */
   private readonly inflight = new Set<Promise<void>>();
 
@@ -312,18 +379,31 @@ export class EncryptedCollabChannel {
   }
 
   private async sendNow(update: Uint8Array): Promise<void> {
-    if (this.ws?.readyState !== WebSocket.OPEN) {
+    // Contrôle de taille AVANT envoi : inutile de chiffrer/transmettre ce que le relais refusera.
+    if (update.byteLength + GCM_TAG_BYTES > this.maxMessageBytes) {
+      this.handlers.onUpdateRejected?.({ code: "update_too_large", maxBytes: this.maxMessageBytes, update });
+      return;
+    }
+    if (!this.ready || this.ws?.readyState !== WebSocket.OPEN) {
       this.outbox.push(update);
       return;
     }
-    const enc = await encryptContent(this.nodeKey, update);
+    const sendingKey = this.nodeKey;
+    const sendingSocket = this.ws;
+    const enc = await encryptContent(sendingKey, update);
     // Le socket a pu se fermer pendant le chiffrement : on garde la mise à jour pour la reconnexion.
     const ws = this.ws;
-    if (ws?.readyState !== WebSocket.OPEN) {
+    if (!this.ready || ws !== sendingSocket || this.nodeKey !== sendingKey || ws?.readyState !== WebSocket.OPEN) {
       this.outbox.push(update);
       return;
     }
-    ws.send(JSON.stringify({ type: "update", ciphertext: toHex(enc.ciphertext), nonce: enc.nonceHex }));
+    this.unacknowledged.set(enc.nonceHex, update);
+    try {
+      ws.send(JSON.stringify({ type: "update", ciphertext: toHex(enc.ciphertext), nonce: enc.nonceHex }));
+    } catch {
+      this.unacknowledged.delete(enc.nonceHex);
+      this.outbox.push(update);
+    }
   }
 
   /** Encrypt and broadcast a presence/awareness payload. */

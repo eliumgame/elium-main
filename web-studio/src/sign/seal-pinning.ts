@@ -45,7 +45,21 @@ export interface SealPinCheck {
 
 function loadPins(): Record<string, SealPin> {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}") as Record<string, SealPin>;
+    const raw: unknown = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+    const out: Record<string, SealPin> = {};
+    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+      if (!v || typeof v !== "object") continue;
+      const p = v as Record<string, unknown>;
+      if (typeof p.fingerprint !== "string" || typeof p.publicKeyHex !== "string") continue;
+      out[k] = {
+        fingerprint: p.fingerprint,
+        publicKeyHex: p.publicKeyHex,
+        title: typeof p.title === "string" ? p.title : "",
+        firstSeen: typeof p.firstSeen === "string" ? p.firstSeen : "",
+      };
+    }
+    return out;
   } catch {
     return {};
   }

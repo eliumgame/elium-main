@@ -20,7 +20,7 @@
 		Cross-Origin-Opener-Policy "same-origin"
 		# Même politique que l'application de bureau (installer/elium_launcher.py), plus le WebSocket
 		# de collaboration de CETTE origine et l'interdiction d'être mis en cadre.
-		Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; font-src 'self'; img-src 'self' data: blob:; worker-src 'self' blob:; connect-src 'self' data: blob: wss://{host}; media-src 'self' data: blob:; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; font-src 'self'; img-src 'self' data: blob:; worker-src 'self' blob:; connect-src 'self' data: blob: wss://{host}; media-src 'self' data: blob:; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'"
 		-Server
 	}
 }
@@ -28,6 +28,32 @@
 {$SITE_ADDRESS::80} {
 	encode zstd gzip
 	import security_headers
+
+	# Journal d'accès : le jeton d'un lien de partage / de signature (/api/links/<jeton>[/...]) est une
+	# capacité porteuse ; il ne doit jamais atterrir en clair dans les journaux (même masquage que
+	# server/src/lib/log-serializers.ts côté API). Le Referer est masqué de la même façon.
+	log {
+		output stdout
+		format filter {
+			wrap json
+			fields {
+				request>uri regexp "/api/links/[^/?#\"]+" "/api/links/[redacted]"
+				request>headers>Referer regexp "/api/links/[^/?#\"]+" "/api/links/[redacted]"
+			}
+		}
+	}
+
+	# Montage d'un dossier : les remplacements atomiques de release.json sont visibles.
+	@release_feed {
+		path /release.json
+		file {
+			root /srv/elium-release
+		}
+	}
+	handle @release_feed {
+		root * /srv/elium-release
+		file_server
+	}
 
 	# API + WebSocket collaboration relay -> the api service.
 	# Corps de requête plafonné (contenus chiffrés : volumineux mais bornés). Le débit par

@@ -38,7 +38,9 @@ def canonical_json(value: Any) -> str:
             if 1e-6 <= magnitude < 1e21:
                 return format(Decimal(shortest), "f").removesuffix(".0")
             coefficient, exponent = shortest.lower().split("e") if "e" in shortest.lower() else (shortest, "0")
-            return f"{coefficient.removesuffix('.0')}e{int(exponent):+d}" if int(exponent) >= 0 else f"{coefficient.removesuffix('.0')}e{int(exponent)}"
+            mantissa = coefficient.removesuffix(".0")
+            sign = "+" if int(exponent) >= 0 else ""
+            return f"{mantissa}e{sign}{int(exponent)}"
         if isinstance(item, dict):
             return "{" + ",".join(
                 json.dumps(k, ensure_ascii=False) + ":" + encode(v)

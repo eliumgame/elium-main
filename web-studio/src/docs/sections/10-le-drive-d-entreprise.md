@@ -36,7 +36,14 @@ Le serveur connaît donc la **structure** (arbre, dates, tailles approximatives,
 3. Chaque équipe a sa propre paire de clés P-256, partagée entre ses membres.
 4. L'organisation a une paire de clés de recouvrement (voir le chapitre sur le recouvrement).
 
-Le client chiffre avant d'envoyer et déchiffre après avoir reçu. Le navigateur ne confie rien au serveur qui permette de lire un fichier.
+Le client chiffre avant d'envoyer et déchiffre après avoir reçu. Le navigateur ne confie au serveur aucune clé en clair : il ne reçoit que des clés emballées.
+
+**Limite importante : l'origine des clés publiques.** Pour emballer une clé vers une personne, une équipe ou l'organisation, le navigateur utilise la clé publique que le **serveur** lui fournit. Un serveur compromis ou malveillant pourrait donc substituer sa propre clé et recevoir ensuite des clés de contenu. Elium applique la **confiance au premier usage** (TOFU), comme SSH :
+
+- la première clé vue pour une identité est mémorisée dans votre navigateur ; si le serveur en présente ensuite une autre, l'envoi est **bloqué** et une alerte s'affiche dans Sécurité, avec les mots de sécurité de l'ancienne et de la nouvelle clé ;
+- pour un partage direct ou un ajout d'équipe, Elium vous demande de comparer les **mots de sécurité** du destinataire par un autre canal avant d'emballer la clé (vous pouvez annuler) ;
+- les destinataires hérités d'un dossier (nouveau fichier dans un dossier partagé, déplacement) jamais vus auparavant sont mémorisés **et signalés** dans Sécurité comme « nouveaux destinataires non vérifiés » ;
+- cette protection ne vaut **que** si la première clé vue est authentique : un serveur déjà compromis lors de la toute première rencontre n'est pas détecté, et l'épinglage est local à chaque navigateur (un nouvel appareil repart de zéro). Seule la comparaison des mots de sécurité hors bande lève ce doute.
 
 ### Rôles et permissions (RBAC)
 
@@ -98,7 +105,7 @@ Un double-clic sur un PDF l'ouvre dans l'éditeur PDF, après déchiffrement dan
 
 ### Co-édition temps réel chiffrée
 
-La co-édition utilise des CRDT **Yjs** pour Documents, Tableur et Présentations : curseurs colorés, présence, fusion au caractère près. Les éditeurs collaboratifs partagent leur code avec les éditeurs locaux.
+La co-édition utilise des CRDT **Yjs** pour Documents, Tableur et Présentations : curseurs colorés, présence, fusion au caractère près lorsque deux personnes écrivent dans la **même cellule de texte** ou le même paragraphe. Dans le Tableur, les opérations **structurelles** (insertion ou suppression de lignes ou de colonnes, tri) remplacent l'état de la feuille concernée : une frappe saisie au même instant par un collègue dans cette feuille peut être perdue. Évitez de trier ou de restructurer pendant que d'autres éditent la même feuille. Les éditeurs collaboratifs partagent leur code avec les éditeurs locaux.
 
 - Les mises à jour sont chiffrées **dans le navigateur** avant de partir. Le relais ne fait que les distribuer et les stocker.
 - Chaque mise à jour persistée est **acquittée** (`ack` avec son numéro de séquence). Une mise à jour refusée n'est jamais perdue en silence : l'émetteur reçoit une erreur (`update_too_large`, `quota_exceeded`, `disk_full`, `rate_limited_bytes`, `read_only`, `invalid_update`, `persist_failed`). Une trame plus grande que la limite du serveur WebSocket ferme la connexion avec le code **1009**.

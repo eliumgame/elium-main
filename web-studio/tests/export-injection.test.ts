@@ -7,6 +7,7 @@ import type { ProseMirrorNode } from "../src/format/types";
 
 const doc = (...content: ProseMirrorNode[]) => ({
   schema: "elium-doc/1" as const,
+  page: { format: "A4" as const, orientation: "portrait" as const, margins: { top: 20, right: 20, bottom: 20, left: 20 } },
   doc: { type: "doc", content } as ProseMirrorNode,
 });
 

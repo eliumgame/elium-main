@@ -39,7 +39,7 @@ describe("SlideCanvas (component) — per-type rendering", () => {
     expect(screen.getByText("le monde").tagName).toBe("B");
     // Vecteurs dangereux neutralisés : ni script ni gestionnaire d'événement.
     expect(container.querySelector("script")).toBeNull();
-    expect(container.querySelector("img")?.getAttribute("onerror")).toBeNull();
+    expect(container.querySelector("img[onerror]")).toBeNull();
     expect((window as { __pwned?: boolean }).__pwned).toBeUndefined();
   });
 

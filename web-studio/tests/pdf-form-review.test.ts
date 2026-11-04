@@ -85,7 +85,7 @@ async function hierarchy(): Promise<Uint8Array> {
 }
 
 async function fieldsOf(bytes: Uint8Array): Promise<Record<string, { value?: unknown; type?: string }[]>> {
-  const task = pdfjsLib.getDocument({ data: bytes.slice(), isEvalSupported: false });
+  const task = pdfjsLib.getDocument({ data: bytes.slice() });
   const doc = await task.promise;
   const objs = ((await doc.getFieldObjects()) ?? {}) as Record<string, { value?: unknown; type?: string }[]>;
   await task.destroy();
@@ -169,7 +169,7 @@ describe("T2 review — box export values", () => {
 
   it("#5 renaming a checkbox's export value carries /V along (it stays checked)", async () => {
     const src = await checked();
-    const task = pdfjsLib.getDocument({ data: src.slice(), isEvalSupported: false });
+    const task = pdfjsLib.getDocument({ data: src.slice() });
     const js = await task.promise;
     const id = ((await (await js.getPage(1)).getAnnotations()) as { id: string; fieldName?: string }[]).find(
       (a) => a.fieldName === "cb",
@@ -189,7 +189,7 @@ describe("T2 review — box export values", () => {
     for (const [i, o] of ["A", "B", "C"].entries())
       g.addOptionToPage(o, page, { x: 20 + i * 30, y: 20, width: 14, height: 14 });
     const src = await doc.save({ updateFieldAppearances: false });
-    const task = pdfjsLib.getDocument({ data: src.slice(), isEvalSupported: false });
+    const task = pdfjsLib.getDocument({ data: src.slice() });
     const js = await task.promise;
     const ids = ((await (await js.getPage(1)).getAnnotations()) as { id: string; fieldName?: string }[])
       .filter((a) => a.fieldName === "r")

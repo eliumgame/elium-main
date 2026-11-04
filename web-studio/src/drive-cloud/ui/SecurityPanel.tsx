@@ -22,6 +22,7 @@ import {
 import { useDrive } from "../session";
 import ChangePasswordSection from "./ChangePasswordSection";
 import DevicesSection from "./DevicesSection";
+import KeyTrustSection from "./KeyTrustSection";
 import { useReauth } from "./useReauth";
 import { makeQrDataUrl } from "../../sign/qr";
 import type { MfaStatus } from "../types";
@@ -512,6 +513,7 @@ export default function SecurityPanel() {
       </div>
 
       <DevicesSection />
+      <KeyTrustSection />
 
       <ChangePasswordSection />
 

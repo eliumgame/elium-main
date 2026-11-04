@@ -405,3 +405,40 @@ describe("annexes : brouillons, versions, polices, réglages", () => {
     expect(r.restored).toBe(3);
   });
 });
+
+describe("miroir en fichiers : cloisonnement par compte", () => {
+  function accountMirror(m: ReturnType<typeof machine>, backend: FileBackend, owner: string) {
+    const kv = new Map<string, string>([["elium_local_workspace_owner", owner]]);
+    const io = (s: ContentStoreId): ContentIO => ({
+      read: async (i) => m.maps[s].get(i.id),
+      write: async (i, b) => void m.maps[s].set(i.id, b),
+    });
+    return new FileMirror({
+      backend,
+      catalog: m.catalog,
+      contents: { drive: io("drive"), sheets: io("sheets"), slides: io("slides"), pdfs: io("pdfs") },
+      getSecret: () => undefined,
+      storage: { get: (k) => kv.get(k) ?? null, set: (k, v) => void kv.set(k, v) },
+      now: () => new Date(T),
+      extras: [],
+    });
+  }
+
+  it("préfixe les fichiers du compte et ne voit pas ceux d'un autre compte", async () => {
+    const { backend, files } = memBackend();
+    const a = machine();
+    await seed(a);
+    await accountMirror(a, backend, "alice@example.com").start();
+    const mine = [...files.keys()].filter((k) => k.includes("Titre d1"));
+    expect(mine).toHaveLength(1);
+    expect(mine[0]).toMatch(/^Documents\/compte-[0-9a-f]{32}-Titre d1 \[d1\]\.elium$/);
+    expect(files.has("Documents/Titre d1 [d1].elium")).toBe(false);
+
+    // Compte B sur le même dossier : espace vide, rien n'est restauré depuis les fichiers du compte A.
+    const b = machine();
+    const r = await accountMirror(b, backend, "bob@example.com").start();
+    expect(r.restored).toBe(0);
+    expect((await b.catalog.load()).items).toHaveLength(0);
+    expect(b.maps.drive.size).toBe(0);
+  });
+});

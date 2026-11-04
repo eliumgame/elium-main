@@ -63,6 +63,11 @@ latest.json
 latest.json.sig
 
 # Misc
+backups/
+release/
+deploy/auto-update.log
+.coverage-chain.json
+.chain-*
 .elium-main/
 .ruff_cache/
 

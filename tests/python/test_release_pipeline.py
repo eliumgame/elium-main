@@ -67,20 +67,22 @@ def test_signing_key_is_only_visible_to_the_publish_job_and_build_has_no_secret(
         assert forbidden not in jobs["publish"], f"publish ne doit pas exécuter « {forbidden} »"
     # seule exception documentée côté build : le point d'accroche Authenticode, absent sans certificat
     secrets_in_build = set(re.findall(r"secrets\.([A-Z_]+)", jobs["build"]))
-    assert secrets_in_build <= {"SIGN_CERT", "SIGN_CERT_PASSWORD"}
+    assert not secrets_in_build
+    assert "npm ci" not in jobs["package"] and "pip install" not in jobs["package"]
+    assert "SIGN_CERT" in jobs["package"]
 
 
 def test_smoke_test_msi_and_post_publication_checks_are_blocking():
     text = _read(WF / "release.yml")
     jobs = _jobs(text)
-    assert "installer/smoke_test.py" in jobs["build"]
+    assert "installer/smoke_test.py" in jobs["package"]
     assert "continue-on-error" not in text                     # le MSI n'est plus « best-effort »
-    assert "Elium-User-" in jobs["build"] and "-dScope=$scope" in jobs["build"]
+    assert "Elium-User-" in jobs["package"] and "-dScope=$scope" in jobs["package"]
     assert "installer/verify_release.py" in jobs["publish"]
     assert "attest-build-provenance" in jobs["publish"] and "id-token: write" in jobs["publish"]
     assert "cyclonedx" in jobs["build"].lower()
     assert "--generate-notes" not in text and "--notes-file" in text   # une seule source de notes
-    assert "SIGN_CERT" in jobs["build"] and "ignorée" in jobs["build"]  # crochet Authenticode optionnel
+    assert "SIGN_CERT" in jobs["package"] and "ignorée" in jobs["package"]  # crochet Authenticode optionnel
 
 
 def test_workflow_dispatch_no_longer_bypasses_ci_and_supports_bump_and_prerelease():
@@ -138,7 +140,9 @@ def test_compose_has_no_default_passwords():
     assert "POSTGRES_PASSWORD:-" not in COMPOSE
     assert "S3_SECRET_KEY:-" not in COMPOSE
     assert "CORS_ORIGINS:-" not in COMPOSE
-    for var in ("POSTGRES_PASSWORD", "S3_SECRET_KEY", "CORS_ORIGINS", "REDIS_PASSWORD", "TOKEN_SECRET"):
+    required = ("POSTGRES_PASSWORD", "S3_SECRET_KEY", "CORS_ORIGINS", "REDIS_PASSWORD",
+                "TOKEN_SECRET", "POSTGRES_APP_PASSWORD")
+    for var in required:
         assert f"{var}:?" in COMPOSE, var
     assert "--requirepass" in COMPOSE
 

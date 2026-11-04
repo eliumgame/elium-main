@@ -1228,6 +1228,8 @@ CSP_DIRECTIVES: "tuple[str, ...]" = (
     # relatives vers une autre origine.
     "object-src 'none'",
     "base-uri 'self'",
+    # Les formulaires applicatifs utilisent fetch ; aucune navigation de formulaire.
+    "form-action 'none'",
 )
 CONTENT_SECURITY_POLICY = "; ".join(CSP_DIRECTIVES)
 

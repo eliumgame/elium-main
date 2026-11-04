@@ -27,12 +27,14 @@ export default function DrivePdfEditor({ ctx, entry, author, onClose, onSaved }:
   const [error, setError] = useState<string | null>(null);
   // The version the session is based on: a save over a newer one asks first.
   const base = useRef(entry.modifiedAt);
+  const baseVersionId = useRef<string | null | undefined>(undefined);
 
   useEffect(() => {
     let alive = true;
     void (async () => {
       try {
-        const { bytes, name } = await downloadFile(ctx, entry);
+        const { bytes, name, baseVersionId: openedVersion } = await downloadFile(ctx, entry);
+        baseVersionId.current = openedVersion;
         if (!alive) return;
         let force = false;
         const destination = driveDestination({
@@ -40,7 +42,7 @@ export default function DrivePdfEditor({ ctx, entry, author, onClose, onSaved }:
           async prepare() {
             force = false;
             const { node } = await ctx.api.getNode(entry.id);
-            if (node.modifiedAt === base.current) return true;
+            if (node.currentVersionId === baseVersionId.current) return true;
             force = await dialogs.confirm({
               title: "Fichier modifié dans le Drive",
               message:
@@ -48,12 +50,15 @@ export default function DrivePdfEditor({ ctx, entry, author, onClose, onSaved }:
                 "Enregistrer quand même ? La version actuelle restera dans l'historique des versions.",
               confirmLabel: "Enregistrer quand même",
             });
+            // Only replace the exact version the user just confirmed, never a later one.
+            if (force) baseVersionId.current = node.currentVersionId ?? null;
             return force;
           },
           async write(out) {
             try {
-              const node = await saveNewVersion(ctx, entry.id, out, { expectedModifiedAt: base.current, force });
+              const node = await saveNewVersion(ctx, entry.id, out, { baseVersionId: baseVersionId.current, force });
               base.current = node.modifiedAt;
+              baseVersionId.current = node.currentVersionId;
               onSaved?.();
             } catch (e) {
               if (e instanceof DriveConflict) throw new Error(e.message + " Enregistrez de nouveau pour la remplacer.");

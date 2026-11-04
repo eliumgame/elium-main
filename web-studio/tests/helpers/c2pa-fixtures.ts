@@ -72,6 +72,8 @@ export interface FixtureOptions {
   fragmentJpeg?: boolean;
   /** Chaîne x5chain : inclure la racine ? (par défaut oui) */
   includeRoot?: boolean;
+  /** Régression : liaison `c2pa.hash.data__9` NON référencée par le claim, exclusion couvrant tout le fichier. */
+  unreferencedFullExclusion?: boolean;
 }
 
 const COSE: Record<FixtureAlg, number> = { ES256: -7, ES384: -35, PS256: -37, EdDSA: -8 };
@@ -217,23 +219,25 @@ export async function buildC2paFixture(opts: FixtureOptions = {}): Promise<Fixtu
     // Hachage de liaison : fichier sans le manifeste (taille exclLen).
     const stub = assemble(container, new Uint8Array(exclLen));
     const without = concatBytes([stub.subarray(0, exclStart), stub.subarray(exclStart + exclLen)]);
+    const full = opts.unreferencedFullExclusion === true;
     const dataBoxFixed = encodeCbor(
       M([
         [
           "exclusions",
           [
             M([
-              ["start", exclStart],
-              ["length", exclLen],
+              ["start", full ? 0 : exclStart],
+              ["length", full ? 0x7fffffff : exclLen],
             ]),
           ],
         ],
         ["alg", "sha256"],
-        ["hash", sha256(without)],
+        ["hash", full ? sha256(new Uint8Array(0)) : sha256(without)],
         ["name", "jumbf manifest"],
       ]),
     );
-    const hashDataBox = superBox(UUID, "c2pa.hash.data", box("cbor", dataBoxFixed));
+    const hashLabel = full ? "c2pa.hash.data__9" : "c2pa.hash.data";
+    const hashDataBox = superBox(UUID, hashLabel, box("cbor", dataBoxFixed));
 
     const assertionsSuper = superBox(UUID, "c2pa.assertions", actionsBox, hashDataBox);
     const ref = (label: string, node: Uint8Array) =>
@@ -248,7 +252,7 @@ export async function buildC2paFixture(opts: FixtureOptions = {}): Promise<Fixtu
         ["instanceID", "xmp:iid:test"],
         ["alg", "sha256"],
         ["signature", "self#jumbf=c2pa.signature"],
-        ["assertions", [ref("c2pa.actions", actionsBox), ref("c2pa.hash.data", hashDataBox)]],
+        ["assertions", full ? [ref("c2pa.actions", actionsBox)] : [ref("c2pa.actions", actionsBox), ref("c2pa.hash.data", hashDataBox)]],
       ]),
     );
     const protectedBytes = encodeCbor(M([[1, COSE[alg]]]));

@@ -104,15 +104,16 @@ describe("submitSignedElium", () => {
   it("re-encrypts the signed artifact under the SAME node CEK and posts it back", async () => {
     const { nodeKey } = await baseNode();
     const signedBytes = new TextEncoder().encode("document signé (octets .elium re-scellés)");
-    const submitSignature = vi.fn(async () => ({ ok: true }));
+    const submitSignature = vi.fn<DriveApi["submitSignature"]>(async () => ({ ok: true }));
     const api = { submitSignature } as unknown as DriveApi;
 
-    await submitSignedElium(api, "tok-4", nodeKey, signedBytes, "deadbeef");
+    await submitSignedElium(api, "tok-4", nodeKey, signedBytes, "deadbeef", { baseVersionId: "v1", keyEpoch: 1 });
 
     expect(submitSignature).toHaveBeenCalledTimes(1);
     const [token, ciphertext, nonceHex, fpr] = submitSignature.mock.calls[0]!;
     expect(token).toBe("tok-4");
     expect(fpr).toBe("deadbeef");
+    expect(submitSignature.mock.calls[0]!.slice(4)).toEqual(["v1", 1]);
     // Le ciphertext posté doit redéchiffrer, sous la MÊME CEK, exactement
     // l'artefact signé — pas une autre clé, pas un contenu tronqué/altéré.
     expect(await decryptContent(nodeKey, nonceHex as string, ciphertext as Uint8Array)).toEqual(signedBytes);
@@ -120,10 +121,10 @@ describe("submitSignedElium", () => {
 
   it("forwards no signer fingerprint when none is given", async () => {
     const { nodeKey } = await baseNode();
-    const submitSignature = vi.fn(async () => ({ ok: true }));
+    const submitSignature = vi.fn<DriveApi["submitSignature"]>(async () => ({ ok: true }));
     const api = { submitSignature } as unknown as DriveApi;
 
-    await submitSignedElium(api, "tok-5", nodeKey, new Uint8Array([1, 2, 3]));
+    await submitSignedElium(api, "tok-5", nodeKey, new Uint8Array([1, 2, 3]), undefined, { baseVersionId: "v1", keyEpoch: 2 });
 
     const [, , , fpr] = submitSignature.mock.calls[0]!;
     expect(fpr).toBeUndefined();

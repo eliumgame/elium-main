@@ -14,6 +14,7 @@ vi.mock("node:dns/promises", async (orig) => {
 });
 
 import tsaRoutes, {
+  isDerSequence,
   isNonPublicAddress,
   relayTimestamp,
   resolveTsaTarget,
@@ -22,6 +23,17 @@ import tsaRoutes, {
   type TsaTarget,
 } from "../src/routes/tsa.js";
 import { ApiError } from "../src/lib/errors.js";
+
+it("rejects trailing DER bytes, indefinite lengths and arbitrary public relay targets", async () => {
+  for (const body of [[0x30], [0x30, 0x80, 0, 0], [0x30, 0x81, 0], [0x30, 0, 1]]) expect(isDerSequence(Buffer.from(body))).toBe(false);
+  expect(isDerSequence(Buffer.from([0x30, 0]))).toBe(true);
+  const app = await appWithRoute();
+  const res = await app.inject({ method: "POST", url: "/api/tsa", payload: Buffer.from([0x30, 0]),
+    headers: { "content-type": "application/timestamp-query", "x-elium-tsa-url": "https://public-attacker.example/post" } });
+  expect(res.statusCode).toBe(400);
+  expect(res.json().message).toMatch(/non autorisée/);
+  await app.close();
+});
 
 describe("timestamp relay", () => {
   it("never reaches loopback, private or link-local addresses", () => {
@@ -112,7 +124,7 @@ describe("timestamp relay", () => {
     app.setErrorHandler((err, _req, reply) =>
       reply
         .status(err instanceof ApiError ? err.statusCode : ((err as { statusCode?: number }).statusCode ?? 500))
-        .send({ message: err.message }),
+        .send({ message: (err instanceof Error ? err.message : String(err)) }),
     );
     await app.register(tsaRoutes, { prefix: "/api" });
     const headers = { "content-type": "application/timestamp-query", "x-elium-tsa-url": "http://127.0.0.1:1/" };
@@ -163,7 +175,7 @@ async function appWithRoute() {
   app.setErrorHandler((err, _req, reply) =>
     reply
       .status(err instanceof ApiError ? err.statusCode : ((err as { statusCode?: number }).statusCode ?? 500))
-      .send({ message: err.message }),
+      .send({ message: (err instanceof Error ? err.message : String(err)) }),
   );
   await app.register(tsaRoutes, { prefix: "/api" });
   return app;
@@ -180,7 +192,7 @@ describe("timestamp relay connection", () => {
 
   /** A local stand-in TSA; the relay is handed its address as if it had been checked. */
   async function tsa(handler: (req: IncomingMessage, res: ServerResponse) => void): Promise<number> {
-    server = createServer(handler);
+    server = createServer((req, res) => { res.setHeader("content-type", "application/timestamp-reply"); handler(req, res); });
     await new Promise<void>((r) => server!.listen(0, "127.0.0.1", r));
     return (server.address() as AddressInfo).port;
   }

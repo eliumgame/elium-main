@@ -6,7 +6,7 @@
  *  - In production, config refuses the repo's placeholder TOKEN_SECRET and
  *    default/example DATABASE_URL passwords at startup.
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../src/db/pool.js", () => ({
   pool: {},
@@ -16,9 +16,11 @@ vi.mock("../src/db/pool.js", () => ({
   closePool: vi.fn(async () => {}),
 }));
 
+let buildApp: typeof import("../src/app.js").buildApp;
+beforeAll(async () => { ({ buildApp } = await import("../src/app.js")); }, 60_000);
+
 describe("cap JSON (maxJsonBytes) sur la vraie app", () => {
   it("un body JSON au-delà du cap est refusé en 413 ; un JSON malformé est un 400", async () => {
-    const { buildApp } = await import("../src/app.js");
     const app = await buildApp();
 
     // > 1 MiB (default MAX_JSON_BYTES) but far below the 2 GiB blob bodyLimit.
@@ -141,7 +143,6 @@ describe("validation des secrets au démarrage (production)", () => {
 
 describe("en-têtes de sécurité (helmet durci)", () => {
   it("sert une CSP verrouillée + Referrer-Policy + CORP sur une réponse d'API", async () => {
-    const { buildApp } = await import("../src/app.js");
     const app = await buildApp();
     const res = await app.inject({ method: "GET", url: "/api/health" });
     expect(res.statusCode).toBe(200);
@@ -156,7 +157,6 @@ describe("en-têtes de sécurité (helmet durci)", () => {
   });
 
   it("/api/health expose l'état du backplane collab (jamais silencieux)", async () => {
-    const { buildApp } = await import("../src/app.js");
     const app = await buildApp();
     const res = await app.inject({ method: "GET", url: "/api/health" });
     const body = res.json() as { collab?: { redis?: string } };
@@ -179,7 +179,6 @@ describe("trustProxy — anti-usurpation d'IP (rate-limit)", () => {
   });
 
   it("un X-Forwarded-For d'une connexion PUBLIQUE directe est ignoré (IP réelle conservée)", async () => {
-    const { buildApp } = await import("../src/app.js");
     const app = await buildApp();
     app.get("/__ip", async (req) => ({ ip: req.ip }));
 

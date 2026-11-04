@@ -69,7 +69,7 @@ describe("removed pages leave nothing pointing at them", () => {
       .filter((d) => d.lookup(PDFName.of("Subtype"))?.toString() === "/Link");
     expect(links).toHaveLength(0);
     // The bookmark now goes to the page after (the old page 4, now 3); the file opens on page 1.
-    const task = pdfjsLib.getDocument({ data: out.slice(), isEvalSupported: false });
+    const task = pdfjsLib.getDocument({ data: out.slice() });
     const js = await task.promise;
     const [bm] = (await js.getOutline()) as { title: string; dest: unknown[] }[];
     expect(bm.title).toBe("Page trois");
@@ -94,7 +94,7 @@ describe("a duplicated page shares its fields", () => {
     const out = (await buildPdf(await source(), s)).bytes;
     const doc = await PDFDocument.load(out);
     expect(doc.getForm().getFields()).toHaveLength(4);
-    const task = pdfjsLib.getDocument({ data: out.slice(), isEvalSupported: false });
+    const task = pdfjsLib.getDocument({ data: out.slice() });
     const js = await task.promise;
     const objs = (await js.getFieldObjects()) as Record<string, { value?: string; page?: number }[]>;
     const widgets = objs.champ1.filter((o) => o.page !== undefined && o.page >= 0);
@@ -134,7 +134,7 @@ describe("inserting a PDF", () => {
         .getFields()
         .map((f) => f.getName()),
     ).toContain("annexe.nom");
-    const task = pdfjsLib.getDocument({ data: out.slice(), isEvalSupported: false });
+    const task = pdfjsLib.getDocument({ data: out.slice() });
     const js = await task.promise;
     const outline = (await js.getOutline()) as {
       title: string;
@@ -231,7 +231,7 @@ describe("extracted and split parts stand on their own", () => {
         .map((f) => f.getName())
         .sort(),
     ).toEqual(["champ1", "champ2"]);
-    const task = pdfjsLib.getDocument({ data: out.slice(), isEvalSupported: false });
+    const task = pdfjsLib.getDocument({ data: out.slice() });
     const js = await task.promise;
     expect(await js.getPageLabels()).toEqual(["i", "ii"]);
     // The bookmark to page 3 is not in pages 1-2; the link to page 3 went, and so did page 3's content.
@@ -308,7 +308,7 @@ describe("combining files", () => {
         .sort(),
     ).toEqual(["champ1", "champ2", "champ3", "champ4"]);
 
-    const task = pdfjsLib.getDocument({ data: res.bytes.slice(), isEvalSupported: false });
+    const task = pdfjsLib.getDocument({ data: res.bytes.slice() });
     const pdf = await task.promise;
     const outline = (await pdf.getOutline()) ?? [];
     expect(outline.map((o) => o.title)).toEqual(["dossier", "photo", "annexe"]);
@@ -335,7 +335,7 @@ describe("combining files", () => {
       { name: "cassé.pdf", reason: "fichier illisible" },
       { name: "image.png", reason: "image illisible" },
     ]);
-    const pdf = await pdfjsLib.getDocument({ data: res.bytes.slice(), isEvalSupported: false }).promise;
+    const pdf = await pdfjsLib.getDocument({ data: res.bytes.slice() }).promise;
     expect(await pdf.getOutline()).toBeNull();
   });
 });
@@ -346,7 +346,7 @@ describe("text as pages", () => {
       "\r\n",
     );
     const bytes = await textToPdf(text);
-    const pdf = await pdfjsLib.getDocument({ data: bytes.slice(), isEvalSupported: false }).promise;
+    const pdf = await pdfjsLib.getDocument({ data: bytes.slice() }).promise;
     expect(pdf.numPages).toBe(2);
     const page = await pdf.getPage(1);
     expect(Math.round(page.getViewport({ scale: 1 }).width)).toBe(595);

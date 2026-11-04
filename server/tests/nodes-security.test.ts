@@ -70,7 +70,7 @@ async function makeApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof ApiError) {
-      return reply.status(err.statusCode).send({ error: { code: err.code, message: err.message } });
+      return reply.status(err.statusCode).send({ error: { code: err.code, message: err instanceof Error ? err.message : String(err) } });
     }
     if (err instanceof ZodError) return reply.status(400).send({ error: { code: "bad_request" } });
     return reply.status(500).send({ error: { code: "internal", message: String(err) } });
@@ -152,6 +152,7 @@ describe("POST /api/nodes/:id/rotate — part de recouvrement d'organisation", (
     tx(
       [
         [/SELECT key_epoch FROM nodes/, [{ key_epoch: 1 }]],
+        [/FROM organizations/, [{ org_key_epoch: 3, rotation_required: false }]], // assertFreshPrincipalKeys (part 'org')
         [/principal_type = 'org'/, [{ "?column?": 1 }]],
         [/UPDATE nodes/, [{ id: NODE, key_epoch: 2, kind: "file" }]],
       ],
@@ -161,7 +162,7 @@ describe("POST /api/nodes/:id/rotate — part de recouvrement d'organisation", (
     const res = await app.inject({
       method: "POST",
       url: `/api/nodes/${NODE}/rotate`,
-      payload: body([ownerShare, orgShare]),
+      payload: { ...body([ownerShare, orgShare]), orgKeyEpoch: 3 },
     });
     expect(res.statusCode).toBe(200);
     expect(sqls.some((s) => /DELETE FROM node_keys/.test(s))).toBe(true);

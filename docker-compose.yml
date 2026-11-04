@@ -16,7 +16,7 @@
 services:
   db:
     # Tag + digest : le digest fait foi (reproductible), le tag est lisible. Bump via dependabot.
-    image: postgres:16.4-alpine@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c
+    image: postgres:16.15-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
     restart: unless-stopped
     environment:
       POSTGRES_USER: elium
@@ -30,6 +30,24 @@ services:
       timeout: 5s
       retries: 5
 
+  # Idempotent : prépare aussi les bases antérieures où elium possédait les tables.
+  # L'API ne reçoit jamais le mot de passe du superutilisateur.
+  db-init:
+    image: postgres:16.15-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      PGUSER: elium
+      PGDATABASE: elium
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD in .env}
+    volumes:
+      - ./deploy/init-app-role.sql:/init-app-role.sql:ro
+    command: ["psql", "-v", "ON_ERROR_STOP=1", "-f", "/init-app-role.sql"]
+
   api:
     image: ${ELIUM_API_IMAGE:-elium-api:local}
     build: ./server
@@ -37,6 +55,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
     environment:
       NODE_ENV: production
       # Deployed version (written to .env by install.sh from src/elium/__init__.py);
@@ -44,7 +64,7 @@ services:
       ELIUM_VERSION: ${ELIUM_VERSION:-dev}
       HOST: 0.0.0.0
       PORT: "8787"
-      DATABASE_URL: postgres://elium:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/elium
+      DATABASE_URL: postgres://elium_app:${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD in .env}@db:5432/elium
       TOKEN_SECRET: ${TOKEN_SECRET:?Set a strong TOKEN_SECRET in .env}
       # Portail du propriétaire : un déploiement = un Drive ; OWNER_EMAIL (optionnel) réserve
       # l'inscription du premier compte (le propriétaire) à cette adresse.
@@ -54,6 +74,12 @@ services:
       ACTIVATION_CODE: ${ACTIVATION_CODE:-}
       ACTIVATION_TTL_HOURS: ${ACTIVATION_TTL_HOURS:-72}
       CORS_ORIGINS: ${CORS_ORIGINS:?Set CORS_ORIGINS in .env (your site origin, e.g. https://drive.example.com)}
+      WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-localhost}
+      WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-Elium Drive}
+      TRUST_PROXY: ${TRUST_PROXY:-loopback,linklocal,uniquelocal}
+      WS_ALLOW_QUERY_TOKEN: ${WS_ALLOW_QUERY_TOKEN:-false}
+      ACCESS_TOKEN_TTL_SECONDS: ${ACCESS_TOKEN_TTL_SECONDS:-900}
+      REFRESH_TOKEN_TTL_SECONDS: ${REFRESH_TOKEN_TTL_SECONDS:-2592000}
       # Storage: "fs" (blobs volume) by default, or "s3" to use the MinIO service
       # below (start it with: docker compose --profile s3 up -d).
       STORAGE_DRIVER: ${STORAGE_DRIVER:-fs}
@@ -82,8 +108,9 @@ services:
   # Optional S3-compatible object storage. Enable with STORAGE_DRIVER=s3 and
   # `docker compose --profile s3 up -d`. Create the bucket once (mc / console).
   minio:
-    # Pin deliberately; bump via a reviewed PR
-    image: minio/minio:RELEASE.2024-10-13T13-34-11Z
+    # L'image communautaire historique n'est plus distribuée ni maintenue.
+    # L'opérateur doit fournir une image maintenue et vérifiée par digest.
+    image: ${MINIO_IMAGE:-minio-unconfigured:invalid}
     profiles: ["s3"]
     restart: unless-stopped
     command: server /data --console-address ":9001"
@@ -103,7 +130,7 @@ services:
   # compromis du même réseau ne doit pas pouvoir y lire/écrire librement). Only holds pub/sub
   # messages + rate-limit counters, both fine to lose on restart: no persistent volume.
   redis:
-    image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+    image: redis:7-alpine@sha256:8da19c7399dca900c6822a1cf30f9d2285585e2c4b457ff4095b0f4500054d3f
     restart: unless-stopped
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
@@ -129,7 +156,7 @@ services:
 
   caddy:
     # Tag + digest (voir plus haut).
-    image: caddy:2.8-alpine@sha256:af32e97399febea808609119bb21544d0265c58a02836576e32a2d082c262c17
+    image: caddy:2.11.7-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5
     restart: unless-stopped
     depends_on:
       api:
@@ -145,6 +172,7 @@ services:
       ACME_EMAIL: ${ACME_EMAIL:-noreply@localhost.invalid}
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./release:/srv/elium-release:ro
       - caddy_data:/data
       - caddy_config:/config
 

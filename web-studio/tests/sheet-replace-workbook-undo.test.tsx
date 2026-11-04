@@ -58,7 +58,7 @@ describe("useLocalSheetStore — replaceWorkbook (file import) and undo history"
     expect(result.current.canUndo).toBe(false);
 
     act(() => {
-      result.current.replaceWorkbook(imported);
+      result.current.replaceWorkbook!(imported);
     });
 
     expect(result.current.wb).toEqual(imported);
@@ -67,7 +67,7 @@ describe("useLocalSheetStore — replaceWorkbook (file import) and undo history"
     expect(result.current.canUndo).toBe(false);
 
     act(() => {
-      result.current.undo();
+      result.current.undo!();
     });
 
     // Undo must be a no-op here: without the fix this reverted straight back

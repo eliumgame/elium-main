@@ -348,6 +348,7 @@ def test_csp_allows_local_data_schemes_only():
     assert d["frame-src"] == ["'self'", "blob:"]
     assert d["object-src"] == ["'none'"]
     assert d["base-uri"] == ["'self'"]
+    assert d["form-action"] == ["'none'"]
     for name in ("img-src", "worker-src", "connect-src", "media-src", "frame-src"):
         assert not any(t.startswith("http") or t == "*" for t in d[name]), name
 

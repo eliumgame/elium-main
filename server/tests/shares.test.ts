@@ -74,12 +74,12 @@ async function makeApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof ApiError) {
-      return reply.status(err.statusCode).send({ error: { code: err.code, message: err.message } });
+      return reply.status(err.statusCode).send({ error: { code: err.code, message: err instanceof Error ? err.message : String(err) } });
     }
     if (err instanceof ZodError) {
       return reply.status(400).send({ error: { code: "bad_request", message: "validation" } });
     }
-    return reply.status(500).send({ error: { code: "internal", message: err.message } });
+    return reply.status(500).send({ error: { code: "internal", message: err instanceof Error ? err.message : String(err) } });
   });
   await app.register(shareRoutes, { prefix: "/api" });
   await app.ready();
@@ -775,6 +775,19 @@ describe("GET /api/links/:token (public resolution)", () => {
     const app = await makeApp();
     const res = await app.inject({ method: "GET", url: `/api/links/revoked` });
     expect(res.statusCode).toBe(404);
+    await app.close();
+  });
+
+  it("404 when the link's creator is suspended/removed (resolution requires an active creator + membership)", async () => {
+    // The resolving query joins the creator (status active) and their ACTIVE
+    // membership in the node's org; a suspended creator yields no row.
+    mQueryOne.mockResolvedValueOnce(null);
+    const app = await makeApp();
+    const res = await app.inject({ method: "GET", url: `/api/links/creator-suspended` });
+    expect(res.statusCode).toBe(404);
+    const sql = String(mQueryOne.mock.calls[0]?.[0]);
+    expect(sql).toMatch(/JOIN users creator ON creator\.id = sl\.created_by AND creator\.status = 'active'/);
+    expect(sql).toMatch(/creator_membership\.status = 'active'/);
     await app.close();
   });
 

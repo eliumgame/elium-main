@@ -7,7 +7,8 @@
  *    it to a target member who can then decrypt it,
  *  - `withOrgKey` drops the private material after the operation.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
+import { setKeyPinStorage } from "../src/drive-cloud/key-pins";
 import { generateRecipientKeypair, encryptForRecipients } from "../src/crypto/recipients";
 import { generateNodeKey, unwrapNodeKey, type WrappedKey } from "../src/drive-cloud/node-crypto";
 import { fromHex } from "../src/format/canonical";
@@ -15,6 +16,7 @@ import { promoteRecoveryAdmin, restoreNodeAccess, withOrgKey, type RecoveryConte
 import type { DriveApi } from "../src/drive-cloud/api";
 
 const dec = new TextDecoder();
+beforeEach(() => setKeyPinStorage(null));
 const eq = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((v, i) => v === b[i]);
 
 interface Store {

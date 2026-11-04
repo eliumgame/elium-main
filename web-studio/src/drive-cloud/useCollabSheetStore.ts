@@ -16,6 +16,7 @@ import * as SM from "./collab-sheet-model";
 import { sortRange as sortRangePure, fillRange as fillRangePure, type Rect } from "../sheet/structural";
 import { renameSheetRefs } from "../sheet/formula";
 import { colorForId } from "./presence-colors";
+import { useCollabNotice } from "./use-collab-notice";
 import type { DriveApi } from "./api";
 import {
   computeViewportSheetSize,
@@ -55,11 +56,13 @@ export function useCollabSheetStore({ api, nodeId, nodeKey, user, refetchKey }: 
   const [undoState, setUndoState] = useState({ canUndo: false, canRedo: false });
 
   const me: CollabUser = useMemo(() => ({ name: user.name, color: colorForId(user.id) }), [user.id, user.name]);
+  const notify = useCollabNotice();
   const [ydoc] = useState(() => new Y.Doc());
   const [provider] = useState(
     () =>
       new EncryptedYjsProvider(api, nodeId, nodeKey, ydoc, me, {
         onStatus: setStatus,
+        onNotice: notify,
         onReady: setCanWrite,
         ...(refetchKey ? { refetchKey } : {}),
       }),
@@ -103,9 +106,10 @@ export function useCollabSheetStore({ api, nodeId, nodeKey, user, refetchKey }: 
       // documents antérieurs au modèle plein. Idempotent.
       if (canWriteRef.current) {
         ydoc.transact(() => {
-          for (const ys of ySheets.toArray()) SM.ensureSheetStructures(ys);
+          for (const ys of ySheets.toArray()) if (ys instanceof Y.Map) SM.ensureSheetStructures(ys);
         });
         for (const ys of ySheets.toArray()) {
+          if (!(ys instanceof Y.Map)) continue;
           const cells = ys.get("cells") as YCells | undefined;
           if (cells) migrateCells(ydoc, cells);
         }
@@ -162,7 +166,7 @@ export function useCollabSheetStore({ api, nodeId, nodeKey, user, refetchKey }: 
     };
   }, [undoMgr]);
 
-  const sheetAt = (s: number): SM.YSheet | undefined => ySheets.get(s);
+  const sheetAt = (s: number): SM.YSheet | undefined => { const v = ySheets.get(s); return v instanceof Y.Map ? v : undefined; };
 
   // ── Mutateurs (chacun une transaction Yjs ciblée sur la feuille `s`) ──────
   const setCell = (s: number, ref: string, raw: string) => {

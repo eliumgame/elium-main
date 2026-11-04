@@ -13,7 +13,9 @@ import { query, queryOne, withTx } from "../db/pool.js";
 import { authenticate, requireUser, requireOrgPerm, requireMembership } from "../middleware/auth.js";
 import { badRequest, notFound, forbidden } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
-import { kickUser } from "../collab/relay.js";
+import { kickUser, kickRoom, notifyOrg } from "../collab/relay.js";
+import { groupRotationSchema, applyGroupKeyRotation, markRequiredNodeRotations } from "../lib/group-rotation.js";
+import { assertFreshPrincipalKeys } from "../lib/key-share-policy.js";
 
 const envelope = z.record(z.string(), z.unknown()); // recipients envelope (opaque JSON)
 
@@ -32,6 +34,7 @@ const createSchema = z.object({
 });
 
 const addMemberSchema = z.object({
+  expectedGroupPublicHex: z.string().regex(/^04[0-9a-f]{128}$/),
   userId: z.string().uuid(),
   wrappedGroupPrivate: envelope,
   isManager: z.boolean().default(false),
@@ -59,6 +62,7 @@ function groupDto(g: Record<string, unknown>, memberCount?: number) {
     description: g.description,
     color: g.color,
     groupPublicHex: g.group_public_hex,
+    rotationRequired: !!g.rotation_required,
     ...(memberCount !== undefined ? { memberCount } : {}),
   };
 }
@@ -110,7 +114,7 @@ export default async function groupRoutes(app: FastifyInstance): Promise<void> {
     await requireOrgPerm(req, orgId, "group.view");
 
     const rows = await query(
-      `SELECT g.id, g.name, g.description, g.color, g.group_public_hex,
+      `SELECT g.id, g.name, g.description, g.color, g.group_public_hex, g.rotation_required,
               COUNT(gm.user_id)::int AS member_count
          FROM groups g
          LEFT JOIN group_members gm ON gm.group_id = g.id
@@ -254,7 +258,9 @@ export default async function groupRoutes(app: FastifyInstance): Promise<void> {
     );
     if (!member) throw badRequest("Cet utilisateur n'appartient pas à cette organisation.");
 
-    const row = await queryOne<{ user_id: string; is_manager: boolean; added_at: string }>(
+    const row = await withTx(async c => {
+      await assertFreshPrincipalKeys(c, orgId, [{ principalType: "group", principalId: groupId, groupPublicHex: b.expectedGroupPublicHex }]);
+      const { rows } = await c.query<{ user_id: string; is_manager: boolean; added_at: string }>(
       `INSERT INTO group_members (group_id, user_id, wrapped_group_private, is_manager)
        VALUES ($1,$2,$3,$4)
        ON CONFLICT (group_id, user_id)
@@ -262,7 +268,9 @@ export default async function groupRoutes(app: FastifyInstance): Promise<void> {
                      is_manager = EXCLUDED.is_manager
        RETURNING user_id, is_manager, added_at`,
       [groupId, b.userId, JSON.stringify(b.wrappedGroupPrivate), b.isManager],
-    );
+      );
+      return rows[0];
+    });
 
     await audit(orgId, user.id, "group.member.add", "group", groupId, { userId: b.userId }, req.ip);
 
@@ -275,24 +283,50 @@ export default async function groupRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
+  app.get("/:orgId/groups/:groupId/rotation-nodes", async req => {
+    const { orgId, groupId } = z.object({ orgId: z.string().uuid(), groupId: z.string().uuid() }).parse(req.params);
+    const ctx = await requireOrgPerm(req, orgId, "group.manage");
+    const user = requireUser(req);
+    const group = await loadGroupInOrg(groupId, orgId);
+    if (!ctx.isOwner) {
+      const manager = await queryOne<{ is_manager: boolean }>(`SELECT is_manager FROM group_members WHERE group_id = $1 AND user_id = $2`, [groupId, user.id]);
+      if (!manager?.is_manager) throw forbidden("Gestionnaire d'équipe requis.");
+    }
+    const rows = await query<{ node_id: string; wrapped_key: unknown; key_epoch: number }>(
+      `SELECT nk.node_id, nk.wrapped_key, n.key_epoch FROM node_keys nk JOIN nodes n ON n.id = nk.node_id
+         WHERE nk.principal_type = 'group' AND nk.principal_id = $1 AND n.org_id = $2 ORDER BY nk.node_id`, [groupId, orgId]);
+    return { groupPublicHex: group.group_public_hex, nodes: rows.map(n => ({ nodeId: n.node_id, wrappedKey: n.wrapped_key, keyEpoch: n.key_epoch })) };
+  });
+
+  app.post("/:orgId/groups/:groupId/rotate", async req => {
+    const { orgId, groupId } = z.object({ orgId: z.string().uuid(), groupId: z.string().uuid() }).parse(req.params);
+    const ctx = await requireOrgPerm(req, orgId, "group.manage");
+    const user = requireUser(req);
+    const b = groupRotationSchema.parse(req.body);
+    const rotationRequiredNodeIds = await withTx(c => applyGroupKeyRotation(c, orgId, groupId, user.id, ctx.isOwner, b));
+    for (const id of rotationRequiredNodeIds) kickRoom(id, "key-rotation-required");
+    notifyOrg(orgId);
+    await audit(orgId, user.id, "group.key.rotate", "group", groupId, {}, req.ip);
+    return { ok: true, rotationRequiredNodeIds };
+  });
+
   // --- Remove a member -----------------------------------------------------
   app.delete("/:orgId/groups/:groupId/members/:userId", async (req) => {
     const { orgId, groupId, userId } = z
       .object({ orgId: z.string().uuid(), groupId: z.string().uuid(), userId: z.string().uuid() })
       .parse(req.params);
-    await requireOrgPerm(req, orgId, "group.manage");
+    const ctx = await requireOrgPerm(req, orgId, "group.manage");
     const user = requireUser(req);
-
-    await loadGroupInOrg(groupId, orgId);
-
-    await query(`DELETE FROM group_members WHERE group_id = $1 AND user_id = $2`, [groupId, userId]);
+    const b = groupRotationSchema.parse(req.body);
+    const rotationRequiredNodeIds = await withTx(c => applyGroupKeyRotation(c, orgId, groupId, user.id, ctx.isOwner, b, userId));
+    for (const id of rotationRequiredNodeIds) kickRoom(id, "key-rotation-required");
     // Un retrait de groupe peut retirer l'accès à des nœuds : coupe ses connexions
     // temps réel plutôt que de les laisser vivre jusqu'à déconnexion naturelle.
     kickUser(userId, "group-member-removed");
 
     await audit(orgId, user.id, "group.member.remove", "group", groupId, { userId }, req.ip);
-
-    return { ok: true };
+    notifyOrg(orgId);
+    return { ok: true, rotationRequiredNodeIds };
   });
 
   // --- Delete a group (members cascade) ------------------------------------
@@ -306,11 +340,20 @@ export default async function groupRoutes(app: FastifyInstance): Promise<void> {
     const members = await query<{ user_id: string }>(`SELECT user_id FROM group_members WHERE group_id = $1`, [
       groupId,
     ]);
-    await query(`DELETE FROM groups WHERE id = $1 AND org_id = $2`, [groupId, orgId]);
+    const rotationRequiredNodeIds = await withTx(async c => {
+      await c.query(`SELECT id FROM organizations WHERE id = $1 FOR SHARE`, [orgId]);
+      await c.query(`SELECT id FROM groups WHERE id = $1 AND org_id = $2 FOR UPDATE`, [groupId, orgId]);
+      const { rows } = await c.query<{ node_id: string }>(`SELECT node_id FROM node_keys WHERE principal_type = 'group' AND principal_id = $1`, [groupId]);
+      const pending = await markRequiredNodeRotations(c, rows.map(r => r.node_id));
+      await c.query(`DELETE FROM node_keys WHERE principal_type = 'group' AND principal_id = $1`, [groupId]);
+      await c.query(`DELETE FROM groups WHERE id = $1 AND org_id = $2`, [groupId, orgId]);
+      return pending;
+    });
     for (const m of members) kickUser(m.user_id, "group-deleted");
+    for (const id of rotationRequiredNodeIds) kickRoom(id, "key-rotation-required");
 
     await audit(orgId, user.id, "group.delete", "group", groupId, {}, req.ip);
 
-    return { ok: true };
+    return { ok: true, rotationRequiredNodeIds };
   });
 }

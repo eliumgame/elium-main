@@ -6,7 +6,7 @@
  * substituer sa propre clé. Sans infrastructure de certification, on applique le modèle SSH/Signal :
  *   - la première clé vue pour une identité est mémorisée localement (épinglée) ;
  *   - si le serveur en présente ensuite une AUTRE, une alerte visible est levée (l'utilisateur
- *     compare l'empreinte hors bande puis confirme), sans bloquer le parcours en cours ;
+ *     compare l'empreinte hors bande puis confirme), et tout emballage est bloqué ;
  *   - l'empreinte (mots de sécurité) est affichable pour une vérification de vive voix.
  *
  * Les rotations LÉGITIMES faites depuis ce navigateur (clé d'équipe, clé d'organisation) mettent
@@ -57,7 +57,9 @@ const listeners = new Set<(alerts: KeyPinAlert[]) => void>();
 export function setKeyPinStorage(s: KeyPinStorage | null): void {
   storage = s ?? memoryStorage();
   alerts.clear();
+  notices.clear();
   emit();
+  emitNotices();
 }
 
 const pinId = (kind: PinKind, id: string) => `${kind}:${id}`;
@@ -131,12 +133,109 @@ export function checkKeyPin(
   return { status: "changed", pinnedHex: pinned };
 }
 
+/** Destinataire vu pour la PREMIÈRE fois (épinglé sans vérification d'empreinte) : signalé à l'utilisateur. */
+export interface KeyPinNotice {
+  kind: PinKind;
+  id: string;
+  label?: string;
+  publicHex: string;
+  at: number;
+}
+
+const notices = new Map<string, KeyPinNotice>();
+const noticeListeners = new Set<(notices: KeyPinNotice[]) => void>();
+
+function emitNotices(): void {
+  const list = [...notices.values()];
+  for (const l of noticeListeners) {
+    try {
+      l(list);
+    } catch {
+      /* un écouteur défaillant n'empêche pas les autres */
+    }
+  }
+}
+
+export function keyPinNotices(): KeyPinNotice[] {
+  return [...notices.values()];
+}
+
+export function onKeyPinNotices(fn: (notices: KeyPinNotice[]) => void): () => void {
+  noticeListeners.add(fn);
+  return () => void noticeListeners.delete(fn);
+}
+
+/** Ferme l'avis (vérifié ou ignoré par l'utilisateur) ; l'épingle reste. */
+export function dismissKeyPinNotice(kind: PinKind, id: string): void {
+  if (notices.delete(pinId(kind, id))) emitNotices();
+}
+
+/** `true` si une clé est déjà épinglée pour cette identité. */
+export function isKeyPinned(kind: PinKind, id: string): boolean {
+  return !!readPins()[pinId(kind, id)];
+}
+
+const PUBLIC_HEX = /^(04[0-9a-f]{128}|0[23][0-9a-f]{64})$/i;
+
+/**
+ * No key material may be sent to a changed recipient until explicitly verified.
+ * Une clé JAMAIS vue est épinglée (confiance au premier usage) ET signalée par un avis visible
+ * (`keyPinNotices`) plutôt qu'acceptée en silence ; `notifyNew: false` pour les appelants qui l'ont déjà fait.
+ */
+export function requireKeyPin(
+  kind: PinKind,
+  id: string,
+  publicHex: string,
+  label?: string,
+  opts: { notifyNew?: boolean } = {},
+): void {
+  if (!PUBLIC_HEX.test(publicHex)) throw new Error("Clé publique Drive invalide.");
+  const status = checkKeyPin(kind, id, publicHex, label).status;
+  if (status === "changed")
+    throw new Error(
+      `Clé ${PIN_KIND_LABEL[kind]} modifiée (${label ?? id}). Vérifiez les mots de sécurité dans Sécurité avant de continuer.`,
+    );
+  if (status === "new" && opts.notifyNew !== false) {
+    notices.set(pinId(kind, id), { kind, id, ...(label ? { label } : {}), publicHex: norm(publicHex), at: Date.now() });
+    emitNotices();
+  }
+}
+
+export interface FirstUseFingerprint {
+  kind: PinKind;
+  id: string;
+  label?: string;
+  words: string;
+  grouped: string;
+}
+
+/**
+ * Partage direct vers une personne jamais épinglée : l'empreinte doit être confirmée (hors bande) avant
+ * d'emballer la moindre clé. `confirm` est une boîte de dialogue ANNULABLE (refus = erreur, pas de blocage
+ * définitif : on peut réessayer). Sans `confirm` (appel non interactif), repli sur épinglage + avis visible.
+ */
+export async function requireKeyPinConfirmed(
+  kind: PinKind,
+  id: string,
+  publicHex: string,
+  label?: string,
+  confirm?: (fp: FirstUseFingerprint) => Promise<boolean>,
+): Promise<void> {
+  if (!PUBLIC_HEX.test(publicHex)) throw new Error("Clé publique Drive invalide.");
+  if (isKeyPinned(kind, id) || !confirm) return requireKeyPin(kind, id, publicHex, label);
+  const fp = await keyFingerprint(publicHex);
+  if (!(await confirm({ kind, id, ...(label ? { label } : {}), words: fp.words, grouped: fp.grouped })))
+    throw new Error(`Partage annulé : l'empreinte ${PIN_KIND_LABEL[kind]} (${label ?? id}) n'a pas été confirmée.`);
+  pinKey(kind, id, publicHex);
+}
+
 /** Épingle (ou ré-épingle) explicitement une clé : rotation légitime faite ici, ou confirmation. */
 export function pinKey(kind: PinKind, id: string, publicHex: string): void {
   const pins = readPins();
   pins[pinId(kind, id)] = norm(publicHex);
   writePins(pins);
   if (alerts.delete(pinId(kind, id))) emit();
+  if (notices.delete(pinId(kind, id))) emitNotices();
 }
 
 /** L'utilisateur a vérifié la nouvelle empreinte hors bande : on l'adopte. */

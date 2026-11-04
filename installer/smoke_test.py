@@ -97,6 +97,8 @@ def csp_problems(csp: str | None) -> list[str]:
         problems.append(f"script-src autorise autre chose que 'self' / 'wasm-unsafe-eval' ({script})")
     if directives.get("object-src") != ["'none'"]:
         problems.append("object-src devrait valoir 'none'")
+    if directives.get("form-action") != ["'none'"]:
+        problems.append("form-action devrait valoir 'none'")
     for name, tokens in directives.items():
         if any(t.startswith(("http:", "https:")) or t == "*" for t in tokens):
             problems.append(f"{name} autorise une origine réseau ({tokens})")

@@ -6,7 +6,7 @@
  * token. Prend en charge les `.elium` (preuve Ed25519) ET les PDF (PAdES,
  * certificat auto-signé). Le signataire peut aussi refuser.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Cloud,
   PenLine,
@@ -19,8 +19,8 @@ import {
   Lock,
 } from "lucide-react";
 import "../drive-cloud.css";
-import { DriveApi } from "../api";
-import { openSignLink, submitSignedElium } from "../ops";
+import { DriveApi, type ContentSnapshot } from "../api";
+import { openSignLink, submitSignedElium, isStaleContentError, STALE_SIGN_NOTICE } from "../ops";
 import { readEliumPackage, writeEliumPackage, EliumPasswordRequired } from "../../format/elium-package";
 import { addSignature, extractText, markPartySigned } from "../../format/document";
 import { createProof } from "../../sign/proof";
@@ -82,6 +82,7 @@ export default function SignLinkView({
   onHome: () => void;
 }) {
   const [state, setState] = useState<State>({ phase: "loading" });
+  const snapshot = useRef<ContentSnapshot>();
   const [name, setName] = useState("");
   const [role, setRole] = useState("");
   const [err, setErr] = useState<string | null>(null);
@@ -102,14 +103,21 @@ export default function SignLinkView({
     [name],
   );
 
-  useEffect(() => {
-    (async () => {
+  // Ouverture du lien (et rechargement de la dernière version après un 409 de contenu de base).
+  const load = useCallback(async (notice?: string) => {
+    {
       try {
         const params = new URLSearchParams(location.hash.replace(/^#/, ""));
         const [priv, pub] = (params.get("k") ?? "").split(".");
         if (!priv || !pub) throw new Error("Lien incomplet : secret de déchiffrement manquant.");
         const api = new DriveApi();
         const opened = await openSignLink(api, token, priv, pub);
+        snapshot.current = { baseVersionId: opened.baseVersionId, keyEpoch: opened.keyEpoch };
+        if (notice) {
+          // Le signataire doit relire la nouvelle version : jamais de re-signature automatique.
+          setErr(notice);
+          setPwdErr(notice);
+        }
         if (opened.kind !== "file" || !opened.hasContent)
           throw new Error("Ce lien ne pointe pas vers un document signable.");
         if (isPdf(opened.bytes)) {
@@ -150,8 +158,12 @@ export default function SignLinkView({
       } catch (e) {
         setState({ phase: "error", message: e instanceof Error ? e.message : "Lien introuvable, révoqué ou expiré." });
       }
-    })();
+    }
   }, [token]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   const submitPassword = async () => {
     if (state.phase !== "password" || !pwd) return;
@@ -185,6 +197,7 @@ export default function SignLinkView({
     try {
       const api = new DriveApi();
       if (doc.docType === "elium") {
+        doc.file = { ...doc.file, manifest: { ...doc.file.manifest, docId: doc.file.manifest.docId || crypto.randomUUID() } };
         // Identité Ed25519 à la volée — aucune inscription requise.
         const id = await generateIdentity();
         const sigId = randomId("sig");
@@ -203,6 +216,7 @@ export default function SignLinkView({
         const proof = await createProof({
           signatureId: sigId,
           model: doc.file.document,
+          docId: doc.file.manifest.docId,
           signer,
           privateKeyHex: id.privateKeyHex!,
           placement,
@@ -241,9 +255,9 @@ export default function SignLinkView({
         // (encrypted profile, no keyfile) that readEliumPackage() did when
         // opening it — omitting it here made signing a password-protected
         // document via a link fail every time with EliumPasswordRequired.
-        const signedBytes = await writeEliumPackage(nf, { sealPrivateKeyHex: id.privateKeyHex!, password: pwd });
+        const signedBytes = await writeEliumPackage(nf, { carryForwardSeal: doc.file.manifest.seal, password: pwd });
         const fpr = await fingerprintOf(id.publicKeyHex);
-        await submitSignedElium(api, token, doc.nodeKey, signedBytes, fpr);
+        await submitSignedElium(api, token, doc.nodeKey, signedBytes, fpr, snapshot.current);
         setState({ phase: "done", title: doc.title, words: fingerprintWords(fpr) });
       } else {
         // PDF → PAdES avec un certificat auto-signé généré à la volée (RSA-2048,
@@ -267,10 +281,17 @@ export default function SignLinkView({
           reason: role.trim() ? `Signé — ${role.trim()}` : "Signé via Elium",
           visible,
         });
-        await submitSignedElium(api, token, doc.nodeKey, signed);
+        await submitSignedElium(api, token, doc.nodeKey, signed, undefined, snapshot.current);
         setState({ phase: "done", title: doc.title });
       }
     } catch (e) {
+      if (isStaleContentError(e)) {
+        // Le document a changé depuis l'ouverture du lien : on recharge la dernière version
+        // (même chemin que l'ouverture) et on laisse le signataire la relire avant de resigner.
+        setState({ phase: "busy", label: "Rechargement…" });
+        await load(STALE_SIGN_NOTICE);
+        return;
+      }
       setState({ phase: "ready", doc });
       setErr(e instanceof Error ? e.message : "Échec de l'envoi de la signature.");
     }

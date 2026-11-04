@@ -40,12 +40,12 @@ vi.mock("../src/middleware/auth.js", () => ({
 
 vi.mock("../src/lib/audit.js", () => ({ audit: vi.fn(async () => {}) }));
 
-vi.mock("../src/collab/relay.js", () => ({ kickUser: vi.fn() }));
+vi.mock("../src/collab/relay.js", () => ({ kickUser: vi.fn(), kickRoom: vi.fn(), notifyOrg: vi.fn() }));
 
 import { query, queryOne, withTx } from "../src/db/pool.js";
 import { requireOrgPerm } from "../src/middleware/auth.js";
 import { audit } from "../src/lib/audit.js";
-import { kickUser } from "../src/collab/relay.js";
+import { kickUser, kickRoom } from "../src/collab/relay.js";
 import { ApiError } from "../src/lib/errors.js";
 import groupRoutes from "../src/routes/groups.js";
 
@@ -55,17 +55,20 @@ const mWithTx = vi.mocked(withTx);
 const mRequireOrgPerm = vi.mocked(requireOrgPerm);
 const mAudit = vi.mocked(audit);
 const mKickUser = vi.mocked(kickUser);
+const mKickRoom = vi.mocked(kickRoom);
+const NODE_A = "00000000-0000-4000-8000-0000000000e1";
+const NEW_GROUP_HEX = "04" + "2".repeat(128);
 
 async function makeApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof ApiError) {
-      return reply.status(err.statusCode).send({ error: { code: err.code, message: err.message } });
+      return reply.status(err.statusCode).send({ error: { code: err.code, message: err instanceof Error ? err.message : String(err) } });
     }
     if (err instanceof ZodError) {
       return reply.status(400).send({ error: { code: "bad_request", message: "validation" } });
     }
-    return reply.status(500).send({ error: { code: "internal", message: err.message } });
+    return reply.status(500).send({ error: { code: "internal", message: err instanceof Error ? err.message : String(err) } });
   });
   await app.register(groupRoutes, { prefix: "/api/orgs" });
   await app.ready();
@@ -275,37 +278,73 @@ describe("GET /api/orgs/:orgId/groups/:groupId", () => {
 });
 
 describe("POST /api/orgs/:orgId/groups/:groupId/members", () => {
-  const payload = { userId: OTHER_USER, wrappedGroupPrivate: { c: "x" }, isManager: false };
+  const payload = { expectedGroupPublicHex: GROUP_PUBLIC_HEX, userId: OTHER_USER, wrappedGroupPrivate: { c: "x" }, isManager: false };
+  const groupRow = { id: GROUP, org_id: ORG, name: "g", description: "", color: "#0ea5e9", group_public_hex: GROUP_PUBLIC_HEX, created_at: "t" };
 
   it("refuses self-enrollment by an organization manager outside the group", async () => {
-    mQueryOne.mockResolvedValueOnce({ id: GROUP, org_id: ORG }).mockResolvedValueOnce(null);
+    mQueryOne.mockResolvedValueOnce(groupRow).mockResolvedValueOnce(null); // loadGroupInOrg, caller is not a group manager
     const app = await makeApp();
     const res = await app.inject({
       method: "POST", url: `/api/orgs/${ORG}/groups/${GROUP}/members`,
       payload: { ...payload, userId: USER, isManager: true },
     });
     expect(res.statusCode).toBe(403);
-    expect(mQueryOne.mock.calls.some(([sql]) => /INSERT INTO group_members/.test(sql))).toBe(false);
+    expect(mWithTx).not.toHaveBeenCalled();
     await app.close();
   });
 
-  it("adds (upserts) a member and returns their record", async () => {
+  it("400 when expectedGroupPublicHex is missing", async () => {
+    const app = await makeApp();
+    const withoutKey: Record<string, unknown> = { ...payload };
+    delete withoutKey.expectedGroupPublicHex;
+    const res = await app.inject({ method: "POST", url: `/api/orgs/${ORG}/groups/${GROUP}/members`, payload: withoutKey });
+    expect(res.statusCode).toBe(400);
+    expect(mWithTx).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it("adds (upserts) a member after checking the group key is fresh, and returns their record", async () => {
     mQueryOne
-      .mockResolvedValueOnce({ id: GROUP, org_id: ORG, name: "g", description: "", color: "#0ea5e9", group_public_hex: GROUP_PUBLIC_HEX, created_at: "t" }) // loadGroupInOrg
+      .mockResolvedValueOnce(groupRow) // loadGroupInOrg
       .mockResolvedValueOnce({ is_manager: true }) // caller manages this group
-      .mockResolvedValueOnce({ user_id: OTHER_USER }) // active-membership check
-      .mockResolvedValueOnce({ user_id: OTHER_USER, is_manager: false, added_at: "t2" }); // upsert RETURNING
+      .mockResolvedValueOnce({ user_id: OTHER_USER }); // active-membership check
+    const sqls: string[] = [];
+    mWithTx.mockImplementation(
+      txDispatch([
+        [/FROM organizations/, () => ({ rows: [{ org_key_epoch: 1, rotation_required: false }] })],
+        [/FROM groups WHERE id/, () => ({ rows: [{ group_public_hex: GROUP_PUBLIC_HEX, rotation_required: false }] })],
+        [/INSERT INTO group_members/, () => ({ rows: [{ user_id: OTHER_USER, is_manager: false, added_at: "t2" }] })],
+      ], sqls) as never,
+    );
     const app = await makeApp();
     const res = await app.inject({ method: "POST", url: `/api/orgs/${ORG}/groups/${GROUP}/members`, payload });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ member: { userId: OTHER_USER, isManager: false, addedAt: "t2" } });
+    expect(sqls.findIndex((q) => /FROM groups WHERE id/.test(q))).toBeLessThan(sqls.findIndex((q) => /INSERT INTO group_members/.test(q)));
     expect(mAudit).toHaveBeenCalledWith(ORG, USER, "group.member.add", "group", GROUP, { userId: OTHER_USER }, expect.any(String));
+    await app.close();
+  });
+
+  it("409 when the group key changed since the client read it (nothing is inserted)", async () => {
+    mQueryOne.mockResolvedValueOnce(groupRow).mockResolvedValueOnce({ is_manager: true }).mockResolvedValueOnce({ user_id: OTHER_USER });
+    const sqls: string[] = [];
+    mWithTx.mockImplementation(
+      txDispatch([
+        [/FROM organizations/, () => ({ rows: [{ org_key_epoch: 1, rotation_required: false }] })],
+        [/FROM groups WHERE id/, () => ({ rows: [{ group_public_hex: NEW_GROUP_HEX, rotation_required: false }] })],
+      ], sqls) as never,
+    );
+    const app = await makeApp();
+    const res = await app.inject({ method: "POST", url: `/api/orgs/${ORG}/groups/${GROUP}/members`, payload });
+    expect(res.statusCode).toBe(409);
+    expect(sqls.some((q) => /INSERT INTO group_members/.test(q))).toBe(false);
+    expect(mAudit).not.toHaveBeenCalled();
     await app.close();
   });
 
   it("400 when the target user isn't an active member of the org", async () => {
     mQueryOne
-      .mockResolvedValueOnce({ id: GROUP, org_id: ORG, name: "g", description: "", color: "#0ea5e9", group_public_hex: GROUP_PUBLIC_HEX, created_at: "t" })
+      .mockResolvedValueOnce(groupRow)
       .mockResolvedValueOnce({ is_manager: true })
       .mockResolvedValueOnce(null); // not an active member
     const app = await makeApp();
@@ -332,22 +371,68 @@ describe("POST /api/orgs/:orgId/groups/:groupId/members", () => {
 });
 
 describe("DELETE /api/orgs/:orgId/groups/:groupId/members/:userId", () => {
-  it("removes the member (idempotent — no existence check on the membership row)", async () => {
-    mQueryOne.mockResolvedValueOnce({ id: GROUP, org_id: ORG, name: "g", description: "", color: "#0ea5e9", group_public_hex: GROUP_PUBLIC_HEX, created_at: "t" });
+  // Removing a member now rotates the team key: the body carries the new key, the re-wrapped
+  // private key for each remaining member and the re-wrapped CEK of every node shared to the team.
+  const rotation = {
+    expectedGroupPublicHex: GROUP_PUBLIC_HEX,
+    groupPublicHex: NEW_GROUP_HEX,
+    members: [{ userId: USER, wrappedGroupPrivate: { c: "new" } }],
+    nodeKeys: [] as Array<{ nodeId: string; wrappedKey: Record<string, unknown>; keyEpoch: number }>,
+  };
+  const membersRows = [{ user_id: USER, is_manager: true }, { user_id: OTHER_USER, is_manager: false }];
+
+  it("removes the member, rotates the key, and kicks their live connections", async () => {
+    const sqls: string[] = [];
+    mWithTx.mockImplementation(
+      txDispatch([
+        [/FROM groups WHERE id/, () => ({ rows: [{ group_public_hex: GROUP_PUBLIC_HEX }] })],
+        [/FROM group_members WHERE group_id/, () => ({ rows: membersRows })],
+      ], sqls) as never,
+    );
     const app = await makeApp();
-    const res = await app.inject({ method: "DELETE", url: `/api/orgs/${ORG}/groups/${GROUP}/members/${OTHER_USER}` });
+    const res = await app.inject({ method: "DELETE", url: `/api/orgs/${ORG}/groups/${GROUP}/members/${OTHER_USER}`, payload: rotation });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ ok: true });
-    expect(mQuery).toHaveBeenCalledWith(expect.stringMatching(/DELETE FROM group_members/), [GROUP, OTHER_USER]);
+    expect(res.json()).toEqual({ ok: true, rotationRequiredNodeIds: [] });
+    expect(sqls.some((q) => /DELETE FROM group_members/.test(q))).toBe(true);
+    expect(sqls.some((q) => /UPDATE groups SET group_public_hex/.test(q))).toBe(true);
     expect(mAudit).toHaveBeenCalledWith(ORG, USER, "group.member.remove", "group", GROUP, { userId: OTHER_USER }, expect.any(String));
     expect(mKickUser).toHaveBeenCalledWith(OTHER_USER, "group-member-removed");
     await app.close();
   });
 
-  it("404 when the group doesn't exist in this org", async () => {
-    mQueryOne.mockResolvedValueOnce(null);
+  it("kicks the rooms of nodes that now require a key rotation", async () => {
+    mWithTx.mockImplementation(
+      txDispatch([
+        [/FROM groups WHERE id/, () => ({ rows: [{ group_public_hex: GROUP_PUBLIC_HEX }] })],
+        [/FROM group_members WHERE group_id/, () => ({ rows: membersRows })],
+        [/FROM node_keys nk/, () => ({ rows: [{ node_id: NODE_A, key_epoch: 1 }] })],
+        [/WITH RECURSIVE/, () => ({ rows: [{ id: NODE_A }] })],
+      ]) as never,
+    );
+    const app = await makeApp();
+    const res = await app.inject({
+      method: "DELETE", url: `/api/orgs/${ORG}/groups/${GROUP}/members/${OTHER_USER}`,
+      payload: { ...rotation, nodeKeys: [{ nodeId: NODE_A, wrappedKey: { c: "k" }, keyEpoch: 1 }] },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().rotationRequiredNodeIds).toEqual([NODE_A]);
+    expect(mKickRoom).toHaveBeenCalledWith(NODE_A, "key-rotation-required");
+    await app.close();
+  });
+
+  it("400 when the body carries no rotation material", async () => {
     const app = await makeApp();
     const res = await app.inject({ method: "DELETE", url: `/api/orgs/${ORG}/groups/${GROUP}/members/${OTHER_USER}` });
+    expect(res.statusCode).toBe(400);
+    expect(mWithTx).not.toHaveBeenCalled();
+    expect(mKickUser).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it("404 when the group doesn't exist in this org", async () => {
+    mWithTx.mockImplementation(txDispatch([]) as never); // group row not found
+    const app = await makeApp();
+    const res = await app.inject({ method: "DELETE", url: `/api/orgs/${ORG}/groups/${GROUP}/members/${OTHER_USER}`, payload: rotation });
     expect(res.statusCode).toBe(404);
     await app.close();
   });
@@ -355,27 +440,49 @@ describe("DELETE /api/orgs/:orgId/groups/:groupId/members/:userId", () => {
   it("403 when the caller lacks group.manage", async () => {
     mRequireOrgPerm.mockRejectedValueOnce(new ApiError(403, "forbidden", "Permission requise : group.manage."));
     const app = await makeApp();
-    const res = await app.inject({ method: "DELETE", url: `/api/orgs/${ORG}/groups/${GROUP}/members/${OTHER_USER}` });
+    const res = await app.inject({ method: "DELETE", url: `/api/orgs/${ORG}/groups/${GROUP}/members/${OTHER_USER}`, payload: rotation });
     expect(res.statusCode).toBe(403);
     await app.close();
   });
 });
 
 describe("DELETE /api/orgs/:orgId/groups/:groupId", () => {
-  it("deletes the group", async () => {
-    mQueryOne.mockResolvedValueOnce({ id: GROUP, org_id: ORG, name: "g", description: "", color: "#0ea5e9", group_public_hex: GROUP_PUBLIC_HEX, created_at: "t" });
+  const groupRow = { id: GROUP, org_id: ORG, name: "g", description: "", color: "#0ea5e9", group_public_hex: GROUP_PUBLIC_HEX, created_at: "t" };
+
+  it("deletes the group and reports no node to rotate when it had no node key", async () => {
+    mQueryOne.mockResolvedValueOnce(groupRow);
+    const sqls: string[] = [];
+    mWithTx.mockImplementation(txDispatch([], sqls) as never);
     const app = await makeApp();
     const res = await app.inject({ method: "DELETE", url: `/api/orgs/${ORG}/groups/${GROUP}` });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ ok: true });
-    expect(mQuery).toHaveBeenCalledWith(expect.stringMatching(/DELETE FROM groups/), [GROUP, ORG]);
+    expect(res.json()).toEqual({ ok: true, rotationRequiredNodeIds: [] });
+    expect(sqls.some((q) => /DELETE FROM groups/.test(q))).toBe(true);
     expect(mAudit).toHaveBeenCalledWith(ORG, USER, "group.delete", "group", GROUP, {}, expect.any(String));
     await app.close();
   });
 
+  it("flags the nodes shared to the group as requiring rotation and kicks their rooms", async () => {
+    mQueryOne.mockResolvedValueOnce(groupRow);
+    mWithTx.mockImplementation(
+      txDispatch([
+        [/SELECT node_id FROM node_keys/, () => ({ rows: [{ node_id: NODE_A }] })],
+        [/WITH RECURSIVE/, () => ({ rows: [{ id: NODE_A }, { id: "child" }] })],
+      ]) as never,
+    );
+    const app = await makeApp();
+    const res = await app.inject({ method: "DELETE", url: `/api/orgs/${ORG}/groups/${GROUP}` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().rotationRequiredNodeIds).toEqual([NODE_A, "child"]);
+    expect(mKickRoom).toHaveBeenCalledWith(NODE_A, "key-rotation-required");
+    expect(mKickRoom).toHaveBeenCalledWith("child", "key-rotation-required");
+    await app.close();
+  });
+
   it("kicks every member's live connections when the group is deleted", async () => {
-    mQueryOne.mockResolvedValueOnce({ id: GROUP, org_id: ORG, name: "g", description: "", color: "#0ea5e9", group_public_hex: GROUP_PUBLIC_HEX, created_at: "t" });
+    mQueryOne.mockResolvedValueOnce(groupRow);
     mQuery.mockResolvedValueOnce([{ user_id: USER }, { user_id: OTHER_USER }] as never);
+    mWithTx.mockImplementation(txDispatch([]) as never);
     const app = await makeApp();
     const res = await app.inject({ method: "DELETE", url: `/api/orgs/${ORG}/groups/${GROUP}` });
     expect(res.statusCode).toBe(200);

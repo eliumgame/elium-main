@@ -76,6 +76,7 @@ def test_ecmascript_number_formatting():
 
 def test_legacy_python_float_evidence_remains_verifiable():
     from unittest.mock import patch
+
     from elium.format.canonical import legacy_python_json
     from elium.format.document import create_document_model, text_to_doc
     from elium.format.journal import append_event, empty_journal, verify_journal

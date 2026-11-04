@@ -32,7 +32,7 @@ async function source(): Promise<Uint8Array> {
 }
 
 async function text(bytes: Uint8Array): Promise<string> {
-  const task = pdfjsLib.getDocument({ data: bytes.slice(), isEvalSupported: false });
+  const task = pdfjsLib.getDocument({ data: bytes.slice() });
   const doc = await task.promise;
   const page = await doc.getPage(1);
   const tc = await page.getTextContent();

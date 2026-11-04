@@ -41,7 +41,7 @@ async function source(rotations: number[], dirty = false): Promise<Uint8Array> {
 }
 
 async function seenText(bytes: Uint8Array) {
-  const pdf = await pdfjsLib.getDocument({ data: bytes.slice(), isEvalSupported: false }).promise;
+  const pdf = await pdfjsLib.getDocument({ data: bytes.slice() }).promise;
   const out: { page: number; str: string; x: number; y: number; w: number; h: number; m: number[] }[] = [];
   for (let n = 1; n <= pdf.numPages; n++) {
     const page = await pdf.getPage(n);

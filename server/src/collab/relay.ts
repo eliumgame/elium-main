@@ -7,6 +7,7 @@
  * under the node key.
  */
 import type { FastifyInstance, FastifyRequest } from "fastify";
+import { randomUUID } from "node:crypto";
 import { query, queryOne, withTx } from "../db/pool.js";
 import { verifyAccessToken } from "../lib/tokens.js";
 import { issueWsTicket, consumeWsTicket } from "../lib/ws-tickets.js";
@@ -108,6 +109,7 @@ interface Peer {
   userId: string;
   orgId: string;
   canWrite: boolean;
+  keyEpoch: number;
   // Fenêtre glissante 1 s pour le plafond de débit par connexion (anti-flood).
   msgCount: number;
   windowStart: number;
@@ -427,6 +429,9 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
       socket.close(1008, "forbidden");
       return;
     }
+    const keyState = await queryOne<{ key_epoch: number; key_rotation_required: boolean }>(
+      `SELECT key_epoch, key_rotation_required FROM nodes WHERE id = $1`, [nodeId]);
+    if (!keyState) { socket.close(1008, "forbidden"); return; }
     // Le client a pu partir pendant les requêtes d'admission : ne rien enregistrer.
     if (life.closed) return;
 
@@ -442,7 +447,8 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
       socket,
       userId: claims.sub,
       orgId: access.orgId,
-      canWrite: access.permissions.has("node.edit"),
+      canWrite: access.permissions.has("node.edit") && !keyState.key_rotation_required,
+      keyEpoch: keyState.key_epoch,
       msgCount: 0,
       windowStart: Date.now(),
     };
@@ -453,7 +459,7 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
     }
     room.add(peer);
     try {
-      socket.send(JSON.stringify({ type: "ready", canWrite: peer.canWrite }));
+      socket.send(JSON.stringify({ type: "ready", canWrite: peer.canWrite, keyEpoch: peer.keyEpoch }));
     } catch {
       /* ignore */
     }
@@ -468,6 +474,7 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
       publishRelay({ k: "bcast", nodeId, message: joinMsg });
     }
 
+    const peerId = randomUUID(); // relay-issued namespace; a payload cannot impersonate another socket
     socket.on("message", (raw: unknown) => {
       void (async () => {
         // Plafond de débit par connexion (fenêtre glissante 1 s). Un pair qui
@@ -558,10 +565,17 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
           }
           try {
             const inserted = await queryOne<{ id: number }>(
-              `INSERT INTO collab_updates (node_id, update_ciphertext, update_nonce, author_user_id)
-               VALUES ($1, $2, $3, $4) RETURNING id`,
-              [nodeId, Buffer.from(ct, "hex"), Buffer.from(nonce, "hex"), peer.userId],
+              `WITH current_node AS (
+                 SELECT id FROM nodes WHERE id = $1 AND NOT key_rotation_required AND key_epoch = $5 FOR SHARE
+               ) INSERT INTO collab_updates (node_id, update_ciphertext, update_nonce, author_user_id)
+                 SELECT id, $2, $3, $4 FROM current_node RETURNING id`,
+              [nodeId, Buffer.from(ct, "hex"), Buffer.from(nonce, "hex"), peer.userId, peer.keyEpoch],
             );
+            if (!inserted) {
+              reject("key_rotation_required", nonce);
+              socket.close(4001, "key-rotation-required");
+              return;
+            }
             recordCollabBytes(peer.orgId, bytes);
             const upd = {
               type: "update",
@@ -590,7 +604,7 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
           if (payload && typeof payload.u === "string" && payload.u.length > MAX_AWARENESS_CHARS) return;
           // Le plafond doit couvrir TOUT le message, pas seulement `u` (autres champs = amplification).
           if (text.length > MAX_AWARENESS_CHARS + 1024) return;
-          const awMsg = { type: "awareness", from: peer.userId, payload: msg.payload };
+          const awMsg = { type: "awareness", from: peer.userId, peerId, payload: msg.payload };
           broadcast(nodeId, peer, awMsg);
           publishRelay({ k: "bcast", nodeId, message: awMsg });
         }

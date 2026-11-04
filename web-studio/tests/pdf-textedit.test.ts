@@ -67,7 +67,7 @@ describe("textedit — image edits", () => {
     expect(places[1].ctm[0]).toBeCloseTo(40, 5); // width 40
     expect(places[1].ctm[3]).toBeCloseTo(40, 5); // height 40
     // Its XObject name now resolves to the new embedded image, not the original.
-    const xobjects = page.node.Resources().lookup(PDFName.of("XObject"));
+    const xobjects = page.node.Resources()!.lookup(PDFName.of("XObject"));
     expect(xobjects).toBeTruthy();
   });
 

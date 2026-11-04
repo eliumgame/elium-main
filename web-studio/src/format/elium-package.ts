@@ -468,6 +468,9 @@ export async function readEliumPackage(blob: Uint8Array, opts: WriteOptions = {}
   const useRecipients = !!manifest.protection.recipients?.length;
   let document: EliumFile["document"];
   let envelope: SecureEnvelope | null = null;
+  // En-tête v3 authentifié : source de vérité du « fichier-clé requis » (les anciens
+  // fichiers ont `keyfileRequired:false` dans le manifeste alors que l'en-tête dit true).
+  let headerKeyfileRequired = false;
   if (manifest.protection.encrypted) {
     let payloadBytes: Uint8Array;
     if (useRecipients) {
@@ -481,13 +484,14 @@ export async function readEliumPackage(blob: Uint8Array, opts: WriteOptions = {}
           : await decryptWithAnyKey(contentBytes, keys);
     } else {
       if (!opts.password && !opts.keyfile) throw new EliumPasswordRequired();
-      const { payload } = await EliumCryptoEngine.decodeContainer(
+      const { payload, header } = await EliumCryptoEngine.decodeContainer(
         contentBytes,
         opts.password ?? "",
         undefined,
         opts.keyfile,
       );
       payloadBytes = payload;
+      headerKeyfileRequired = !!header?.flags?.keyfile_required;
     }
     const parsed = safeJsonParse<any>(payloadBytes, "contenu");
     if (secure) {
@@ -548,7 +552,14 @@ export async function readEliumPackage(blob: Uint8Array, opts: WriteOptions = {}
   const signatures = envelope ? (envelope.signatures ?? []) : clearSignatures;
   const journal = envelope ? (envelope.journal ?? emptyJournal()) : clearJournal;
   const parapheur = envelope ? envelope.parapheur : clearParapheur;
-  const effectiveManifest = envelope ? { ...manifest, title: envelope.title } : manifest;
+  let effectiveManifest = envelope ? { ...manifest, title: envelope.title } : manifest;
+  if (headerKeyfileRequired && !effectiveManifest.protection.keyfileRequired) {
+    // Recalé APRÈS la vérification du sceau (qui porte sur le manifeste d'origine).
+    effectiveManifest = {
+      ...effectiveManifest,
+      protection: { ...effectiveManifest.protection, keyfileRequired: true },
+    };
+  }
 
   return {
     file: { manifest: effectiveManifest, document, signatures, resources, resourceIndex, journal, parapheur },

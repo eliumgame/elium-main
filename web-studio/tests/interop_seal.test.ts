@@ -53,7 +53,7 @@ describe.skipIf(!PYTHON_EXEC)("cross-language interop — seal / journal / proof
     const proof = await createProof({ signatureId: "exponents", model: file.document,
       signer: { name: "Bob" }, privateKeyHex: id.privateKeyHex!, placement });
     file.signatures = [{ id: "exponents", kind: "typed", signer: { name: "Bob" }, placement,
-      proof, level: "advanced", createdAt: proof.signedAt }];
+      proof, visual: { text: "Bob" }, level: "advanced", createdAt: proof.signedAt }];
     const fromWeb = await writeEliumPackage(file, { sealPrivateKeyHex: id.privateKeyHex });
     const result = pyJson(["doc-decode-verify", "-", id.publicKeyHex, "-"], Buffer.from(fromWeb));
     expect(result.seal).toBe("valid");

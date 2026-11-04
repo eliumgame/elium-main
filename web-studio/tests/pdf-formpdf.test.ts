@@ -111,7 +111,7 @@ function stateWith(values: Record<string, FormValue>, pages = 1): PdfState {
 }
 
 async function openJs(bytes: Uint8Array) {
-  const task = pdfjsLib.getDocument({ data: bytes.slice(), isEvalSupported: false, standardFontDataUrl: STD_FONTS });
+  const task = pdfjsLib.getDocument({ data: bytes.slice(), standardFontDataUrl: STD_FONTS });
   const doc = await task.promise;
   return Object.assign(doc, { destroy: () => task.destroy() });
 }

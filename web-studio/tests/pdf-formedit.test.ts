@@ -33,7 +33,7 @@ type Ann = {
 };
 
 async function inspect(bytes: Uint8Array) {
-  const task = pdfjsLib.getDocument({ data: bytes.slice(), isEvalSupported: false });
+  const task = pdfjsLib.getDocument({ data: bytes.slice() });
   const doc = await task.promise;
   const page = await doc.getPage(1);
   const anns = ((await page.getAnnotations()) as Ann[]).filter((a) => a.fieldName);

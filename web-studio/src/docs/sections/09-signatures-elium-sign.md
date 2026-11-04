@@ -245,9 +245,13 @@ commande : `elium keys` ».
 - **Pas d'anti-rollback.** Une ancienne version valide d'un document scellé reste
   valide.
 - **Lien de signature = jeton porteur.** Quiconque détient le lien entier (avec son
-  fragment) peut signer à la place du destinataire prévu. Le serveur ne vérifie pas la
-  signature, il la transporte : l'émetteur doit vérifier l'artefact reçu et comparer
-  les mots de sécurité.
+  fragment) peut signer à la place du destinataire prévu. Le jeton est une capacité
+  porteuse : il n'y a aucune preuve de possession (pas de secret lié à l'identité ni à
+  l'appareil du signataire), et la signature anonyme par lien n'authentifie donc personne.
+  Le serveur ne vérifie pas la signature, il la transporte : l'émetteur doit vérifier
+  l'artefact reçu et comparer les mots de sécurité. Le jeton est masqué dans les
+  journaux (API et reverse proxy), mais reste à traiter comme un secret : le transmettre
+  par un canal de confiance et le révoquer s'il a fuité.
 - **Certificat auto-signé.** Les signatures posées à distance sur un PDF s'affichent
   « identité non vérifiée » chez le destinataire.
 - **Circuit non scellé.** L'ordre et l'état des parties d'un circuit par fichier ne

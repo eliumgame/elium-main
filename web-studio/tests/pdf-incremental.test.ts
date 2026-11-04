@@ -57,7 +57,7 @@ function note(pageId: string, contents: string): Annot {
 }
 
 async function openJs(bytes: Uint8Array, password?: string) {
-  const task = pdfjsLib.getDocument({ data: bytes.slice(), password, isEvalSupported: false });
+  const task = pdfjsLib.getDocument({ data: bytes.slice(), password });
   const doc = await task.promise;
   return Object.assign(doc, { destroy: () => task.destroy() });
 }

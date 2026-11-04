@@ -64,12 +64,12 @@ async function makeApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof ApiError) {
-      return reply.status(err.statusCode).send({ error: { code: err.code, message: err.message } });
+      return reply.status(err.statusCode).send({ error: { code: err.code, message: (err instanceof Error ? err.message : String(err)) } });
     }
     if (err instanceof ZodError) {
       return reply.status(400).send({ error: { code: "bad_request", message: "validation" } });
     }
-    return reply.status(500).send({ error: { code: "internal", message: err.message } });
+    return reply.status(500).send({ error: { code: "internal", message: (err instanceof Error ? err.message : String(err)) } });
   });
   await app.register(orgRoutes, { prefix: "/api/orgs" });
   await app.ready();
@@ -414,6 +414,29 @@ describe("POST /api/orgs/invites/accept", () => {
     await app.close();
   });
 
+  it("re-invitation after removal only creates a fresh membership (no key shares, teams, ownership or links restored)", async () => {
+    const sink: string[] = [];
+    mWithTx.mockImplementation(
+      txDispatch([
+        [
+          /SELECT id, org_id, role_id, email, expires_at, accepted_at/,
+          () => ({ rows: [{ id: "invite-2", org_id: ORG, role_id: ROLE, email: "u@example.org",
+            expires_at: new Date(Date.now() + 10_000).toISOString(), accepted_at: null }] }),
+        ],
+        [/INSERT INTO memberships/, () => ({ rows: [{ org_id: ORG, role_id: ROLE }] })],
+      ], sink) as never,
+    );
+    const app = await makeApp();
+    const res = await app.inject({ method: "POST", url: `/api/orgs/invites/accept`, payload: { token: "a-valid-token-1234" } });
+    expect(res.statusCode).toBe(200);
+    const all = sink.join(" ; ");
+    expect(all).toMatch(/INSERT INTO memberships/);
+    for (const forbidden of [/node_keys/, /group_members/, /owner_user_id/, /share_links/, /org_recovery_keys/]) {
+      expect(all).not.toMatch(forbidden);
+    }
+    await app.close();
+  });
+
   it("accepts a live invite and creates the membership", async () => {
     mWithTx.mockImplementation(
       txDispatch([
@@ -740,11 +763,17 @@ describe("DELETE /api/orgs/:orgId/members/:userId", () => {
 
   it("removes a member", async () => {
     mQueryOne.mockResolvedValueOnce({ owner_user_id: OWNER })
-      .mockResolvedValueOnce({ key: "viewer", permissions: [] }).mockResolvedValueOnce({ id: "m3" });
+      .mockResolvedValueOnce({ key: "viewer", permissions: [] });
+    mWithTx.mockImplementation(
+      txDispatch([
+        [/SELECT owner_user_id FROM organizations/, () => ({ rows: [{ owner_user_id: OWNER }] })],
+        [/DELETE FROM memberships/, () => ({ rows: [{ id: "m3" }] })],
+      ]) as never,
+    );
     const app = await makeApp();
     const res = await app.inject({ method: "DELETE", url: `/api/orgs/${ORG}/members/${OTHER_USER}` });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ ok: true });
+    expect(res.json()).toEqual({ ok: true, rotationRequiredGroupIds: [], rotationRequiredNodeIds: [] });
     expect(mAudit).toHaveBeenCalledWith(
       ORG,
       USER,
@@ -755,6 +784,28 @@ describe("DELETE /api/orgs/:orgId/members/:userId", () => {
       expect.any(String),
     );
     expect(mKickUser).toHaveBeenCalledWith(OTHER_USER, "org-member-removed");
+    await app.close();
+  });
+
+  it("removal purges key shares, teams, ownership and links so a re-invitation restores nothing", async () => {
+    mQueryOne.mockResolvedValueOnce({ owner_user_id: OWNER })
+      .mockResolvedValueOnce({ key: "viewer", permissions: [] });
+    const sink: string[] = [];
+    mWithTx.mockImplementation(
+      txDispatch([
+        [/SELECT owner_user_id FROM organizations/, () => ({ rows: [{ owner_user_id: OWNER }] })],
+        [/DELETE FROM memberships/, () => ({ rows: [{ id: "m3" }] })],
+      ], sink) as never,
+    );
+    const app = await makeApp();
+    const res = await app.inject({ method: "DELETE", url: `/api/orgs/${ORG}/members/${OTHER_USER}` });
+    expect(res.statusCode).toBe(200);
+    const all = sink.join(" ; ");
+    expect(all).toMatch(/DELETE FROM memberships/);
+    expect(all).toMatch(/DELETE FROM group_members/);
+    expect(all).toMatch(/DELETE FROM node_keys/);
+    expect(all).toMatch(/UPDATE nodes SET owner_user_id/);
+    expect(all).toMatch(/UPDATE share_links sl SET revoked_at/);
     await app.close();
   });
 
@@ -1017,6 +1068,51 @@ describe("PATCH /api/orgs/:orgId/settings", () => {
     expect(res.statusCode).toBe(403);
     await app.close();
   });
+
+  it("403 when the payload tries to touch the reserved `scim` key (no write)", async () => {
+    mQueryOne.mockClear();
+    const app = await makeApp();
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/orgs/${ORG}/settings`,
+      payload: { settings: { theme: "dark", scim: { enabled: false } } },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(mQueryOne).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it.each(["keyRotationDays", "keyRotationLastRotatedAt", "keyRotationDueSince", "orgKeyRotationRequired"])(
+    "400 on reserved key %s (no write)",
+    async (key) => {
+      mQueryOne.mockClear();
+      const app = await makeApp();
+      const res = await app.inject({
+        method: "PATCH",
+        url: `/api/orgs/${ORG}/settings`,
+        payload: { settings: { [key]: 1 } },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(mQueryOne).not.toHaveBeenCalled();
+      await app.close();
+    },
+  );
+
+  it("merges into the existing settings instead of replacing the document", async () => {
+    mQueryOne.mockClear();
+    mQueryOne.mockResolvedValueOnce({ settings: { theme: "light", keyRotationDays: 30 } });
+    const app = await makeApp();
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/orgs/${ORG}/settings`,
+      payload: { settings: { theme: "light" } },
+    });
+    expect(res.statusCode).toBe(200);
+    const [sql, params] = mQueryOne.mock.calls[0] as [string, unknown[]];
+    expect(sql).toMatch(/coalesce\(settings, '\{\}'::jsonb\) \|\| \$2::jsonb/);
+    expect(params).toEqual([ORG, JSON.stringify({ theme: "light" })]);
+    await app.close();
+  });
 });
 
 // =============================================================================
@@ -1210,6 +1306,7 @@ describe("POST /api/orgs/:orgId/recovery/rotate-org", () => {
     newOrgPublicHex: HEX130,
     nodeKeys: [{ nodeId: NODE, wrappedKey: { c: "new" } }],
     recoveryKeys: [{ adminUserId: USER, wrappedOrgPrivate: { c: "new-priv" } }],
+    expectedEpoch: 0,
   };
 
   it("rotates the org keypair: rewraps node keys, replaces recovery-admin copies", async () => {
@@ -1217,6 +1314,7 @@ describe("POST /api/orgs/:orgId/recovery/rotate-org", () => {
       txDispatch([
         [/SELECT org_key_epoch/, () => ({ rows: [{ org_key_epoch: 0 }] })],
         [/SELECT admin_user_id FROM org_recovery_keys/, () => ({ rows: [{ admin_user_id: USER }] })],
+        [/SELECT node_id FROM node_keys/, () => ({ rows: [{ node_id: NODE }] })],
         [/UPDATE organizations SET org_public_hex/, () => ({ rows: [] })],
         [/UPDATE node_keys SET wrapped_key/, () => ({ rows: [], rowCount: 1 })],
         [/DELETE FROM org_recovery_keys/, () => ({ rows: [] })],
@@ -1238,6 +1336,25 @@ describe("POST /api/orgs/:orgId/recovery/rotate-org", () => {
       { nodesRewrapped: 1, admins: 1 },
       expect.any(String),
     );
+    await app.close();
+  });
+
+  it.each(["omitted", "duplicate", "foreign"])("rejects %s node shares before replacing the org key", async kind => {
+    const mutations: string[] = [];
+    mWithTx.mockImplementation(async fn => fn({ query: async (sql: string) => {
+      if (sql.includes("SELECT org_key_epoch")) return { rows: [{ org_key_epoch: 0 }] };
+      if (sql.includes("SELECT admin_user_id")) return { rows: [{ admin_user_id: USER }] };
+      if (sql.includes("SELECT node_id")) return { rows: [{ node_id: NODE }] };
+      mutations.push(sql);
+      return { rows: [] };
+    } } as never));
+    const nodeKeys = kind === "omitted" ? [] : kind === "duplicate"
+      ? [...basePayload.nodeKeys, ...basePayload.nodeKeys]
+      : [{ nodeId: OTHER_USER, wrappedKey: {} }];
+    const app = await makeApp();
+    const res = await app.inject({ method: "POST", url: `/api/orgs/${ORG}/recovery/rotate-org`, payload: { ...basePayload, nodeKeys } });
+    expect(res.statusCode).toBe(409);
+    expect(mutations).toEqual([]);
     await app.close();
   });
 

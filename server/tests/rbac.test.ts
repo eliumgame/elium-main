@@ -89,6 +89,22 @@ describe("system role templates", () => {
     expect(editor.size).toBeGreaterThan(viewer.size);
   });
 
+  it("editor permission matrix is frozen (no link sharing, share management or ACL management)", () => {
+    const perms = [...templateByKey("editor")!.permissions].sort();
+    expect(perms).toEqual(
+      [
+        "node.view", "node.download", "node.export", "node.print", "node.create", "node.edit",
+        "node.rename", "node.move", "node.copy", "node.delete", "node.restore", "node.comment",
+        "node.version.view", "node.version.restore", "node.share.internal", "node.acl.view",
+        "node.sign.request",
+      ].sort(),
+    );
+    for (const forbidden of ["node.share.link", "node.share.manage", "node.acl.manage"]) {
+      expect(perms).not.toContain(forbidden);
+    }
+    expect(perms.some((k) => !k.startsWith("node."))).toBe(false);
+  });
+
   it("guest is minimal (view only)", () => {
     expect(templateByKey("guest")!.permissions).toEqual(["node.view"]);
   });

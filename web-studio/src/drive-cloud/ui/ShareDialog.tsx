@@ -11,6 +11,8 @@ import { shareWithUser, shareWithGroup, createShareLink, type DriveEntry, type O
 import { revokeShareWithRotation, rotationSummary } from "../rotate";
 import { ApiError } from "../api";
 import { useDialogA11y } from "./useDialogA11y";
+import { keyFingerprint } from "../key-pins";
+import { useDialogs } from "../../ui/dialogs";
 
 interface TeamOption {
   id: string;
@@ -42,6 +44,11 @@ interface LinkRow {
 
 export default function ShareDialog({ ctx, entry, onClose }: { ctx: OpsCtx; entry: DriveEntry; onClose: () => void }) {
   const d = useDrive();
+  const dialogs = useDialogs();
+  const confirmRecipient = async (label: string, pub: string) => {
+    const f = await keyFingerprint(pub);
+    return dialogs.confirm({ title: "Vérifier le destinataire", message: `${label}\nMots de sécurité : ${f.words}\n${f.grouped}\nComparez cette empreinte avec le destinataire par un autre canal.`, confirmLabel: "Partager" });
+  };
   const [shares, setShares] = useState<ShareRow[]>([]);
   const [email, setEmail] = useState("");
   const [roleId, setRoleId] = useState("");
@@ -98,6 +105,7 @@ export default function ShareDialog({ ctx, entry, onClose }: { ctx: OpsCtx; entr
     setErr(null);
     setBusy(true);
     try {
+      if (!(await confirmRecipient(team.name, team.groupPublicHex))) return;
       await shareWithGroup(ctx, entry, team.id, team.groupPublicHex, teamRoleId);
       await reload();
     } catch (e) {
@@ -113,6 +121,7 @@ export default function ShareDialog({ ctx, entry, onClose }: { ctx: OpsCtx; entr
     setBusy(true);
     try {
       const { user } = await ctx.api.lookupUser({ email: email.trim() });
+      if (!(await confirmRecipient(user.email, user.p256PublicHex))) return;
       await shareWithUser(ctx, entry, user, roleId);
       setEmail("");
       await reload();

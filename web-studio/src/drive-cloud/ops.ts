@@ -4,7 +4,7 @@
  * content is encrypted before upload and decrypted after download; sharing
  * re-wraps the node key to a recipient's public key.
  */
-import type { DriveApi, SignParty } from "./api";
+import { ApiError, type DriveApi, type SignParty, type ContentSnapshot } from "./api";
 import type { AccountKeys } from "./account";
 import type { NodeMeta, PublicUser, KeyShareInput, PrincipalType } from "./types";
 import {
@@ -23,6 +23,8 @@ import { readEliumPackage, writeEliumPackage } from "../format/elium-package";
 import { alignCircuitWithRequest, type KnownPartyProgress } from "../format/document";
 import type { EliumFile } from "../format/types";
 import { matchesQuery } from "./browser-model";
+import { requireKeyPin, requireKeyPinConfirmed, pinKey, type FirstUseFingerprint } from "./key-pins";
+import { freshOrgContext } from "./org-context";
 
 export interface OpsCtx {
   api: DriveApi;
@@ -30,6 +32,7 @@ export interface OpsCtx {
   userId: string;
   orgId: string;
   orgPublicHex: string;
+  orgKeyEpoch?: number;
   roleIdByKey: Record<string, string>;
 }
 
@@ -109,6 +112,7 @@ async function defaultShares(ctx: OpsCtx, nodeKey: Uint8Array): Promise<KeyShare
     },
   ];
   if (ctx.orgPublicHex) {
+    requireKeyPin("org", ctx.orgId, ctx.orgPublicHex);
     shares.push({
       principalType: "org",
       principalId: ctx.orgId,
@@ -150,7 +154,7 @@ async function inheritedShares(
   for (const s of rows) {
     const key = `${s.principalType}:${s.principalId}`;
     if (already.has(key)) continue;
-    try {
+    {
       let pub: string | null = null;
       if (s.principalType === "user") pub = (await ctx.api.getUser(s.principalId)).user.p256PublicHex;
       else if (s.principalType === "group") {
@@ -162,6 +166,7 @@ async function inheritedShares(
         pub = groups.find((g) => g.id === s.principalId)?.groupPublicHex ?? null;
       } else if (s.principalType === "org") pub = ctx.orgPublicHex || null;
       if (!pub) continue;
+      requireKeyPin(s.principalType, s.principalId, pub);
       already.add(key);
       // Track where the grant ultimately comes from: revoking that ancestor
       // share (deep) must clean this row up too.
@@ -170,10 +175,9 @@ async function inheritedShares(
         principalId: s.principalId,
         roleId: s.roleId,
         wrappedKey: await wrapNodeKeyFor(nodeKey, pub),
+        ...(s.principalType === "group" ? { groupPublicHex: pub } : {}),
         inheritedFrom: s.inheritedFrom ?? parentId,
       });
-    } catch {
-      /* best effort per principal */
     }
   }
   return out;
@@ -267,6 +271,7 @@ export async function searchDriveTree(
 }
 
 export async function createFolder(ctx: OpsCtx, parentId: string | null, name: string): Promise<NodeMeta> {
+  ctx = await freshOrgContext(ctx);
   const nodeKey = generateNodeKey();
   const encName = await encryptName(nodeKey, name);
   const shares = await sharesForNewNode(ctx, parentId, nodeKey);
@@ -277,6 +282,7 @@ export async function createFolder(ctx: OpsCtx, parentId: string | null, name: s
     nameEncrypted: encName.nameEncrypted,
     nameNonce: encName.nameNonce,
     keyShares: shares,
+    orgKeyEpoch: ctx.orgKeyEpoch,
   });
   return node;
 }
@@ -288,6 +294,7 @@ export async function createCollabNode(
   name: string,
   appKind: "collab-doc" | "collab-sheet" | "collab-slides",
 ): Promise<NodeMeta> {
+  ctx = await freshOrgContext(ctx);
   const nodeKey = generateNodeKey();
   const encName = await encryptName(nodeKey, name);
   const shares = await sharesForNewNode(ctx, parentId, nodeKey);
@@ -299,6 +306,7 @@ export async function createCollabNode(
     nameNonce: encName.nameNonce,
     appKind,
     keyShares: shares,
+    orgKeyEpoch: ctx.orgKeyEpoch,
   });
   return node;
 }
@@ -311,6 +319,7 @@ export const createCollabSlides = (ctx: OpsCtx, parentId: string | null, name: s
   createCollabNode(ctx, parentId, name, "collab-slides");
 
 export async function uploadFile(ctx: OpsCtx, parentId: string | null, file: File): Promise<NodeMeta> {
+  ctx = await freshOrgContext(ctx);
   const nodeKey = generateNodeKey();
   const encName = await encryptName(nodeKey, file.name);
   const shares = await sharesForNewNode(ctx, parentId, nodeKey);
@@ -323,10 +332,11 @@ export async function uploadFile(ctx: OpsCtx, parentId: string | null, file: Fil
     nameNonce: encName.nameNonce,
     ...(appKind ? { appKind } : {}),
     keyShares: shares,
+    orgKeyEpoch: ctx.orgKeyEpoch,
   });
   const plaintext = new Uint8Array(await file.arrayBuffer());
   const enc = await encryptContent(nodeKey, plaintext);
-  const { node: updated } = await ctx.api.putContent(node.id, enc.ciphertext, enc.nonceHex);
+  const { node: updated } = await ctx.api.putContent(node.id, enc.ciphertext, enc.nonceHex, node.keyEpoch ?? 1, null);
   return updated;
 }
 
@@ -348,7 +358,7 @@ export async function saveNewVersion(
   ctx: OpsCtx,
   nodeId: string,
   bytes: Uint8Array,
-  opts: { expectedModifiedAt?: string; force?: boolean } = {},
+  opts: { expectedModifiedAt?: string; baseVersionId?: string | null; force?: boolean } = {},
 ): Promise<NodeMeta> {
   const { node, myWrappedKey } = await ctx.api.getNode(nodeId);
   if (!opts.force && opts.expectedModifiedAt && node.modifiedAt !== opts.expectedModifiedAt)
@@ -356,8 +366,14 @@ export async function saveNewVersion(
   const key = await nodeKeyFrom(ctx, myWrappedKey);
   if (!key) throw new Error("Clé du nœud indisponible.");
   const enc = await encryptContent(key, bytes);
-  const { node: updated } = await ctx.api.putContent(nodeId, enc.ciphertext, enc.nonceHex, node.keyEpoch);
-  return updated;
+  try {
+    const baseVersionId = opts.baseVersionId !== undefined ? opts.baseVersionId : node.currentVersionId ?? null;
+    const { node: updated } = await ctx.api.putContent(nodeId, enc.ciphertext, enc.nonceHex, node.keyEpoch ?? 1, baseVersionId);
+    return updated;
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 409) throw new DriveConflict(node.modifiedAt);
+    throw e;
+  }
 }
 
 /** Is this Drive file a PDF (by its kind, else its name)? */
@@ -395,12 +411,12 @@ export async function decryptNodeBlob(
   }
 }
 
-export async function downloadFile(ctx: OpsCtx, entry: DriveEntry): Promise<{ bytes: Uint8Array; name: string }> {
+export async function downloadFile(ctx: OpsCtx, entry: DriveEntry): Promise<{ bytes: Uint8Array; name: string } & ContentSnapshot> {
   const key = await nodeKeyFrom(ctx, entry.myWrappedKey);
   if (!key) throw new Error("Clé du nœud indisponible.");
-  const { bytes, nonceHex } = await ctx.api.getContent(entry.id);
+  const { bytes, nonceHex, baseVersionId, keyEpoch } = await ctx.api.getContent(entry.id);
   const plain = await decryptNodeBlob(key, entry, nonceHex, bytes);
-  return { bytes: plain, name: entry.name };
+  return { bytes: plain, name: entry.name, baseVersionId, keyEpoch };
 }
 
 /**
@@ -421,6 +437,7 @@ async function shareNode(
   await ctx.api.share(entry.id, {
     principalType: principal.type,
     principalId: principal.id,
+    ...(principal.type === "group" ? { groupPublicHex: principal.publicHex } : {}),
     roleId,
     wrappedKey,
     inheritedFrom,
@@ -442,7 +459,15 @@ async function shareNode(
 }
 
 /** Re-wrap a node's key to a target user and grant them a role (deep for folders). */
-export async function shareWithUser(ctx: OpsCtx, entry: DriveEntry, target: PublicUser, roleId: string): Promise<void> {
+export async function shareWithUser(
+  ctx: OpsCtx,
+  entry: DriveEntry,
+  target: PublicUser,
+  roleId: string,
+  confirmFirstUse?: (fp: FirstUseFingerprint) => Promise<boolean>,
+): Promise<void> {
+  // Personne jamais épinglée : confirmation de l'empreinte (annulable) avant d'emballer la clé.
+  await requireKeyPinConfirmed("user", target.id, target.p256PublicHex, target.email, confirmFirstUse);
   await shareNode(ctx, entry, { type: "user", id: target.id, publicHex: target.p256PublicHex }, roleId);
 }
 
@@ -578,15 +603,19 @@ export async function createSignRequestForNode(
 export async function loadEliumFile(
   ctx: OpsCtx,
   entry: DriveEntry,
-): Promise<{ file: EliumFile; nodeKey: Uint8Array } | null> {
+): Promise<({ file: EliumFile; nodeKey: Uint8Array } & ContentSnapshot) | null> {
   if (!entry.hasContent) return null;
+  if (typeof ctx.api.getNode === "function") {
+    const { node, myWrappedKey } = await ctx.api.getNode(entry.id);
+    entry = { ...entry, ...node, myWrappedKey };
+  }
   const key = await nodeKeyFrom(ctx, entry.myWrappedKey);
   if (!key) return null;
   try {
-    const { bytes, nonceHex } = await ctx.api.getContent(entry.id);
+    const { bytes, nonceHex, baseVersionId, keyEpoch } = await ctx.api.getContent(entry.id);
     const plaintext = await decryptNodeBlob(key, entry, nonceHex, bytes);
     const { file } = await readEliumPackage(plaintext, {});
-    return { file, nodeKey: key };
+    return { file, nodeKey: key, baseVersionId, keyEpoch: entry.keyEpoch ?? keyEpoch };
   } catch {
     return null;
   }
@@ -639,7 +668,7 @@ async function knownProgressFor(
 export async function syncCircuitForSignRequest(
   ctx: OpsCtx,
   entry: DriveEntry,
-  loaded: { file: EliumFile; nodeKey: Uint8Array },
+  loaded: { file: EliumFile; nodeKey: Uint8Array } & Partial<ContentSnapshot>,
   parties: { partyId: string; label?: string }[],
 ): Promise<void> {
   const requestPartyIds = parties.map((p) => p.partyId);
@@ -652,7 +681,8 @@ export async function syncCircuitForSignRequest(
   );
   const bytes = await writeEliumPackage(nf, { carryForwardSeal: loaded.file.manifest.seal });
   const enc = await encryptContent(loaded.nodeKey, bytes);
-  await ctx.api.putContent(entry.id, enc.ciphertext, enc.nonceHex);
+  if (loaded.baseVersionId === undefined || loaded.keyEpoch === undefined) throw new Error("Version de base inconnue : rechargez le document avant de synchroniser le circuit.");
+  await ctx.api.putContent(entry.id, enc.ciphertext, enc.nonceHex, loaded.keyEpoch, loaded.baseVersionId);
 }
 
 /** Bounded retry for transient failures (network blips) — a handful of
@@ -717,17 +747,28 @@ export async function openSignLink(
   token: string,
   linkPrivateHex: string,
   linkPublicHex: string,
-): Promise<{ name: string; kind: "folder" | "file"; hasContent: boolean; bytes: Uint8Array; nodeKey: Uint8Array }> {
+): Promise<{ name: string; kind: "folder" | "file"; hasContent: boolean; bytes: Uint8Array; nodeKey: Uint8Array } & ContentSnapshot> {
   const kp = { privateHex: linkPrivateHex, publicHex: linkPublicHex };
   const { node, wrappedKey } = await api.resolveLink(token);
   const nodeKey = await unwrapNodeKey(wrappedKey, kp);
   const name = await decryptName(nodeKey, node.nameEncrypted, node.nameNonce);
   let bytes: Uint8Array = new Uint8Array(0);
+  let snapshot: ContentSnapshot = { baseVersionId: node.currentVersionId ?? null, keyEpoch: node.keyEpoch ?? 1 };
   if (node.kind === "file" && node.hasContent) {
-    const { bytes: ct, nonceHex } = await api.getLinkContent(token);
+    const { bytes: ct, nonceHex, ...base } = await api.getLinkContent(token);
+    snapshot = base;
     bytes = await decryptContent(nodeKey, nonceHex, ct);
   }
-  return { name, kind: node.kind, hasContent: node.hasContent, bytes, nodeKey };
+  return { name, kind: node.kind, hasContent: node.hasContent, bytes, nodeKey, ...snapshot };
+}
+
+/** Message au signataire après rechargement automatique (le document a changé depuis l’ouverture du lien). */
+export const STALE_SIGN_NOTICE =
+  "Le document a été modifié ; la dernière version a été rechargée, vérifiez-la avant de signer.";
+
+/** 409 du serveur : la version/clé de base envoyée n’est plus la version courante du fichier. */
+export function isStaleContentError(e: unknown): boolean {
+  return e instanceof ApiError && e.status === 409;
 }
 
 /**
@@ -741,9 +782,11 @@ export async function submitSignedElium(
   nodeKey: Uint8Array,
   signedBytes: Uint8Array,
   signerFprHex?: string,
+  snapshot?: ContentSnapshot,
 ): Promise<void> {
+  if (!snapshot) throw new Error("Rechargez le lien pour obtenir sa version de base.");
   const enc = await encryptContent(nodeKey, signedBytes);
-  await api.submitSignature(token, enc.ciphertext, enc.nonceHex, signerFprHex);
+  await api.submitSignature(token, enc.ciphertext, enc.nonceHex, signerFprHex, snapshot.baseVersionId, snapshot.keyEpoch);
 }
 
 // --- Teams / groups (cryptographic principals) -----------------------------
@@ -763,6 +806,7 @@ export async function createTeam(
   for (const m of members) byId.set(m.id, m.p256PublicHex);
   const memberInputs: { userId: string; wrappedGroupPrivate: WrappedKey; isManager?: boolean }[] = [];
   for (const [userId, pub] of byId) {
+    requireKeyPin("user", userId, pub);
     memberInputs.push({
       userId,
       wrappedGroupPrivate: await wrapNodeKeyFor(priv, pub),
@@ -785,10 +829,68 @@ export async function addTeamMember(
   myWrappedGroupPrivate: WrappedKey,
   target: PublicUser,
   isManager = false,
+  confirmFirstUse?: (fp: FirstUseFingerprint) => Promise<boolean>,
 ): Promise<void> {
   const priv = await unwrapNodeKey(myWrappedGroupPrivate, ctx.keys.recipient);
+  const { p256 } = await import("@noble/curves/nist.js");
+  const expectedGroupPublicHex = toHex(p256.getPublicKey(priv, false));
+  requireKeyPin("group", groupId, expectedGroupPublicHex);
+  await requireKeyPinConfirmed("user", target.id, target.p256PublicHex, target.email, confirmFirstUse);
   const wrapped = await wrapNodeKeyFor(priv, target.p256PublicHex);
-  await ctx.api.addGroupMember(ctx.orgId, groupId, { userId: target.id, wrappedGroupPrivate: wrapped, isManager });
+  await ctx.api.addGroupMember(ctx.orgId, groupId, { userId: target.id, wrappedGroupPrivate: wrapped, isManager, expectedGroupPublicHex });
+}
+
+/** Rotate the group key atomically, then replace every exposed content key.
+ * The server keeps unfinished nodes write-blocked, so interruption is safe. */
+export async function rotateTeamKey(ctx: OpsCtx, groupId: string, removeUserId?: string): Promise<string[]> {
+  const [details, snapshot] = await Promise.all([
+    ctx.api.getGroup(ctx.orgId, groupId), ctx.api.getGroupRotationNodes(ctx.orgId, groupId),
+  ]);
+  if (!details.myWrappedGroupPrivate) throw new Error("La clé de cette équipe est requise pour renouveler ses accès.");
+  const oldPrivate = await unwrapNodeKey(details.myWrappedGroupPrivate, ctx.keys.recipient);
+  const { p256 } = await import("@noble/curves/nist.js");
+  const oldPublic = toHex(p256.getPublicKey(oldPrivate, false));
+  if (oldPublic !== snapshot.groupPublicHex) throw new Error("La clé d'équipe a changé. Rechargez avant de continuer.");
+  requireKeyPin("group", groupId, oldPublic);
+  const remaining = (details.members as { userId: string; p256PublicHex: string; email?: string }[]).filter(m => m.userId !== removeUserId);
+  if (!remaining.length) throw new Error("Une équipe doit garder au moins un membre. Supprimez plutôt l'équipe.");
+  if (removeUserId && !details.members.some(m => (m as { userId: string }).userId === removeUserId)) throw new Error("Ce membre a déjà été retiré.");
+  const next = await generateRecipientKeypair();
+  const members = [];
+  for (const member of remaining) {
+    requireKeyPin("user", member.userId, member.p256PublicHex, member.email);
+    members.push({ userId: member.userId, wrappedGroupPrivate: await wrapNodeKeyFor(fromHex(next.privateHex), member.p256PublicHex) });
+  }
+  const nodeKeys = [];
+  for (const item of snapshot.nodes) {
+    const key = await unwrapNodeKey(item.wrappedKey, { privateHex: toHex(oldPrivate), publicHex: oldPublic });
+    nodeKeys.push({ nodeId: item.nodeId, keyEpoch: item.keyEpoch, wrappedKey: await wrapNodeKeyFor(key, next.publicHex) });
+  }
+  const body = { expectedGroupPublicHex: oldPublic, groupPublicHex: next.publicHex, members, nodeKeys };
+  const result = removeUserId
+    ? await ctx.api.removeGroupMember(ctx.orgId, groupId, removeUserId, body)
+    : await ctx.api.rotateGroup(ctx.orgId, groupId, body);
+  pinKey("group", groupId, next.publicHex);
+  teamKeyCache.delete(ctx.keys);
+  return finishRequiredRotations(ctx, result.rotationRequiredNodeIds);
+}
+
+export async function finishRequiredRotations(ctx: OpsCtx, ids: string[]): Promise<string[]> {
+  const { repairInterruptedRotation } = await import("./rotate");
+  const pending: string[] = [];
+  for (const id of new Set(ids)) {
+    try {
+      const { node, myWrappedKey } = await ctx.api.getNode(id);
+      const key = await nodeKeyFrom(ctx, myWrappedKey);
+      if (!key) throw new Error("Clé indisponible.");
+      const name = await decryptName(key, node.nameEncrypted, node.nameNonce);
+      const result = await repairInterruptedRotation(ctx, { ...node, myWrappedKey, name });
+      if (result.remaining) pending.push(id);
+    } catch {
+      pending.push(id);
+    }
+  }
+  return pending;
 }
 
 /** Share a node with a whole team (deep for folders). */
@@ -799,6 +901,7 @@ export async function shareWithGroup(
   groupPublicHex: string,
   roleId: string,
 ): Promise<void> {
+  requireKeyPin("group", groupId, groupPublicHex);
   await shareNode(ctx, entry, { type: "group", id: groupId, publicHex: groupPublicHex }, roleId);
 }
 

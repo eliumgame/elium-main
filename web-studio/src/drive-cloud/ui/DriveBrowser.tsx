@@ -539,7 +539,18 @@ export default function DriveBrowser() {
     await handleImport(files);
   };
 
-  const open = (e: DriveEntry) => {
+  const open = async (e: DriveEntry) => {
+    if (ctx && e.rotationRequired) {
+      try {
+        const result = await repairInterruptedRotation(ctx, e);
+        if (result.remaining) throw new Error("Le propriétaire doit terminer le renouvellement de la clé avant de modifier ce fichier.");
+        const { node, myWrappedKey } = await ctx.api.getNode(e.id);
+        e = { ...e, ...node, myWrappedKey };
+      } catch (error) {
+        await fail("Renouvellement de clé requis", error);
+        return;
+      }
+    }
     // Rotation de clé interrompue sur ce fichier (versions ou journal collab encore sous l'ancienne clé) :
     // on la termine maintenant, en tâche de fond, au lieu d'attendre la révocation suivante.
     if (ctx && e.kind === "file" && e.prevKeyWrapped) void repairInterruptedRotation(ctx, e).catch(() => undefined);

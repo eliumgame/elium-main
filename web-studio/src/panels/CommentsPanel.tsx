@@ -8,6 +8,18 @@ interface CommentEntry extends CommentAttrs {
   pos: number;
 }
 
+export function decodeComment(attrs: Record<string, unknown>): CommentAttrs | null {
+  if (typeof attrs.id !== "string" || !attrs.id) return null;
+  const text = (v: unknown) => typeof v === "string" ? v : "";
+  const date = (v: unknown) => typeof v === "string" && Number.isFinite(Date.parse(v)) ? v : "";
+  const replies: CommentReply[] = [];
+  for (const raw of Array.isArray(attrs.replies) ? attrs.replies : []) {
+    if (!raw || typeof raw !== "object" || typeof raw.id !== "string" || typeof raw.text !== "string") continue;
+    replies.push({ id: raw.id, author: text(raw.author), text: raw.text, createdAt: date(raw.createdAt) });
+  }
+  return { id: attrs.id, author: text(attrs.author), text: text(attrs.text), createdAt: date(attrs.createdAt), resolved: attrs.resolved === true, replies };
+}
+
 function newReplyId(): string {
   const c = globalThis.crypto;
   if (c && typeof c.randomUUID === "function") return `rp-${c.randomUUID()}`;
@@ -21,8 +33,9 @@ function collectComments(editor: Editor | null): CommentEntry[] {
   editor.state.doc.descendants((node, pos) => {
     if (!node.isText) return;
     for (const m of node.marks) {
-      if (m.type.name === "comment" && m.attrs.id && !byId.has(m.attrs.id)) {
-        byId.set(m.attrs.id, { ...(m.attrs as CommentAttrs), pos });
+      if (m.type.name === "comment") {
+        const attrs = decodeComment(m.attrs);
+        if (attrs && !byId.has(attrs.id)) byId.set(attrs.id, { ...attrs, pos });
       }
     }
   });
@@ -162,6 +175,7 @@ export default function CommentsPanel({ editor, commentAuthor }: { editor: Edito
 
   return (
     <div className="comments-panel">
+      <p className="text-muted">Auteurs et dates déclarés dans le document, sans vérification d'identité.</p>
       {open.map(row)}
       {resolved.length > 0 && (
         <>

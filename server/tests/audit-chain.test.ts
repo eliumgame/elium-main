@@ -47,7 +47,7 @@ const baseFields = (over: Partial<AuditFields> = {}): AuditFields => ({
 /** Construit une chaîne valide de N entrées (hashs corrects). */
 function buildChain(n: number) {
   const rows: Record<string, unknown>[] = [];
-  let prev = GENESIS;
+  let prev: Buffer = GENESIS;
   for (let i = 0; i < n; i++) {
     const createdAt = new Date(Date.UTC(2026, 7, 1, 10, i, 0));
     const f = baseFields({ action: `action.${i}`, resourceId: `r-${i}`, createdAt: createdAt.toISOString() });

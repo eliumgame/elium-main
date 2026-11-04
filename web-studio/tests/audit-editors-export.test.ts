@@ -6,6 +6,7 @@ describe("audit F exports and pagination", () => {
   it("exports final revision text including generated headings", () => {
     const model = {
       schema: "elium-doc/1",
+      page: { format: "A4" as const, orientation: "portrait" as const, margins: { top: 20, right: 20, bottom: 20, left: 20 } },
       doc: {
         type: "doc",
         content: [
@@ -30,6 +31,7 @@ describe("audit F exports and pagination", () => {
   it("keeps paragraph formatting and dropcap in a single style attribute", () => {
     const model = {
       schema: "elium-doc/1",
+      page: { format: "A4" as const, orientation: "portrait" as const, margins: { top: 20, right: 20, bottom: 20, left: 20 } },
       doc: {
         type: "doc",
         content: [
@@ -69,7 +71,7 @@ describe("audit F exports and pagination", () => {
         { pos: 0, height: 250, isPageBreak: false },
         { pos: 1, height: 60, isPageBreak: false },
       ],
-      { pageContentPx: 100, gapPx: 40 },
+      { pageContentPx: 100, gapPx: 40, marginLeftPx: 20, marginRightPx: 20 },
     );
     expect(plan.pages.map((p) => p.top)).toEqual([0, 100, 200, 340]);
     expect(plan.spacers).toEqual([{ pos: 1, height: 90 }]);

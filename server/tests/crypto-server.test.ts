@@ -98,7 +98,7 @@ describe("server-secret encryption (AES-256-GCM at rest)", () => {
   it("fails authentication when the ciphertext is tampered with", () => {
     const { ct, nonce } = encryptServerSecret("secret");
     const bad = Buffer.from(ct);
-    bad[0] ^= 0xff;
+    bad[0] = bad[0]! ^ 0xff;
     expect(() => decryptServerSecret(bad, nonce)).toThrow();
   });
 

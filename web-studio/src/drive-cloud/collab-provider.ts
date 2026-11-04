@@ -5,7 +5,8 @@
  * browser, and decrypted on arrival. The relay only ever sees ciphertext.
  */
 import * as Y from "yjs";
-import { Awareness, encodeAwarenessUpdate, applyAwarenessUpdate, removeAwarenessStates } from "y-protocols/awareness";
+import { Awareness, encodeAwarenessUpdate, removeAwarenessStates } from "y-protocols/awareness";
+import { BoundAwareness } from "./collab-awareness";
 import { EncryptedCollabChannel } from "./collab";
 import { toHex, fromHex } from "../format/canonical";
 import type { DriveApi } from "./api";
@@ -16,6 +17,16 @@ export interface CollabUser {
 }
 export type CollabStatus = "connecting" | "open" | "closed" | "revoked";
 
+/** Message utilisateur (français) pour une mise à jour refusée définitivement par le relais. */
+export function updateRejectedMessage(info: { code: string; maxBytes?: number }): string {
+  if (info.code === "quota_exceeded") {
+    return "Le quota de stockage est atteint : cette modification n’a pas été envoyée.";
+  }
+  const limit =
+    typeof info.maxBytes === "number" && info.maxBytes > 0 ? ` (limite : ${Math.max(1, Math.round(info.maxBytes / 1024))} Ko)` : "";
+  return `Cette modification est trop volumineuse pour être synchronisée${limit} et n’a pas été envoyée.`;
+}
+
 export class EncryptedYjsProvider {
   readonly doc: Y.Doc;
   awareness: Awareness;
@@ -23,6 +34,8 @@ export class EncryptedYjsProvider {
   private readonly onDocUpdate: (update: Uint8Array, origin: unknown) => void;
   private destroyed = false;
   private readonly user: CollabUser;
+  private boundAwareness: BoundAwareness;
+  private readonly names = new Map<string, Promise<string>>();
   private readonly onAwUpdate: (
     changes: { added: number[]; updated: number[]; removed: number[] },
     origin: unknown,
@@ -37,6 +50,8 @@ export class EncryptedYjsProvider {
     opts: {
       onStatus?: (s: CollabStatus) => void;
       onReady?: (canWrite: boolean) => void;
+      /** Message à afficher à l’utilisateur (mise à jour refusée : trop volumineuse / quota). */
+      onNotice?: (message: string) => void;
       /** Re-unwrap the node key after a rotation eviction (relay close 4001). */
       refetchKey?: () => Promise<Uint8Array | null>;
     } = {},
@@ -44,6 +59,7 @@ export class EncryptedYjsProvider {
     this.doc = doc;
     this.user = user;
     this.awareness = new Awareness(doc);
+    this.boundAwareness = new BoundAwareness(this.awareness);
     this.awareness.setLocalStateField("user", user);
 
     this.channel = new EncryptedCollabChannel(api, nodeId, nodeKey, {
@@ -57,14 +73,17 @@ export class EncryptedYjsProvider {
           for (const u of updates) Y.applyUpdate(this.doc, u, "remote");
         }, "remote");
       },
-      onAwareness: (payload) => {
+      onAwareness: (payload, from, peerId) => {
         const p = payload as { u?: string };
-        if (p?.u) {
-          try {
-            applyAwarenessUpdate(this.awareness, fromHex(p.u), "remote");
-          } catch {
-            /* ignore malformed awareness */
+        if (typeof p?.u === "string" && p.u.length <= 64 * 1024 && /^[0-9a-f]+$/i.test(p.u) && from && peerId) {
+          let name = this.names.get(from);
+          if (!name) {
+            name = api.getUser(from).then(({ user }) => typeof user.displayName === "string" ? user.displayName : "Participant");
+            this.names.set(from, name);
           }
+          const bound = this.boundAwareness;
+          void name.then((n) => { if (!this.destroyed && bound === this.boundAwareness) bound.apply(fromHex(p.u!), from, peerId, n); })
+            .catch(() => { this.names.delete(from); });
         }
       },
       // On (re)connection, re-broadcast our presence: the initial
@@ -77,6 +96,7 @@ export class EncryptedYjsProvider {
       // A newcomer can't see presence broadcast before they joined, so when the
       // relay signals a join we re-send our full local awareness state to them.
       onPeerJoin: () => this.republishAwareness(),
+      onUpdateRejected: (info) => opts.onNotice?.(updateRejectedMessage(info)),
       ...(opts.onReady ? { onReady: opts.onReady } : {}),
       ...(opts.refetchKey ? { refetchKey: opts.refetchKey } : {}),
     });
@@ -90,7 +110,8 @@ export class EncryptedYjsProvider {
     // Local presence changes → encrypt & broadcast.
     this.onAwUpdate = ({ added, updated, removed }, origin) => {
       if (origin === "remote") return;
-      const changed = added.concat(updated, removed);
+      const changed = added.concat(updated, removed).filter((id) => id === this.doc.clientID);
+      if (!changed.length) return;
       const upd = encodeAwarenessUpdate(this.awareness, changed);
       void this.channel.sendAwareness({ u: toHex(upd) });
     };
@@ -112,6 +133,7 @@ export class EncryptedYjsProvider {
     if (this.destroyed) {
       this.destroyed = false;
       this.awareness = new Awareness(this.doc);
+      this.boundAwareness = new BoundAwareness(this.awareness);
       this.awareness.setLocalStateField("user", this.user);
       this.doc.on("update", this.onDocUpdate);
       this.awareness.on("update", this.onAwUpdate);

@@ -8,16 +8,7 @@
 import { execFileSync } from "node:child_process";
 
 /** @type {Record<string, { reason: string; until: string }>} */
-const ACCEPTED = {
-  // node-forge ≤ 1.4.0, sans correctif publié. La faille est dans la VÉRIFICATION de signature RSA
-  // PKCS#1 v1.5 (rsa.verify). Elium n'appelle node-forge que pour LIRE un fichier .p12 (pkcs12) et
-  // GÉNÉRER un certificat auto-signé (pki, signature), jamais pour vérifier une signature RSA :
-  // les signatures PAdES sont vérifiées par WebCrypto (src/pdf/ops/pades.ts).
-  "GHSA-86w9-cpqp-85rv": {
-    reason: "rsa.verify de node-forge jamais appelé (seulement lecture .p12 / génération de certificat)",
-    until: "2026-12-31",
-  },
-};
+const ACCEPTED = {};
 
 let raw;
 try {

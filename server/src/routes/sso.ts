@@ -214,8 +214,39 @@ export default async function ssoRoutes(app: FastifyInstance): Promise<void> {
   // --- Public: verify an OIDC ID token and open a session ------------------
   // Rate-limited like /auth/login/* — it's an unauthenticated endpoint doing
   // non-trivial signature verification (RS/ES/EdDSA against a configured JWKS).
+  // Nonce OIDC : émis AVANT la redirection vers le fournisseur, à placer dans le paramètre `nonce`
+  // de la requête d'autorisation. Stocké haché, valable 5 min, à usage unique, lié à l'organisation.
+  // Config SSO PUBLIQUE pour l'écran de connexion (avant toute session) : uniquement orgId, issuer, clientId.
+  // Jamais de jwks ni de domaines autorisés. 404 hors mono-Drive ou sans SSO configuré (indiscernable).
+  app.get("/auth/sso/config", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async () => {
+    if (!config.site.singleDrive) throw notFound();
+    const orgs = await query<{ id: string; sso_config: OidcConfig | null }>(
+      `SELECT id, sso_config FROM organizations LIMIT 2`,
+    );
+    const only = orgs.length === 1 ? orgs[0] : undefined;
+    if (!only?.sso_config?.issuer || !only.sso_config.clientId) throw notFound();
+    return { orgId: only.id, issuer: only.sso_config.issuer, clientId: only.sso_config.clientId };
+  });
+
+  app.post("/auth/sso/nonce", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (req) => {
+    const b = z.object({ orgId: z.string().uuid() }).parse(req.body);
+    await requireSingleDriveSso(b.orgId);
+    const nonce = randomToken(24);
+    await query(
+      `INSERT INTO sso_nonces (nonce_hash, org_id, expires_at) VALUES ($1, $2, now() + interval '5 minutes')`,
+      [sha256Hex(nonce), b.orgId],
+    );
+    return { nonce, expiresInSeconds: 300 };
+  });
+
   app.post("/auth/sso/verify", { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (req) => {
-    const b = z.object({ orgId: z.string().uuid(), idToken: z.string().min(10).max(8192) }).parse(req.body);
+    const b = z
+      .object({
+        orgId: z.string().uuid(),
+        idToken: z.string().min(10).max(8192),
+        nonce: z.string().min(16).max(256),
+      })
+      .parse(req.body);
     await requireSingleDriveSso(b.orgId);
     const org = await queryOne<{ sso_config: OidcConfig | null }>(
       `SELECT sso_config FROM organizations WHERE id = $1`,
@@ -225,7 +256,7 @@ export default async function ssoRoutes(app: FastifyInstance): Promise<void> {
 
     let claims;
     try {
-      claims = await verifyIdTokenAsync(b.idToken, org.sso_config);
+      claims = await verifyIdTokenAsync(b.idToken, org.sso_config, { expectedNonce: b.nonce });
     } catch (e) {
       throw unauthorized(e instanceof OidcError ? e.message : "Jeton d'identité invalide.");
     }
@@ -276,6 +307,13 @@ export default async function ssoRoutes(app: FastifyInstance): Promise<void> {
     if (row.sso_subject && row.sso_subject !== claims.sub) {
       throw unauthorized("L'identité SSO ne correspond pas au compte lié.");
     }
+    // Consomme le nonce (usage unique, non expiré, de cette organisation) — après la vérification du jeton
+    // pour qu'un jeton bidon ne puisse pas brûler le nonce d'un utilisateur légitime.
+    const nonceRow = await queryOne<{ nonce_hash: string }>(
+      `DELETE FROM sso_nonces WHERE nonce_hash = $1 AND org_id = $2 AND expires_at > now() RETURNING nonce_hash`,
+      [sha256Hex(b.nonce), b.orgId],
+    );
+    if (!nonceRow) throw unauthorized("Nonce SSO inconnu, expiré ou déjà utilisé : relancez la connexion SSO.");
     // Fingerprint the signed input, not its malleable base64url signature spelling.
     // Consume atomically before either a full session or an MFA challenge is issued.
     const fresh = await queryOne<{ token_hash: string }>(

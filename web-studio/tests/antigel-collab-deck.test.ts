@@ -142,6 +142,10 @@ describe("canal chiffré : aucune modification perdue", () => {
       this.readyState = 1;
       this.onopen?.();
     }
+    /** Le relais admet le client : tant qu'il n'a pas dit « ready », rien n'est envoyé. */
+    admit() {
+      this.onmessage?.({ data: JSON.stringify({ type: "ready", canWrite: true }) });
+    }
     send(d: string) {
       this.sent.push(d);
     }
@@ -166,7 +170,10 @@ describe("canal chiffré : aucune modification perdue", () => {
       const ws = FakeWS.instances[0]!;
       await ch.sendUpdate(new Uint8Array([1, 2, 3])); // socket pas encore ouvert
       expect(ws.sent).toHaveLength(0);
-      ws.open(); // réouverture : l'outbox part
+      ws.open(); // réouverture : rien ne part avant l'admission par le relais
+      await new Promise((r) => setTimeout(r, 20));
+      expect(ws.sent).toHaveLength(0);
+      ws.admit(); // admission : l'outbox part
       await new Promise((r) => setTimeout(r, 50));
       expect(ws.sent).toHaveLength(1);
       expect(JSON.parse(ws.sent[0]!).type).toBe("update");
@@ -185,6 +192,8 @@ describe("canal chiffré : aucune modification perdue", () => {
       await ch.connect();
       const ws = FakeWS.instances[0]!;
       ws.open();
+      ws.admit();
+      await new Promise((r) => setTimeout(r, 20));
       void ch.sendUpdate(new Uint8Array([9, 9]));
       ch.close(); // avant la fin du chiffrement
       await new Promise((r) => setTimeout(r, 100));
@@ -233,6 +242,10 @@ describe("fournisseur Yjs : réutilisable après destroy (StrictMode)", () => {
       const ws = WS.all[WS.all.length - 1]!;
       ws.readyState = 1;
       ws.onopen?.();
+      (ws.onmessage as ((e: { data: string }) => void) | null)?.({
+        data: JSON.stringify({ type: "ready", canWrite: true }),
+      });
+      await new Promise((r) => setTimeout(r, 20));
       doc.getText("t").insert(0, "bonjour");
       await new Promise((r) => setTimeout(r, 100));
       expect(ws.sent.some((m) => JSON.parse(m).type === "update")).toBe(true);

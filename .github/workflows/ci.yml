@@ -24,7 +24,6 @@ jobs:
         python-version: ${{ matrix.python-version }}
     - name: Install dependencies (verrou à hashes)
       run: |
-        python -m pip install --upgrade pip
         # requirements/dev.txt : versions ET hashes figés (uv pip compile --universal --generate-hashes).
         pip install --require-hashes -r requirements/dev.txt
         echo "PYTHONPATH=$PWD/src" >> "$GITHUB_ENV"
@@ -32,7 +31,8 @@ jobs:
       run: ruff check src/ tests/ installer/ security/ scripts/
     - name: Run Pytest with coverage
       run: |
-        pytest tests/python installer/tests -v --cov=elium --cov-report=term-missing
+        pytest tests/python installer/tests -v --cov=elium --cov=installer --cov-report=term-missing
+        python -m coverage report --include="*/installer/updater.py" --fail-under=75
     - name: Audit des dépendances Python EMBARQUÉES (pip-audit, exceptions datées)
       # Même principe que l'audit npm : toute faille connue des dépendances d'exécution (ce qui est
       # réellement livré) bloque, sauf les exceptions DATÉES et justifiées de scripts/pip_audit_gate.py.
@@ -62,7 +62,9 @@ jobs:
         # Doit ÉCHOUER sans secrets (fail fast) ...
         if docker compose config >/dev/null 2>&1; then echo "::error::docker compose accepte une config SANS secrets"; exit 1; fi
         # ... et réussir avec.
-        POSTGRES_PASSWORD=x TOKEN_SECRET=y CORS_ORIGINS=http://localhost S3_SECRET_KEY=z REDIS_PASSWORD=w docker compose config >/dev/null
+        POSTGRES_PASSWORD=x POSTGRES_APP_PASSWORD=a TOKEN_SECRET=y CORS_ORIGINS=http://localhost S3_SECRET_KEY=z REDIS_PASSWORD=w docker compose config >/dev/null
+    - name: Rôle PostgreSQL applicatif (base existante, idempotence, privilèges refusés)
+      run: bash deploy/test-app-role.sh
 
   web-studio-build:
     runs-on: ubuntu-24.04
@@ -78,7 +80,6 @@ jobs:
         python-version: '3.12'
     - name: Install elium (Python) pour l'interop
       run: |
-        python -m pip install --upgrade pip
         pip install --require-hashes -r requirements/runtime.txt
         echo "PYTHONPATH=$PWD/src" >> "$GITHUB_ENV"
     - name: Install dependencies
@@ -93,6 +94,9 @@ jobs:
     - name: Build Web Studio
       working-directory: ./web-studio
       run: npm run build
+    - name: Typecheck des tests (Web Studio)
+      working-directory: ./web-studio
+      run: npm run typecheck:tests
     - name: Budget de bundle (régression de taille)
       working-directory: ./web-studio
       run: npm run check:bundle-budget
@@ -133,6 +137,9 @@ jobs:
     - name: Typecheck
       working-directory: ./server
       run: npm run typecheck
+    - name: Typecheck des tests (serveur)
+      working-directory: ./server
+      run: npm run typecheck:tests
     - name: Test (Vitest)
       working-directory: ./server
       run: npm test

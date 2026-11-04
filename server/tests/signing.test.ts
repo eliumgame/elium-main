@@ -43,10 +43,14 @@ vi.mock("../src/middleware/auth.js", () => ({
 vi.mock("../src/storage/adapter.js", () => ({
   storage: () => ({ newKey: store.newKey, putStream: store.putStream, delete: store.del, getStream: vi.fn() }),
 }));
+vi.mock("../src/lib/disk.js", () => ({ assertDiskSpace: vi.fn(async () => {}) }));
+vi.mock("../src/lib/site-settings.js", () => ({ assertUserQuota: vi.fn(async () => {}) }));
 vi.mock("../src/lib/audit.js", () => ({ audit: vi.fn(async () => {}) }));
 vi.mock("../src/collab/relay.js", () => ({ notifyOrg: vi.fn(), kickRoom: vi.fn() }));
 
 import { query, queryOne, withTx } from "../src/db/pool.js";
+import { assertDiskSpace } from "../src/lib/disk.js";
+import { assertUserQuota } from "../src/lib/site-settings.js";
 import { audit } from "../src/lib/audit.js";
 import { notifyOrg } from "../src/collab/relay.js";
 import { ApiError } from "../src/lib/errors.js";
@@ -65,7 +69,7 @@ async function makeApp(): Promise<FastifyInstance> {
   await app.register(rateLimit, { max: 600, timeWindow: "1 minute" });
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof ApiError) {
-      return reply.status(err.statusCode).send({ error: { code: err.code, message: err.message } });
+      return reply.status(err.statusCode).send({ error: { code: err.code, message: (err instanceof Error ? err.message : String(err)) } });
     }
     if (err instanceof ZodError) {
       return reply.status(400).send({ error: { code: "bad_request", message: "validation" } });
@@ -73,7 +77,7 @@ async function makeApp(): Promise<FastifyInstance> {
     if ((err as { statusCode?: number }).statusCode === 429) {
       return reply.status(429).send({ error: { code: "rate_limited", message: "Trop de requêtes." } });
     }
-    return reply.status(500).send({ error: { code: "internal", message: err.message } });
+    return reply.status(500).send({ error: { code: "internal", message: (err instanceof Error ? err.message : String(err)) } });
   });
   await app.register(signingRoutes, { prefix: "/api" });
   await app.ready();
@@ -95,6 +99,8 @@ function txDispatch(map: Array<[RegExp, { rows: unknown[] }]>, sink?: string[]) 
 beforeEach(() => {
   vi.clearAllMocks();
   store.putStream.mockResolvedValue(123);
+  vi.mocked(assertDiskSpace).mockReset().mockResolvedValue(undefined);
+  vi.mocked(assertUserQuota).mockReset().mockResolvedValue(undefined);
 });
 
 describe("POST /api/nodes/:id/sign-requests (création)", () => {
@@ -209,6 +215,33 @@ describe("rate limiting : POST /api/nodes/:id/sign-requests", () => {
 });
 
 describe("POST /api/links/:token/sign (écriture-retour anonyme)", () => {
+  it.each(["version", "epoch", "disk", "quota"])("rejects a changed %s without signing the party", async reason => {
+    mQueryOne.mockResolvedValueOnce(signLink());
+    const sqls: string[] = [];
+    mWithTx.mockImplementation(txDispatch([
+      [/AS party_status/, { rows: [{ party_status: "pending", link_revoked_at: null }] }],
+      [/SELECT key_epoch, current_version_id/, { rows: [{ key_epoch: reason === "epoch" ? 2 : 1, current_version_id: reason === "version" ? NODE : VER, owner_user_id: USER }] }],
+      [/storage_quota_bytes/, { rows: [{ quota: null, used: 0 }] }],
+    ], sqls) as never);
+    if (reason === "disk") vi.mocked(assertDiskSpace).mockResolvedValueOnce(undefined).mockRejectedValueOnce(new ApiError(507, "insufficient_storage", "disk"));
+    if (reason === "quota") vi.mocked(assertUserQuota).mockRejectedValueOnce(new ApiError(507, "insufficient_storage", "quota"));
+    const app = await makeApp();
+    const res = await app.inject({ method: "POST", url: "/api/links/token/sign", payload: Buffer.from("ciphertext"),
+      headers: { "content-type": "application/octet-stream", "x-content-nonce": NONCE, "x-base-version-id": VER, "x-key-epoch": "1" } });
+    expect(res.statusCode).toBe(reason === "disk" || reason === "quota" ? 507 : 409);
+    expect(store.del).toHaveBeenCalledWith("blob-key");
+    expect(sqls.some(s => /INSERT INTO node_versions|SET status = 'signed'/.test(s))).toBe(false);
+    await app.close();
+  });
+  it("requires a base before storing anonymous ciphertext", async () => {
+    mQueryOne.mockResolvedValueOnce(signLink());
+    const app = await makeApp();
+    const res = await app.inject({ method: "POST", url: "/api/links/token/sign", payload: Buffer.from("ciphertext"),
+      headers: { "content-type": "application/octet-stream", "x-content-nonce": NONCE } });
+    expect(res.statusCode).toBe(428);
+    expect(store.putStream).not.toHaveBeenCalled();
+    await app.close();
+  });
   const signLink = (over: Record<string, unknown> = {}) => ({
     link_id: LINK, node_id: NODE, can_sign: true, revoked_at: null, expires_at: null,
     org_id: ORG, kind: "file", party_id: PARTY, party_status: "pending",
@@ -223,7 +256,7 @@ describe("POST /api/links/:token/sign (écriture-retour anonyme)", () => {
         [
           // Revérification sous verrou (TOCTOU) : toujours en attente, lien pas révoqué.
           [/AS party_status/, { rows: [{ party_status: "pending", link_revoked_at: null }] }],
-          [/SELECT key_epoch FROM nodes/, { rows: [{ key_epoch: 1 }] }],
+          [/SELECT key_epoch, current_version_id/, { rows: [{ key_epoch: 1, current_version_id: VER, owner_user_id: USER }] }],
           [/storage_quota_bytes/, { rows: [{ quota: null, used: 0 }] }],
           [/MAX\(version_no\)/, { rows: [{ next: 1 }] }],
           [/INSERT INTO node_versions/, { rows: [{ id: VER }] }],
@@ -237,7 +270,7 @@ describe("POST /api/links/:token/sign (écriture-retour anonyme)", () => {
     const res = await app.inject({
       method: "POST",
       url: `/api/links/tok123/sign`,
-      headers: { "content-type": "application/octet-stream", "x-content-nonce": NONCE, "x-signer-fpr": "abcdef0123456789" },
+      headers: { "content-type": "application/octet-stream", "x-content-nonce": NONCE, "x-base-version-id": VER, "x-key-epoch": "1", "x-signer-fpr": "abcdef0123456789" },
       payload: Buffer.from("ciphertext-signé"),
     });
 
@@ -279,7 +312,7 @@ describe("POST /api/links/:token/sign (écriture-retour anonyme)", () => {
     const res = await app.inject({
       method: "POST",
       url: `/api/links/tok123/sign`,
-      headers: { "content-type": "application/octet-stream", "x-content-nonce": NONCE },
+      headers: { "content-type": "application/octet-stream", "x-content-nonce": NONCE, "x-base-version-id": VER, "x-key-epoch": "1" },
       payload: Buffer.from("ciphertext-signé"),
     });
 
@@ -310,7 +343,7 @@ describe("POST /api/links/:token/sign (écriture-retour anonyme)", () => {
     const res = await app.inject({
       method: "POST",
       url: `/api/links/tok123/sign`,
-      headers: { "content-type": "application/octet-stream", "x-content-nonce": NONCE },
+      headers: { "content-type": "application/octet-stream", "x-content-nonce": NONCE, "x-base-version-id": VER, "x-key-epoch": "1" },
       payload: Buffer.from("ciphertext-signé"),
     });
 
@@ -327,7 +360,7 @@ describe("POST /api/links/:token/sign (écriture-retour anonyme)", () => {
     const res = await app.inject({
       method: "POST",
       url: `/api/links/tok/sign`,
-      headers: { "content-type": "application/octet-stream", "x-content-nonce": NONCE },
+      headers: { "content-type": "application/octet-stream", "x-content-nonce": NONCE, "x-base-version-id": VER, "x-key-epoch": "1" },
       payload: Buffer.from("x"),
     });
     expect(res.statusCode).toBe(409);
@@ -341,7 +374,7 @@ describe("POST /api/links/:token/sign (écriture-retour anonyme)", () => {
     const res = await app.inject({
       method: "POST",
       url: `/api/links/tok/sign`,
-      headers: { "content-type": "application/octet-stream", "x-content-nonce": NONCE },
+      headers: { "content-type": "application/octet-stream", "x-content-nonce": NONCE, "x-base-version-id": VER, "x-key-epoch": "1" },
       payload: Buffer.from("x"),
     });
     expect(res.statusCode).toBe(409);
@@ -369,7 +402,7 @@ describe("POST /api/links/:token/sign (écriture-retour anonyme)", () => {
     const res = await app.inject({
       method: "POST",
       url: `/api/links/tok/sign`,
-      headers: { "content-type": "application/octet-stream", "x-content-nonce": NONCE },
+      headers: { "content-type": "application/octet-stream", "x-content-nonce": NONCE, "x-base-version-id": VER, "x-key-epoch": "1" },
       payload: Buffer.from("x"),
     });
     expect(res.statusCode).toBe(400);
@@ -383,7 +416,7 @@ describe("POST /api/links/:token/sign (écriture-retour anonyme)", () => {
     const res = await app.inject({
       method: "POST",
       url: `/api/links/tok/sign`,
-      headers: { "content-type": "application/octet-stream", "x-content-nonce": NONCE },
+      headers: { "content-type": "application/octet-stream", "x-content-nonce": NONCE, "x-base-version-id": VER, "x-key-epoch": "1" },
       payload: Buffer.from("x"),
     });
     expect(res.statusCode).toBe(409);
@@ -397,7 +430,7 @@ describe("POST /api/links/:token/sign (écriture-retour anonyme)", () => {
     const res = await app.inject({
       method: "POST",
       url: `/api/links/tok/sign`,
-      headers: { "content-type": "application/octet-stream", "x-content-nonce": NONCE },
+      headers: { "content-type": "application/octet-stream", "x-content-nonce": NONCE, "x-base-version-id": VER, "x-key-epoch": "1" },
       payload: Buffer.from("x"),
     });
     expect(res.statusCode).toBe(404);

@@ -65,6 +65,7 @@ describe("planPages (pure pagination planner)", () => {
 
 describe("pageAt", () => {
   const plan: PagePlan = {
+    pages: [],
     spacers: [],
     pageStartByPos: new Map([
       [0, 1],

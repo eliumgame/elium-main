@@ -434,6 +434,16 @@ export default function AuthPanel({ onHome, gated = false }: { onHome?: () => vo
                     <Fingerprint size={16} /> Se connecter avec une clé d'accès
                   </button>
                 )}
+                {mode === "login" && d.ssoAvailable && (
+                  <button
+                    type="button"
+                    className="eb eb--outline eb--block"
+                    disabled={d.busy}
+                    onClick={() => void d.ssoLogin().catch((e) => reportError("drive.sso", e))}
+                  >
+                    <LogIn size={16} /> Se connecter avec le SSO de l'organisation
+                  </button>
+                )}
               </form>
             </>
           )}

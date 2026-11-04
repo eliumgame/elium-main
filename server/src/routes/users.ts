@@ -80,15 +80,23 @@ export default async function userRoutes(app: FastifyInstance): Promise<void> {
   // --- Directory lookup by exact email OR fingerprint ----------------------
   app.get("/lookup", async (req) => {
     const q = lookupSchema.parse(req.query);
-    requireUser(req);
+    const me = requireUser(req);
 
+    // Anti-énumération : seuls les comptes partageant AU MOINS UNE organisation active avec l'appelant
+    // sont retrouvables. Un compte hors organisation, ou inexistant, renvoie le même 404.
+    const sharesOrg = `AND EXISTS (
+        SELECT 1 FROM memberships mine JOIN memberships theirs ON theirs.org_id = mine.org_id
+         WHERE mine.user_id = $2 AND mine.status = 'active'
+           AND theirs.user_id = users.id AND theirs.status = 'active')`;
     const row = q.email
-      ? await queryOne<PublicUserRow>(`SELECT ${PUBLIC_COLS} FROM users WHERE email = $1 AND status = 'active'`, [
-          q.email,
-        ])
-      : await queryOne<PublicUserRow>(`SELECT ${PUBLIC_COLS} FROM users WHERE fingerprint = $1 AND status = 'active'`, [
-          q.fingerprint,
-        ]);
+      ? await queryOne<PublicUserRow>(
+          `SELECT ${PUBLIC_COLS} FROM users WHERE email = $1 AND status = 'active' ${sharesOrg}`,
+          [q.email, me.id],
+        )
+      : await queryOne<PublicUserRow>(
+          `SELECT ${PUBLIC_COLS} FROM users WHERE fingerprint = $1 AND status = 'active' ${sharesOrg}`,
+          [q.fingerprint, me.id],
+        );
     if (!row) throw notFound("Utilisateur introuvable.");
     return { user: publicUserDto(row) };
   });

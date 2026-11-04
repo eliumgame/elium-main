@@ -2,10 +2,10 @@ import { describe, it, expect } from "vitest";
 import { buildRegistration, buildPasswordChange, unlockAccount, prepareLogin } from "../src/drive-cloud/account";
 import { verifyMessage } from "../src/sign/keys";
 import { validatePasswordChange } from "../src/drive-cloud/ui/ChangePasswordSection";
-import type { KdfParams } from "../src/drive-cloud/kdf";
+import { DEFAULT_KDF_PARAMS } from "../src/drive-cloud/kdf";
 
-// Paramètres minimaux : on teste le câblage cryptographique, pas le coût Argon2.
-const FAST: KdfParams = { alg: "argon2id", t: 1, m: 8192, p: 1 };
+// Exercise the real account policy; downgraded costs are intentionally rejected.
+const FAST = DEFAULT_KDF_PARAMS;
 
 describe("changement de mot de passe du Drive (client)", () => {
   it("ré-enveloppe les MÊMES clés sous le nouveau mot de passe, avec sel et clé d'authentification neufs", async () => {

@@ -9,6 +9,7 @@
  * edited (ensureElementsY). Pure module — unit-tested against yjs in node.
  */
 import * as Y from "yjs";
+import { element, shape, fields, str, int, num } from "./collab-decode";
 import {
   elementsOf,
   type Slide,
@@ -21,6 +22,48 @@ import {
 } from "../slides/model";
 
 type YMap = Y.Map<unknown>;
+
+/** Stable Y.Maps keep their Y.Text history when moved. Only ordering metadata changes. */
+export function orderedMaps(arr: Y.Array<YMap>): YMap[] {
+  if (!(arr instanceof Y.Array)) return [];
+  return arr.toArray().filter((m) => m instanceof Y.Map).map((m, i) => ({ m, i,
+    order: num(m.get("_order")) ? m.get("_order") as number : i,
+  })).sort((a, b) => a.order - b.order || a.i - b.i).map(({ m }) => m);
+}
+
+export function setMapOrder(maps: YMap[]): void {
+  maps.forEach((m, i) => { if (m.get("_order") !== i) m.set("_order", i); });
+}
+
+/** Reconcile in place: applying a layout must not discard concurrent text edits. */
+export function patchSlideY(m: YMap, slide: Slide): void {
+  for (const [key, value] of Object.entries(slide)) {
+    if (key === "elements" || key === "shapes" || value === undefined) continue;
+    if (SLIDE_TEXT_FIELDS.has(key) && typeof value === "string") syncYText(ensureYText(m, key), value);
+    else if (JSON.stringify(m.get(key)) !== JSON.stringify(value)) m.set(key, value);
+  }
+  if (slide.elements) {
+    const arr = ensureElementsY(m);
+    const wanted = new Set(slide.elements.map((e) => e.id));
+    for (let i = arr.length - 1; i >= 0; i--) {
+      const el = arr.get(i);
+      if (!(el instanceof Y.Map) || !wanted.has(el.get("id") as string)) arr.delete(i, 1);
+    }
+    const byId = new Map(orderedMaps(arr).map((el) => [el.get("id"), el]));
+    const ordered: YMap[] = [];
+    for (const el of slide.elements) {
+      let target = byId.get(el.id);
+      if (!target) { target = elToY(el); arr.push([target]); }
+      else for (const [key, value] of Object.entries(el)) {
+        if (value === undefined) continue;
+        if (EL_TEXT_FIELDS.has(key) && typeof value === "string") syncYText(ensureYText(target, key), value);
+        else if (JSON.stringify(target.get(key)) !== JSON.stringify(value)) target.set(key, value);
+      }
+      ordered.push(target);
+    }
+    setMapOrder(ordered);
+  }
+}
 
 // Text fields stored as Y.Text so concurrent edits merge character-by-character
 // (CRDT) instead of whole-field last-write-wins. `Y.Map.toJSON()` and
@@ -87,8 +130,8 @@ export function shapeToY(s: Shape): YMap {
 /** Build a legacy (elements-less) Slide from a slide Y.Map's fixed-layout fields. */
 function legacySlide(m: YMap): Slide {
   const shapesArr = (m.get("shapes") as Y.Array<YMap>) ?? null;
-  const shapes: Shape[] = shapesArr
-    ? shapesArr.toArray().map((sm) => ({
+  const shapes: Shape[] = shapesArr instanceof Y.Array
+    ? shapesArr.toArray().filter((sm) => sm instanceof Y.Map && shape(sm.toJSON())).map((sm) => ({
         id: String(sm.get("id")),
         kind: sm.get("kind") as ShapeKind,
         x: Number(sm.get("x")),
@@ -108,7 +151,7 @@ function legacySlide(m: YMap): Slide {
     bodyHtml: String(m.get("bodyHtml") ?? ""),
     layout: (m.get("layout") as SlideLayout) ?? "title-content",
     notes: String(m.get("notes") ?? ""),
-    image: (m.get("image") as string) || undefined,
+    image: str(m.get("image")) ? m.get("image") as string : undefined,
     imageWidth: Number(m.get("imageWidth") ?? 100),
     transition: (m.get("transition") as SlideTransition) || undefined,
     shapes,
@@ -142,16 +185,17 @@ export function slideToY(s: Slide): YMap {
 
 /** Read a Slide from a Y.Map; legacy rooms are migrated to `elements` in memory. */
 export function yToSlide(m: YMap): Slide {
+  if (!(m instanceof Y.Map)) return { id: "invalid", title: "Diapositive illisible", body: "", layout: "blank", elements: [] };
   const base = legacySlide(m);
   const bg = (m.get("background") as string) || undefined;
-  if (bg) base.background = bg;
+  if (str(bg)) base.background = bg;
   const anims = m.get("anims") as SlideAnim[] | undefined;
-  if (anims && anims.length) base.anims = anims;
+  if (Array.isArray(anims)) base.anims = anims.filter(fields({ elementId: str, effect: str, order: int }, { trigger: str, delayMs: num, durationMs: num }));
   if (m.get("hidden") === true) base.hidden = true;
   const layoutId = m.get("layoutId") as string | undefined;
-  if (layoutId) base.layoutId = layoutId;
+  if (str(layoutId)) base.layoutId = layoutId;
   const elsArr = m.get("elements") as Y.Array<YMap> | undefined;
-  base.elements = elsArr && elsArr.length > 0 ? elsArr.toArray().map(yToEl) : elementsOf(base);
+  base.elements = elsArr instanceof Y.Array ? orderedMaps(elsArr).filter((m) => element(m.toJSON())).map(yToEl) : elementsOf(base);
   return base;
 }
 
@@ -167,7 +211,7 @@ export class SlideReader {
   private last: Slide[] = [];
 
   invalidate(events: ReadonlyArray<Y.YEvent<Y.AbstractType<unknown>>>, slidesArr: Y.Array<YMap> | undefined): void {
-    if (!slidesArr) return;
+    if (!(slidesArr instanceof Y.Array)) return;
     for (const ev of events) {
       let t: Y.AbstractType<unknown> | null = ev.target;
       while (t && t.parent !== slidesArr) t = t.parent as Y.AbstractType<unknown> | null;
@@ -176,8 +220,8 @@ export class SlideReader {
   }
 
   read(slidesArr: Y.Array<YMap> | undefined): Slide[] {
-    if (!slidesArr) return (this.last = this.last.length ? [] : this.last);
-    const maps = slidesArr.toArray();
+    if (!(slidesArr instanceof Y.Array)) return (this.last = this.last.length ? [] : this.last);
+    const maps = orderedMaps(slidesArr);
     let same = maps.length === this.last.length;
     const out = maps.map((m, i) => {
       let sl = this.cache.get(m);
@@ -201,7 +245,7 @@ export class SlideReader {
  */
 export function ensureElementsY(m: YMap): Y.Array<YMap> {
   let arr = m.get("elements") as Y.Array<YMap> | undefined;
-  if (!arr || arr.length === 0) {
+  if (!(arr instanceof Y.Array)) {
     const seed = elementsOf(legacySlide(m));
     arr = new Y.Array<YMap>();
     arr.push(seed.map(elToY));

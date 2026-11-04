@@ -192,7 +192,7 @@ describe("Filigrane — rendu", () => {
 });
 
 describe("Ornements — export", () => {
-  const model = (doc: ProseMirrorNode, watermark?: unknown) => ({
+  const model = (doc: ProseMirrorNode, watermark?: import("../src/format/types").EliumWatermark) => ({
     schema: "elium-doc/1" as const,
     page: {
       format: "A4" as const,
@@ -205,9 +205,9 @@ describe("Ornements — export", () => {
   const txt = (t: string): ProseMirrorNode => ({ type: "text", text: t });
   const doc = (...content: ProseMirrorNode[]): ProseMirrorNode => ({ type: "doc", content });
 
-  async function zipOf(node: ProseMirrorNode, watermark?: unknown) {
+  async function zipOf(node: ProseMirrorNode, watermark?: import("../src/format/types").EliumWatermark) {
     const file = await createEliumFile({ title: "Doc ornements", profile: "standard", doc: node });
-    if (watermark) (file.document as Record<string, unknown>).watermark = watermark;
+    if (watermark) file.document.watermark = watermark;
     return unzipSync(docToDocx(file));
   }
   const part = (zip: Record<string, Uint8Array>, n: string) => (zip[n] ? strFromU8(zip[n]!) : null);
@@ -286,7 +286,7 @@ describe("Ornements — export", () => {
       profile: "standard",
       doc: doc({ type: "paragraph", content: [txt("a")] }),
     });
-    (file.document as Record<string, unknown>).watermark = {
+    file.document.watermark = {
       kind: "text",
       text: "BROUILLON",
       angle: -45,

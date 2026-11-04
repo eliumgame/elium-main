@@ -447,13 +447,20 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
   };
   const addPoint = () => {
     if (!sel?.chart) return;
-    setChart({ labels: [...sel.chart.labels, "?"], values: [...sel.chart.values, 0] });
+    setChart({
+      labels: [...sel.chart.labels, "?"],
+      values: [...sel.chart.values, 0],
+      ...(sel.chart.series ? { series: sel.chart.series.map((s) => ({ ...s, values: [...s.values, 0] })) } : {}),
+    });
   };
   const delPoint = (i: number) => {
     if (!sel?.chart) return;
     setChart({
       labels: sel.chart.labels.filter((_, k) => k !== i),
       values: sel.chart.values.filter((_, k) => k !== i),
+      ...(sel.chart.series
+        ? { series: sel.chart.series.map((s) => ({ ...s, values: s.values.filter((_, k) => k !== i) })) }
+        : {}),
     });
   };
 

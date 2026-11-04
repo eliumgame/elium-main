@@ -21,6 +21,7 @@ import {
   type RestorePlan,
 } from "./backup";
 import type { ContentStoreId, WorkItem } from "./types";
+import { mergeImportedContacts, mergeImportedRevocations } from "./restore-trust";
 
 /** Lecture / écriture du contenu BRUT (déchiffré) d'un élément. */
 export interface ContentIO {
@@ -66,6 +67,20 @@ export async function collectSnapshot(deps: BackupDeps, opts: { includeSecrets: 
     contents.set(contentKey(item.contentStore, item.id), bytes);
   }
   const all = (keys: readonly string[]) => Object.fromEntries(keys.map((k) => [k, deps.storage.get(k)]));
+  const secrets = opts.includeSecrets ? pickKeys(all(SECRET_KEYS), SECRET_KEYS) : {};
+  // Miroir d'une clé DÉRIVÉE (`enc` vide) : aucune clé privée à sauvegarder, et le restaurer
+  // créerait une entrée fantôme. Les clés dérivées se restaurent par phrase / .eliumkey.
+  for (const k of ["elium_identity", "elium_recipient_key"]) {
+    const v = secrets[k];
+    if (v === undefined) continue;
+    let enc: unknown;
+    try {
+      enc = (JSON.parse(v) as { enc?: unknown } | null)?.enc;
+    } catch {
+      enc = undefined;
+    }
+    if (typeof enc !== "string" || !enc) delete secrets[k];
+  }
   return {
     createdAt: (deps.now?.() ?? new Date()).toISOString(),
     appVersion: deps.appVersion,
@@ -73,7 +88,7 @@ export async function collectSnapshot(deps: BackupDeps, opts: { includeSecrets: 
     items,
     contents,
     settings: pickKeys(all(SETTINGS_KEYS), SETTINGS_KEYS),
-    secrets: opts.includeSecrets ? pickKeys(all(SECRET_KEYS), SECRET_KEYS) : {},
+    secrets,
   };
 }
 
@@ -152,14 +167,23 @@ export async function restoreSnapshot(
     }
   }
   if (opts.applySettings) {
-    for (const [k, v] of Object.entries(snap.settings)) {
+    for (const [k, v] of Object.entries(pickKeys(snap.settings, SETTINGS_KEYS))) {
       deps.storage.set(k, v);
       report.settingsApplied++;
     }
   }
   if (opts.applySecrets) {
-    for (const [k, v] of Object.entries(snap.secrets)) {
-      deps.storage.set(k, v);
+    for (const [k, v] of Object.entries(pickKeys(snap.secrets, SECRET_KEYS))) {
+      // A backup cannot establish that THIS device has already observed a seal.
+      if (k === "elium_seal_pins") continue;
+      deps.storage.set(
+        k,
+        k === "elium_trust_book"
+          ? await mergeImportedContacts(deps.storage.get(k), v)
+          : k === "elium_trust_revocations"
+            ? mergeImportedRevocations(deps.storage.get(k), v)
+            : v,
+      );
       report.secretsApplied++;
     }
   }

@@ -39,6 +39,7 @@ import { cellsSnapshot, cellText, setCellText, type YCells } from "./collab-shee
 import { toggleMerge } from "../sheet/merges";
 import { insertRow, deleteRow, insertCol, deleteCol } from "../sheet/structural";
 import { indexToCol } from "../sheet/formula";
+import { cellRef, cellStyle, dimension, fields, int, sheetExtras, str } from "./collab-decode";
 import type {
   CellStyle,
   ChartSpec,
@@ -110,25 +111,28 @@ const asMap = <V>(ys: YSheet, key: string): Y.Map<V> | undefined => {
 
 /** Snapshot immuable et COMPLET d'une feuille CRDT en `SheetData`. */
 export function sheetSnapshot(ys: YSheet): SheetData {
-  const styles = Object.fromEntries(asMap<CellStyle>(ys, "styles")?.entries() ?? []) as Record<string, CellStyle>;
+  if (!(ys instanceof Y.Map)) return { name: "Feuille illisible", rows: 20, cols: 8, cells: {} };
+  const styles = Object.fromEntries([...(asMap<CellStyle>(ys, "styles")?.entries() ?? [])]
+    .filter(([ref, value]) => cellRef(ref) && cellStyle(value))) as Record<string, CellStyle>;
 
   const colWidths: Record<number, number> = {};
   for (const [k, w] of asMap<number>(ys, "colWidths")?.entries() ?? []) {
     const n = Number(k);
-    if (Number.isFinite(n) && typeof w === "number") colWidths[n] = w;
+    if (int(n, 16_383) && typeof w === "number" && Number.isFinite(w) && w >= 24 && w <= 4096) colWidths[n] = w;
   }
   const rowHeights: Record<number, number> = {};
   for (const [k, h] of asMap<number>(ys, "rowHeights")?.entries() ?? []) {
     const n = Number(k);
-    if (Number.isFinite(n) && typeof h === "number") rowHeights[n] = h;
+    if (int(n) && typeof h === "number" && Number.isFinite(h) && h >= 16 && h <= 4096) rowHeights[n] = h;
   }
-  const notes = Object.fromEntries(asMap<string>(ys, "notes")?.entries() ?? []) as Record<string, string>;
+  const notes = Object.fromEntries([...(asMap<string>(ys, "notes")?.entries() ?? [])]
+    .filter(([ref, value]) => cellRef(ref) && str(value))) as Record<string, string>;
 
-  const merges = [...(asMap<MergeRect>(ys, "merges")?.values() ?? [])].map((m) => ({ ...m }));
-  const condFormats = [...(asMap<CondRule>(ys, "condFormats")?.values() ?? [])].map((r) => ({ ...r }));
-  const validations = [...(asMap<DataValidation>(ys, "validations")?.values() ?? [])].map((v) => ({ ...v }));
-  const charts = [...(asMap<ChartSpec>(ys, "charts")?.values() ?? [])].map((c) => ({ ...c }));
-  const tables = [...(asMap<SheetTable>(ys, "tables")?.values() ?? [])].map((t) => ({ ...t }));
+  const merges = [...(asMap<MergeRect>(ys, "merges")?.values() ?? [])].filter(sheetExtras.merges);
+  const condFormats = [...(asMap<CondRule>(ys, "condFormats")?.values() ?? [])].filter(sheetExtras.condFormats);
+  const validations = [...(asMap<DataValidation>(ys, "validations")?.values() ?? [])].filter(sheetExtras.validations);
+  const charts = [...(asMap<ChartSpec>(ys, "charts")?.values() ?? [])].filter(sheetExtras.charts);
+  const tables = [...(asMap<SheetTable>(ys, "tables")?.values() ?? [])].filter(sheetExtras.tables);
 
   const freeze = ys.get("freeze") as { rows: number; cols: number } | undefined;
   const filter = ys.get("filter") as { col: number; query: string } | undefined;
@@ -136,9 +140,9 @@ export function sheetSnapshot(ys: YSheet): SheetData {
   const pivot = ys.get("pivot") as PivotObject | undefined;
 
   const out: SheetData = {
-    name: String(ys.get("name") ?? "Feuille"),
-    rows: Number(ys.get("rows") ?? 20),
-    cols: Number(ys.get("cols") ?? 8),
+    name: str(ys.get("name")) ? ys.get("name") as string : "Feuille",
+    rows: dimension(ys.get("rows"), 20, 1_048_576),
+    cols: dimension(ys.get("cols"), 8, 16_384),
     cells: cellsSnapshot(ys.get("cells") as YCells | undefined),
     styles,
   };
@@ -150,17 +154,17 @@ export function sheetSnapshot(ys: YSheet): SheetData {
   if (validations.length) out.validations = validations;
   if (charts.length) out.charts = charts;
   if (tables.length) out.tables = tables;
-  if (freeze && (freeze.rows > 0 || freeze.cols > 0)) out.freeze = { ...freeze };
-  if (filter && filter.query) out.filter = { ...filter };
-  if (print) out.print = JSON.parse(JSON.stringify(print)) as PrintSetup;
-  if (pivot) out.pivot = JSON.parse(JSON.stringify(pivot)) as PivotObject;
+  if (fields({ rows: int, cols: (v) => int(v, 16_384) })(freeze)) out.freeze = { ...freeze! };
+  if (fields({ col: (v) => int(v, 16_383), query: str })(filter)) out.filter = { ...filter! };
+  if (sheetExtras.print(print)) out.print = JSON.parse(JSON.stringify(print)) as PrintSetup;
+  if (sheetExtras.pivot(pivot)) out.pivot = JSON.parse(JSON.stringify(pivot)) as PivotObject;
   return out;
 }
 
 /** Snapshot complet du classeur (feuilles + plages nommées). */
 export function workbookSnapshot(ySheets: YSheets, yNames: Y.Map<string>, active: number): Workbook {
-  const sheets = ySheets.toArray().map(sheetSnapshot);
-  const names: NamedRange[] = [...yNames.entries()].map(([name, ref]) => ({ name, ref }));
+  const sheets = ySheets instanceof Y.Array ? ySheets.toArray().map(sheetSnapshot) : [];
+  const names: NamedRange[] = yNames instanceof Y.Map ? [...yNames.entries()].filter(([, ref]) => str(ref)).map(([name, ref]) => ({ name, ref })) : [];
   const wb: Workbook = { sheets, active: Math.max(0, Math.min(active, sheets.length - 1)) };
   if (names.length) wb.names = names;
   return wb;

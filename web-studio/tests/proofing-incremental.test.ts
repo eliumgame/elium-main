@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DecorationSet } from "@tiptap/pm/view";
 import { Schema } from "@tiptap/pm/model";
 import { EditorState, TextSelection } from "@tiptap/pm/state";
 import { Proofing, collectIssues } from "../src/editor/proofingExtension";
@@ -19,7 +20,7 @@ function decorated(state: EditorState) {
   const set = plugins; // eslint-disable-line @typescript-eslint/no-unused-vars
   for (const p of state.plugins) {
     const d = p.props.decorations?.call(p, state);
-    d?.find().forEach((x) => found.push(`${x.from}-${x.to}`));
+    if (d instanceof DecorationSet) d.find().forEach((x) => found.push(`${x.from}-${x.to}`));
   }
   return found.sort();
 }

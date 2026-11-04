@@ -141,7 +141,7 @@ describe("Comment — fil de réponses", () => {
 });
 
 describe("Comment — export/import DOCX (word/comments.xml)", () => {
-  const t = (text: string, marks?: Record<string, unknown>[]): ProseMirrorNode => ({
+  const t = (text: string, marks?: ProseMirrorNode["marks"]): ProseMirrorNode => ({
     type: "text",
     text,
     ...(marks ? { marks } : {}),
@@ -155,7 +155,7 @@ describe("Comment — export/import DOCX (word/comments.xml)", () => {
     const node = doc(
       para(
         t("Le "),
-        t("contrat", [{ type: "comment", attrs: baseAttrs({ text: "à vérifier — délai ?" }) }]),
+        t("contrat", [{ type: "comment", attrs: { ...baseAttrs({ text: "à vérifier — délai ?" }) } }]),
         t(" est signé."),
       ),
     );
@@ -182,7 +182,7 @@ describe("Comment — export/import DOCX (word/comments.xml)", () => {
   });
 
   it("round-trip : la racine du commentaire (auteur/date/texte) survit à l'aller-retour", async () => {
-    const node = doc(para(t("avant "), t("contrat", [{ type: "comment", attrs: baseAttrs() }]), t(" après")));
+    const node = doc(para(t("avant "), t("contrat", [{ type: "comment", attrs: { ...baseAttrs() } }]), t(" après")));
     const file = await createEliumFile({ title: "Doc", profile: "standard", doc: node });
     const back = docxToDoc(docToDocx(file));
     const withMark = (function walk(n: ProseMirrorNode): ProseMirrorNode | undefined {
@@ -206,10 +206,10 @@ describe("Comment — export/import DOCX (word/comments.xml)", () => {
         t("contrat", [
           {
             type: "comment",
-            attrs: baseAttrs({
+            attrs: { ...baseAttrs({
               resolved: true,
               replies: [{ id: "r1", author: "Bob", text: "réponse", createdAt: "2026-01-02T00:00:00Z" }],
-            }),
+            }) },
           },
         ]),
       ),

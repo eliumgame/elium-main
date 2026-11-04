@@ -20,6 +20,7 @@ import {
   recoveryChecklist,
   getMasterRecord,
   importKey,
+  isKeylessEntry,
   toBundleMeta,
   fromBundleKey,
   KeyringError,
@@ -37,6 +38,7 @@ import {
   encryptForRecipients,
   decryptWithAnyKey,
 } from "../src/crypto/recipients";
+import { restoreFromMaster } from "../src/crypto/keyring-backup";
 import { buildKeyBundle, openKeyBundle } from "../src/crypto/keyfile-v2";
 
 function fakeStorage(init: Record<string, string> = {}): LegacyStorage & { dump(): Record<string, string> } {
@@ -351,4 +353,45 @@ describe("session : un seul mot de passe, verrouillage", () => {
     expect(Array.from(s.getMaster()!)).toEqual(Array.from(master));
     await expect(new KeyringSession({ idleMinutes: 0 }).unlockWithPassword(store, "ancien")).rejects.toThrow();
   }, 120000);
+});
+
+describe("entrées fantômes (mot de passe sans conteneur) et clés dérivées", () => {
+  const ghostOf = (e: KeyEntry): KeyEntry => ({ ...e, protection: "password", enc: "", derivationIndex: undefined });
+
+  it("restoreFromMaster remplace l'entrée fantôme par la clé dérivée", async () => {
+    const a = createMemoryStore();
+    const { master } = await createMaster(a, "pw");
+    const k = await generateIdentityKey(a, master);
+    const b = createMemoryStore();
+    await b.put(ghostOf(k.entry));
+    await restoreFromMaster(b, master, "pw2");
+    const e = (await b.getAll()).find((x) => x.id === k.entry.id)!;
+    expect(e.protection).toBe("derived");
+    expect(isKeylessEntry(e)).toBe(false);
+  }, 60000);
+
+  it("importKey remplace un fantôme par une vraie clé, mais jamais l'inverse", async () => {
+    const a = createMemoryStore();
+    const { master } = await createMaster(a, "pw");
+    const k = await generateIdentityKey(a, master);
+    const store = createMemoryStore();
+    await store.put(ghostOf(k.entry));
+    expect(isKeylessEntry((await store.getAll())[0])).toBe(true);
+    expect(await importKey(store, ghostOf(k.entry))).toBe("exists");
+    expect(await importKey(store, k.entry)).toBe("added");
+    expect((await store.getAll())[0].protection).toBe("derived");
+    expect(await importKey(store, ghostOf(k.entry))).toBe("exists");
+    expect((await store.getAll())[0].protection).toBe("derived");
+  }, 30000);
+
+  it("migrateLegacy ne crée pas d'entrée pour un miroir de clé dérivée (enc vide)", async () => {
+    const f = await legacyFixture();
+    const mirror = fakeStorage({
+      elium_identity: JSON.stringify({ publicKeyHex: f.id.publicKeyHex, fingerprint: f.id.fingerprint, enc: "" }),
+      elium_recipient_key: JSON.stringify({ publicHex: f.rk.publicHex, fingerprint: f.rFpr, enc: "" }),
+    });
+    const store = createMemoryStore();
+    expect(await migrateLegacy(store, mirror)).toBe(0);
+    expect(await store.getAll()).toHaveLength(0);
+  }, 30000);
 });

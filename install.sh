@@ -31,6 +31,7 @@
 # La suite locale Windows reste distribuée en MSI (double-clic) — voir INSTALL.md.
 # =============================================================================
 set -euo pipefail
+umask 077
 
 # --- Cadre ------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -70,6 +71,11 @@ ulog() { printf '%s  %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*" >> "$UPDATE_L
 # Version applicative du checkout courant (source unique = src/elium/__init__.py).
 repo_version() {
   sed -n 's/^__version__ *= *"\(.*\)"/\1/p' "$SCRIPT_DIR/src/elium/__init__.py" 2>/dev/null | head -n1
+}
+
+# Version annoncée par l'API effectivement en service, jamais par le checkout.
+running_version() {
+  $DC exec -T api node -e 'fetch("http://127.0.0.1:8787/api/health").then(r=>{if(!r.ok)throw Error();return r.json()}).then(j=>{if(typeof j.version!=="string"||!j.version)throw Error();console.log(j.version)}).catch(()=>process.exit(1))' 2>/dev/null
 }
 
 # Décode une chaîne hex (stdin ignoré ; $1) en octets bruts vers le fichier $2.
@@ -201,7 +207,7 @@ backup_db_preupdate() {
   # gzip d'un dump vide pèse ~20 octets : un vrai dump contient au moins la création du schéma.
   if [ "$(gzip -dc "$dump" 2>/dev/null | wc -c)" -lt 200 ]; then rm -f "$dump"; return 1; fi
   {
-    printf 'app_version=%s\n' "$(repo_version || true)"
+    printf 'app_version=%s\n' "$(running_version || true)"
     printf 'commit=%s\n' "$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null || true)"
     printf 'schema_version=%s\n' "$(db_schema_version)"
   } > "${dump%.sql.gz}.meta"
@@ -220,6 +226,14 @@ restore_db_dump() {
 # secrets, il n'y a plus de valeur par défaut).
 ensure_env_secrets() {
   [ -f "$ENV_FILE" ] || return 0
+  if [ -z "$(read_env POSTGRES_APP_PASSWORD)" ]; then
+    set_env_var POSTGRES_APP_PASSWORD "$(gen_secret)"
+  fi
+  if [ -z "$(read_env WEBAUTHN_RP_ID)" ]; then
+    local rp; rp="$(read_env SITE_ADDRESS)"
+    case "$rp" in ""|:*) rp=localhost ;; esac
+    set_env_var WEBAUTHN_RP_ID "$rp"
+  fi
   if [ -z "$(read_env REDIS_PASSWORD)" ]; then
     set_env_var REDIS_PASSWORD "$(gen_secret)"
     info "REDIS_PASSWORD généré et ajouté à .env (Redis est désormais protégé par mot de passe)."
@@ -259,7 +273,15 @@ prune_update_backups() {
 # dans .env, écrites par l'auto-update d'après le manifeste signé) on les TIRE sans rien construire
 # sur le serveur ; sinon (premier déploiement, manifeste ancien) on construit sur place.
 compose_up_stack() {
+  mkdir -p "$SCRIPT_DIR/release"
+  chmod 755 "$SCRIPT_DIR/release"
   local profile=(); [ "$(read_env STORAGE_DRIVER)" = "s3" ] && profile=(--profile s3)
+  if [ "$(blob_backend)" = "s3-minio" ]; then
+    case "$(read_env MINIO_IMAGE)" in
+      *@sha256:*) : ;;
+      *) die "MinIO intégré exige MINIO_IMAGE avec une empreinte vérifiée d'une image maintenue. L'ancienne image communautaire vulnérable n'est plus utilisée. Voir la documentation d'exploitation." ;;
+    esac
+  fi
   if [ -n "$(read_env ELIUM_API_IMAGE)" ] && [ -n "$(read_env ELIUM_WEB_IMAGE)" ]; then
     $DC "${profile[@]}" pull api web && $DC "${profile[@]}" up -d --no-build
   else
@@ -387,9 +409,11 @@ deploy_drive() {
   [ "$STORAGE" = "s3" ] || [ "$STORAGE" = "fs" ] || die "Stockage invalide : $STORAGE (attendu fs ou s3)."
 
   # Secrets : PRÉSERVÉS s'ils existent déjà (rotation = perte des sessions + MFA)
-  local token pgpw s3key s3secret
+  local token pgpw apppw s3key s3secret rpid
   token="$(read_env TOKEN_SECRET)";        [ -n "$token" ]    || token="$(gen_secret)"
   pgpw="$(read_env POSTGRES_PASSWORD)";     [ -n "$pgpw" ]     || pgpw="$(gen_secret)"
+  apppw="$(read_env POSTGRES_APP_PASSWORD)"; [ -n "$apppw" ] || apppw="$(gen_secret)"
+  rpid="$(read_env WEBAUTHN_RP_ID)"; [ -n "$rpid" ] || rpid="${DOMAIN:-localhost}"
   s3key="$(read_env S3_ACCESS_KEY)";        [ -n "$s3key" ]    || s3key="elium"
   s3secret="$(read_env S3_SECRET_KEY)";     [ -n "$s3secret" ] || s3secret="$(gen_secret)"
   local redispw; redispw="$(read_env REDIS_PASSWORD)"; [ -n "$redispw" ] || redispw="$(gen_secret)"
@@ -407,6 +431,8 @@ deploy_drive() {
     [ -n "$EMAIL" ] && echo "ACME_EMAIL=$EMAIL"
     echo "TOKEN_SECRET=$token"
     echo "POSTGRES_PASSWORD=$pgpw"
+    echo "POSTGRES_APP_PASSWORD=$apppw"
+    echo "WEBAUTHN_RP_ID=$rpid"
     echo "CORS_ORIGINS=$cors"
     echo "ELIUM_VERSION=$(repo_version)"
     echo "STORAGE_DRIVER=$STORAGE"
@@ -519,7 +545,8 @@ run_suite() {
 do_release_feed() {
   command -v python3 >/dev/null 2>&1 || { warn "python3 requis pour rafraîchir release.json — ignoré."; return 0; }
   mkdir -p "$SCRIPT_DIR/release"
-  local web_image base; web_image="$(read_env ELIUM_WEB_IMAGE)"; base="$SCRIPT_DIR/release/.base-release.json"
+  detect_compose
+  local web_image base; web_image="$($DC images -q web 2>/dev/null | head -n1)"; base="$SCRIPT_DIR/release/.base-release.json"
   if [ -n "$web_image" ] && command -v docker >/dev/null 2>&1 \
      && docker run --rm --entrypoint cat "$web_image" /usr/share/caddy/release.json > "$base" 2>/dev/null; then
     :
@@ -535,6 +562,10 @@ do_release_feed() {
 do_update() {
   detect_compose; [ -n "$DC" ] || die "Docker Compose requis."
   [ -f "$ENV_FILE" ] || die "Aucun .env — lancez d'abord : bash install.sh drive"
+  if [ -n "$(read_env ELIUM_API_IMAGE)" ] || [ -n "$(read_env ELIUM_WEB_IMAGE)" ]; then
+    do_self_update
+    return
+  fi
   if command -v git >/dev/null 2>&1 && [ -d .git ]; then
     info "git pull…"; git pull --ff-only || warn "git pull ignoré (arbre modifié ou hors dépôt)."
   fi
@@ -543,8 +574,12 @@ do_update() {
   local dump; dump="$(backup_db_preupdate)" || die "Sauvegarde de la base impossible — mise à jour ABANDONNÉE (la pile n'a pas été redémarrée)."
   ok "Base sauvegardée avant mise à jour : $dump"
   info "Reconstruction + redémarrage…"
-  compose_up_stack
+  local old_version; old_version="$(running_version)" || die "Version API illisible — mise à jour abandonnée."
   set_env_var ELIUM_VERSION "$(repo_version)"
+  if ! compose_up_stack || ! wait_health; then
+    set_env_var ELIUM_VERSION "$old_version"
+    die "Redémarrage en échec — version non validée ; sauvegarde : $dump"
+  fi
   do_release_feed || warn "release.json (carte de mise à jour du site) non rafraîchi — sans conséquence sur le service."
   ok "Pile mise à jour (migrations ré-appliquées, idempotentes)."
 }
@@ -591,9 +626,10 @@ do_self_update() {
   local remote_ver commit cur_ver
   remote_ver="$(manifest_field "$tmp/latest.json" version || true)"
   commit="$(manifest_field "$tmp/latest.json" commit || true)"
-  cur_ver="$(repo_version || true)"
+  cur_ver="$(running_version)" || { warn "Version API illisible — mise à jour abandonnée."; return 1; }
   [ -n "$remote_ver" ] || { warn "Version absente du manifeste."; return 0; }
 
+  do_release_feed || ulog "release-feed: échec (sans conséquence sur le service)"
   if ! version_gt "$remote_ver" "$cur_ver"; then
     ok "Déjà à jour (déployé ${cur_ver:-?}, publié $remote_ver)."; ulog "up-to-date (${cur_ver:-?} >= $remote_ver)"; return 0
   fi
@@ -667,6 +703,8 @@ do_self_update() {
   ensure_env_secrets
   if [ -n "$new_api" ] && [ -n "$new_web" ]; then
     set_env_var ELIUM_API_IMAGE "$new_api"; set_env_var ELIUM_WEB_IMAGE "$new_web"
+  else
+    set_env_var ELIUM_API_IMAGE ""; set_env_var ELIUM_WEB_IMAGE ""
   fi
 
   info "Redémarrage de la pile…"

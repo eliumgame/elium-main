@@ -12,7 +12,7 @@ import { cellClass, isCovered, mergeAt } from "./table";
 import { layoutDiagram, nodeFontPx, type DEdge, type DNode } from "./diagram";
 import { isPromptOnly, withSlideNumber } from "./master";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { REF_H, REF_W, type Slide, type SlideElement, type SlideTheme, type ShapeKind } from "./model";
+import { REF_H, REF_W, chartSeriesOf, type Slide, type SlideElement, type SlideTheme, type ShapeKind } from "./model";
 import type { RevealState } from "./playback";
 import {
   selectionAfterClick,
@@ -401,11 +401,7 @@ function ElementView({
   if (el.type === "chart") {
     return el.chart ? (
       <div className="ce-chart">
-        <SheetChart
-          type={el.chart.kind}
-          labels={el.chart.labels}
-          series={[{ label: "Série 1", values: el.chart.values }]}
-        />
+        <SheetChart type={el.chart.kind} labels={el.chart.labels} series={chartSeriesOf(el.chart)} />
       </div>
     ) : (
       <div className="ce-imgph">Graphique</div>

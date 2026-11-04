@@ -64,6 +64,18 @@ export interface TrackBreak {
   ts: string;
 }
 
+/**
+ * Décodage défensif d'une marque de saut venant d'un document (JSON non fiable) : `kind` doit être
+ * « split » ou « merge », les autres champs des chaînes. Sinon `null` (aucun rendu, jamais d'exception).
+ */
+export function decodeTrackBreak(raw: unknown): TrackBreak | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (r.kind !== "split" && r.kind !== "merge") return null;
+  const str = (v: unknown) => (typeof v === "string" ? v : "");
+  return { kind: r.kind, id: str(r.id), author: str(r.author), ts: str(r.ts) };
+}
+
 /** Block types Enter/boundary-merge tracking is scoped to (see module header). */
 const BREAK_TYPES = ["paragraph", "heading"];
 /** Ancestor types that manage their own Enter/Backspace semantics — skip there. */
@@ -353,7 +365,7 @@ export const TrackChanges = Extension.create<{ author: string }>({
             default: null,
             parseHTML: () => null, // never round-trips through pasted/copied HTML — Elium JSON only
             renderHTML: (attrs: Record<string, unknown>) => {
-              const tb = attrs.trackBreak as TrackBreak | null;
+              const tb = decodeTrackBreak(attrs.trackBreak);
               return tb
                 ? { "data-track-break": tb.kind, class: `elium-break-pending elium-break-pending--${tb.kind}` }
                 : {};
@@ -587,8 +599,10 @@ export const TrackChanges = Extension.create<{ author: string }>({
             memoByDoc(state.doc, "trackBreakDecos", () => {
               const decos: Decoration[] = [];
               state.doc.descendants((node, pos) => {
-                const tb = (node.attrs as { trackBreak?: TrackBreak | null }).trackBreak;
-                if (!tb) return !node.isTextblock;
+                const rawTb = (node.attrs as { trackBreak?: unknown }).trackBreak;
+                if (!rawTb) return !node.isTextblock;
+                const tb = decodeTrackBreak(rawTb);
+                if (!tb) return !node.isTextblock; // marque malformée : ignorée, jamais d'exception
                 decos.push(
                   Decoration.widget(
                     pos + 1,

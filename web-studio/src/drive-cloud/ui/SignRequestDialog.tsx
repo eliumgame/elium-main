@@ -36,6 +36,12 @@ import { getPendingCircuitSync, setPendingCircuitSync, clearPendingCircuitSync }
 import type { SignRequestDto, SignParty } from "../api";
 import { fingerprintWords } from "../../sign/safety-words";
 import { useDialogA11y } from "./useDialogA11y";
+import {
+  compareSignedContent,
+  getSignBaseline,
+  saveSignBaseline,
+  SIGNED_CONTENT_MODIFIED_MESSAGE,
+} from "../sign-baseline";
 
 export default function SignRequestDialog({
   ctx,
@@ -56,6 +62,11 @@ export default function SignRequestDialog({
   const [links, setLinks] = useState<SignPartyLink[] | null>(null);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [requests, setRequests] = useState<SignRequestDto[] | null>(null);
+  // Demandes dont le document revenu signé n'a PAS le même contenu que celui envoyé.
+  const [modifiedRequests, setModifiedRequests] = useState<Set<string>>(new Set());
+  const checkedRef = useRef(new Map<string, string>());
+  const entryRef = useRef(entry);
+  entryRef.current = entry;
   // Action en cours (Révoquer / Relancer) sur une partie précise du suivi —
   // désactive ses boutons le temps de l'appel, affiche un message de résultat.
   const [actingId, setActingId] = useState<string | null>(null);
@@ -128,6 +139,22 @@ export default function SignRequestDialog({
     try {
       const res = await ctx.api.getSignRequests(entry.id);
       setRequests(res.requests);
+      // À la réception d'une signature : le contenu revenu est-il celui qu'on a envoyé ?
+      for (const r of res.requests) {
+        const signedCount = r.parties.filter((p) => p.status === "signed").length;
+        const base = getSignBaseline(entry.id, r.id);
+        if (!signedCount || !base || checkedRef.current.get(r.id) === `${signedCount}`) continue;
+        const loaded = await loadEliumFile(ctx, entryRef.current);
+        if (!loaded) continue;
+        checkedRef.current.set(r.id, `${signedCount}`);
+        const verdict = compareSignedContent(base, loaded.file);
+        setModifiedRequests((prev) => {
+          const next = new Set(prev);
+          if (verdict === "modified") next.add(r.id);
+          else next.delete(r.id);
+          return next;
+        });
+      }
     } catch {
       /* best effort — le suivi n'est pas bloquant */
     }
@@ -230,7 +257,10 @@ export default function SignRequestDialog({
       const opts: { ordered?: boolean; expiresAt?: string } = { ordered };
       if (expiry) opts.expiresAt = new Date(Date.now() + Number(expiry) * 86400_000).toISOString();
       const clean = parties.map((p) => ({ label: p.label.trim() || undefined }));
-      const { parties: created } = await createSignRequestForNode(ctx, entry, roleId, clean, opts);
+      // Empreinte du contenu AVANT envoi : base de comparaison à la réception (voir sign-baseline.ts).
+      const before = await loadEliumFile(ctx, entry).catch(() => null);
+      const { requestId, parties: created } = await createSignRequestForNode(ctx, entry, roleId, clean, opts);
+      saveSignBaseline(entry.id, requestId, before?.file.manifest.integrity.contentHash);
       setLinks(created);
       await loadStatus();
       // Bridge vers le circuit local (Parapheur) : le document EST la source de
@@ -482,6 +512,11 @@ export default function SignRequestDialog({
             )}
             {requests.map((r) => (
               <div key={r.id} style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
+                {modifiedRequests.has(r.id) && (
+                  <p className="elx-form__error" role="alert">
+                    <AlertTriangle size={13} /> {SIGNED_CONTENT_MODIFIED_MESSAGE}
+                  </p>
+                )}
                 {r.ordered && (
                   <span className="muted" style={{ fontSize: 12 }}>
                     <ListOrdered size={12} /> Signature dans l'ordre

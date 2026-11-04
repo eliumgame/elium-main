@@ -28,6 +28,8 @@ import type { RecipientKeypair } from "../crypto/recipients";
 import { decryptAsRecipient, generateRecipientKeypair } from "../crypto/recipients";
 import { wrapNodeKeyFor, unwrapNodeKey, decryptName, type WrappedKey } from "./node-crypto";
 import { toHex, fromHex } from "../format/canonical";
+import { p256 } from "@noble/curves/nist.js";
+import { requireKeyPin, pinKey } from "./key-pins";
 
 const enc = new TextEncoder();
 
@@ -41,6 +43,7 @@ export interface RecoveryContext {
   orgId: string;
   /** The org's PUBLIC key (hex) — pairs with the unwrapped private scalar. */
   orgPublicHex: string;
+  orgKeyEpoch?: number;
   /** The CURRENT admin's recipient keypair (from the session; in memory only). */
   adminKeys: RecipientKeypair;
 }
@@ -56,6 +59,9 @@ export async function withOrgKey<T>(ctx: RecoveryContext, fn: (orgKp: RecipientK
   const privBytes = await decryptAsRecipient(envelope, ctx.adminKeys); // 32-byte P-256 scalar
   const orgKp: RecipientKeypair = { privateHex: toHex(privBytes), publicHex: ctx.orgPublicHex };
   try {
+    const derived = toHex(p256.getPublicKey(privBytes, false));
+    if (derived.toLowerCase() !== ctx.orgPublicHex.toLowerCase()) throw new Error("La clé publique de l'organisation ne correspond pas à sa clé de recouvrement.");
+    requireKeyPin("org", ctx.orgId, derived);
     return await fn(orgKp);
   } finally {
     wipe(privBytes);
@@ -68,6 +74,7 @@ export async function promoteRecoveryAdmin(
   ctx: RecoveryContext,
   target: { userId: string; publicHex: string },
 ): Promise<void> {
+  requireKeyPin("user", target.userId, target.publicHex);
   await withOrgKey(ctx, async (orgKp) => {
     const privBytes = fromHex(orgKp.privateHex);
     try {
@@ -94,6 +101,7 @@ export async function restoreNodeAccess(
     roleId: string;
   },
 ): Promise<void> {
+  requireKeyPin("user", params.targetUserId, params.targetPublicHex);
   await withOrgKey(ctx, async (orgKp) => {
     const cek = await unwrapNodeKey(params.orgWrappedKey, orgKp);
     try {
@@ -121,6 +129,7 @@ export async function restoreOwnedNodes(
   target: { userId: string; publicHex: string },
   roleId: string,
 ): Promise<number> {
+  requireKeyPin("user", target.userId, target.publicHex);
   const { nodes } = await ctx.api.listRecoveryNodes(ctx.orgId);
   const mine = nodes.filter((n) => n.ownerUserId === target.userId);
   if (!mine.length) return 0;
@@ -163,6 +172,12 @@ export async function rotateOrgKey(
   opts: { onProgress?: (done: number, total: number) => void } = {},
 ): Promise<{ newOrgPublicHex: string; nodesRewrapped: number }> {
   if (admins.length === 0) throw new Error("Aucun administrateur de recouvrement pour la rotation.");
+  if (typeof ctx.api.listOrgs === "function") {
+    const { organizations } = await ctx.api.listOrgs();
+    const org = (organizations as { id: string; orgPublicHex: string; orgKeyEpoch: number }[]).find((o) => o.id === ctx.orgId);
+    if (!org) throw new Error("Organisation inaccessible.");
+    ctx = { ...ctx, orgPublicHex: org.orgPublicHex, orgKeyEpoch: org.orgKeyEpoch };
+  }
   const { nodes } = await ctx.api.listRecoveryNodes(ctx.orgId);
   const newKp = await generateRecipientKeypair();
 
@@ -175,7 +190,7 @@ export async function rotateOrgKey(
         cek = await unwrapNodeKey(n.orgWrappedKey, oldOrgKp);
         nodeKeys.push({ nodeId: n.id, wrappedKey: await wrapNodeKeyFor(cek, newKp.publicHex) });
       } catch {
-        /* node with no decryptable org share — skip (keeps its own shares) */
+        throw new Error(`Rotation interrompue avant publication : part de recouvrement illisible (${n.id}).`);
       } finally {
         wipe(cek);
       }
@@ -186,7 +201,7 @@ export async function rotateOrgKey(
     const recoveryKeys: { adminUserId: string; wrappedOrgPrivate: WrappedKey }[] = [];
     try {
       for (const a of admins) {
-        if (!a.publicHex) continue;
+        requireKeyPin("user", a.userId, a.publicHex);
         recoveryKeys.push({ adminUserId: a.userId, wrappedOrgPrivate: await wrapNodeKeyFor(newPriv, a.publicHex) });
       }
     } finally {
@@ -199,8 +214,10 @@ export async function rotateOrgKey(
     newOrgPublicHex: newKp.publicHex,
     nodeKeys: built.nodeKeys,
     recoveryKeys: built.recoveryKeys,
+    expectedEpoch: ctx.orgKeyEpoch,
   });
   newKp.privateHex = ""; // drop the new private reference (best-effort)
+  pinKey("org", ctx.orgId, newKp.publicHex);
   return { newOrgPublicHex: newKp.publicHex, nodesRewrapped: res.nodesRewrapped };
 }
 

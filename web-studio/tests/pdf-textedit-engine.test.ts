@@ -590,7 +590,6 @@ describe("text edit engine — justified or not", () => {
     const r = await rewrittenPage(bytes, null, 0, [editOf(b, spans)]);
     const items = await itemsOn(r.bytes, b, 2);
     singleSpaces(items);
-    (await import("node:fs")).writeFileSync("/tmp/items.json", JSON.stringify(items));
     // One item (a face change would cut it into « Fin » « JWQ » « ajoutée. »).
     expect(
       items.some((i) => i.includes("Fin JWQ ajoutée.")),

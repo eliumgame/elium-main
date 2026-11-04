@@ -96,6 +96,7 @@ beforeEach(async () => {
   mQueryOne.mockImplementation((async (sql: string) => {
     if (/FROM users/.test(sql)) return { status: "active", token_epoch: new Date(0).toISOString() };
     if (/INSERT INTO collab_updates/.test(sql)) return { id: 42 };
+    if (/SELECT key_epoch, key_rotation_required FROM nodes/.test(sql)) return { key_epoch: 1, key_rotation_required: false };
     return null;
   }) as never);
   resetCollabStorageGuardsForTests();
@@ -103,6 +104,15 @@ beforeEach(async () => {
 });
 
 describe("relais collab : refus explicites et accusés de réception", () => {
+  it("blocks a write when revocation or rekey wins before persistence", async () => {
+    const s = await openRoom(true);
+    mQueryOne.mockImplementation((async () => null) as never);
+    s.emit("message", JSON.stringify({ type: "update", ciphertext: "abcd", nonce: NONCE }));
+    await flush();
+    expect(s.sent.find(m => m.type === "ack")).toBeUndefined();
+    expect(s.sent.find(m => m.type === "error")).toMatchObject({ code: "key_rotation_required" });
+    expect(s.closed?.code).toBe(4001);
+  });
   it("une mise à jour trop grosse renvoie update_too_large (avec le nonce et le plafond)", async () => {
     const s = await openRoom(true);
     const ct = "ab".repeat(config.maxCollabMessageBytes + 1);

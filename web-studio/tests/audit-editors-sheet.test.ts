@@ -64,13 +64,13 @@ describe("audit F tableur", () => {
         "00123",
         "12345678901234567890",
         "=1+1",
-        "123",
+        123,
         "0x1A",
         "Infinity",
       ]);
       const xml = strFromU8(unzipSync(workbookToXlsx(wb))["xl/worksheets/sheet1.xml"]);
       expect(xml).not.toContain("<f>");
-      expect(xml.match(/t="inlineStr"/g)).toHaveLength(6);
+      expect(xml.match(/t="inlineStr"/g)).toHaveLength(5); // « 123 » reste un nombre
     }
   });
   it("does not interpret hexadecimal, infinity or long identifiers", () => {

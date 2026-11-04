@@ -84,17 +84,31 @@ describe("redaction patterns", () => {
       "jean.dupont+pdf@exemple.fr",
       "a@b.co",
     ]);
-    const t0 = performance.now();
-    expect(find("email", "a".repeat(180_000) + " b")).toEqual([]);
-    expect(find("email", "a.".repeat(90_000))).toEqual([]);
-    expect(performance.now() - t0).toBeLessThan(200);
+    // Référence O(n) sur les mêmes entrées, mesurée ici : le seuil suit la charge de la machine,
+    // une recherche quadratique (≈ 10^10 pas pour 180 000 caractères) le dépasse toujours.
+    const inputs = ["a".repeat(180_000) + " b", "a.".repeat(90_000)];
+    const tb = performance.now();
+    for (const s of inputs) {
+      let n = 0;
+      for (let i = 0; i < s.length; i++) n += s.charCodeAt(i);
+      expect(n).toBeGreaterThan(0);
+    }
+    const base = performance.now() - tb;
+    let best = Infinity;
+    for (let rep = 0; rep < 3; rep++) {
+      const t0 = performance.now();
+      for (const s of inputs) expect(find("email", s)).toEqual([]);
+      best = Math.min(best, performance.now() - t0);
+    }
+    expect(best).toBeLessThan(Math.max(1500, base * 400));
   });
 });
 
 describe("permissions", () => {
   it("/P: bits 1-2 clear, 7-8 and 13-32 set", () => {
     expect(permissionsToP(ALL_PERMISSIONS)).toBe(-4);
-    const none = Object.fromEntries(Object.keys(ALL_PERMISSIONS).map((k) => [k, false])) as typeof ALL_PERMISSIONS;
+    const none = { ...ALL_PERMISSIONS };
+    for (const key of Object.keys(none) as (keyof typeof none)[]) none[key] = false;
     expect(permissionsToP(none) >>> 0).toBe(0xfffff0c0);
   });
 

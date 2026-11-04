@@ -19,7 +19,7 @@ async function blocksOf(draws: Draw[]): Promise<TextBlock[]> {
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const page = doc.addPage([595, 842]);
   for (const d of draws) page.drawText(d.text, { x: d.x, y: d.y, size: d.size ?? 10, font: d.bold ? bold : regular });
-  const task = pdfjs.getDocument({ data: await doc.save(), isEvalSupported: false });
+  const task = pdfjs.getDocument({ data: await doc.save() });
   const js = await task.promise;
   const p = await js.getPage(1);
   const tc = await p.getTextContent();

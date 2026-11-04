@@ -22,6 +22,21 @@ import type {
 import type { RegistrationPayload, PasswordChange } from "./account";
 import type { WrappedKey } from "./node-crypto";
 
+export interface ContentSnapshot { baseVersionId: string | null; keyEpoch: number }
+export interface GroupRotationInput {
+  expectedGroupPublicHex: string;
+  groupPublicHex: string;
+  members: { userId: string; wrappedGroupPrivate: WrappedKey }[];
+  nodeKeys: { nodeId: string; wrappedKey: WrappedKey; keyEpoch: number }[];
+}
+function contentSnapshot(res: Response): ContentSnapshot {
+  const baseVersionId = res.headers.get("x-content-version-id");
+  const epoch = res.headers.get("x-key-epoch");
+  if (!baseVersionId || !epoch || !Number.isSafeInteger(Number(epoch)) || Number(epoch) < 1)
+    throw new Error("Version du contenu absente : mettez à jour le serveur Drive avant de modifier ce fichier.");
+  return { baseVersionId: baseVersionId === "null" ? null : baseVersionId, keyEpoch: Number(epoch) };
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -586,10 +601,29 @@ export class DriveApi {
     );
   }
   // === SSO (OIDC) + SCIM ====================================================
-  /** Sign in via an OIDC id_token obtained from the org's IdP (identity only;
-   *  the returned key bundle is still unlocked client-side with the passphrase). */
-  ssoVerify(orgId: string, idToken: string) {
-    return this.json<LoginResult>("POST", "/auth/sso/verify", { body: { orgId, idToken }, auth: false });
+  /** Nonce OIDC à usage unique (5 min) : à placer dans le paramètre `nonce` de la requête d'autorisation. */
+  ssoNonce(orgId: string) {
+    return this.json<{ nonce: string; expiresInSeconds: number }>("POST", "/auth/sso/nonce", {
+      body: { orgId },
+      auth: false,
+    });
+  }
+  /** Sign in via an OIDC id_token obtained from the org's IdP (identity only; `nonce` = celui de ssoNonce,
+   *  que le jeton doit porter ; la clé reste déverrouillée côté client par la phrase de passe). */
+  ssoVerify(orgId: string, idToken: string, nonce: string) {
+    return this.json<LoginResult>("POST", "/auth/sso/verify", { body: { orgId, idToken, nonce }, auth: false });
+  }
+  /** Config SSO publique (orgId, issuer, clientId) pour l'écran de connexion. REQUIERT la route serveur
+   *  publique GET /auth/sso/config (absente à ce jour : 404 => `null`, le bouton SSO reste masqué). */
+  async ssoPublicConfig(): Promise<{ orgId: string; issuer: string; clientId: string } | null> {
+    try {
+      return await this.json<{ orgId: string; issuer: string; clientId: string }>("GET", "/auth/sso/config", {
+        auth: false,
+      });
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 404 || e.status === 403)) return null;
+      throw e;
+    }
   }
   setOrgSso(
     orgId: string,
@@ -754,15 +788,21 @@ export class DriveApi {
   addGroupMember(
     orgId: string,
     groupId: string,
-    body: { userId: string; wrappedGroupPrivate: WrappedKey; isManager?: boolean },
+    body: { userId: string; wrappedGroupPrivate: WrappedKey; isManager?: boolean; expectedGroupPublicHex: string },
   ) {
     return this.json<{ ok: boolean }>("POST", `/orgs/${orgId}/groups/${groupId}/members`, { body });
   }
-  removeGroupMember(orgId: string, groupId: string, userId: string) {
-    return this.json<{ ok: boolean }>("DELETE", `/orgs/${orgId}/groups/${groupId}/members/${userId}`);
+  getGroupRotationNodes(orgId: string, groupId: string) {
+    return this.json<{ groupPublicHex: string; nodes: GroupRotationInput["nodeKeys"] }>("GET", `/orgs/${orgId}/groups/${groupId}/rotation-nodes`);
+  }
+  rotateGroup(orgId: string, groupId: string, body: GroupRotationInput) {
+    return this.json<{ ok: boolean; rotationRequiredNodeIds: string[] }>("POST", `/orgs/${orgId}/groups/${groupId}/rotate`, { body });
+  }
+  removeGroupMember(orgId: string, groupId: string, userId: string, body: GroupRotationInput) {
+    return this.json<{ ok: boolean; rotationRequiredNodeIds: string[] }>("DELETE", `/orgs/${orgId}/groups/${groupId}/members/${userId}`, { body });
   }
   deleteGroup(orgId: string, groupId: string) {
-    return this.json<{ ok: boolean }>("DELETE", `/orgs/${orgId}/groups/${groupId}`);
+    return this.json<{ ok: boolean; rotationRequiredNodeIds: string[] }>("DELETE", `/orgs/${orgId}/groups/${groupId}`);
   }
 
   // === Nodes (tree) ========================================================
@@ -776,6 +816,7 @@ export class DriveApi {
     metaNonce?: string;
     appKind?: string;
     keyShares: KeyShareInput[];
+    orgKeyEpoch?: number;
   }) {
     return this.json<{ node: NodeMeta }>("POST", "/nodes", { body });
   }
@@ -815,6 +856,7 @@ export class DriveApi {
     ciphertext: Uint8Array,
     nonceHex: string,
     keyEpoch?: number,
+    baseVersionId?: string | null,
   ): Promise<{ node: NodeMeta }> {
     const doFetch = () =>
       fetch(this.url(`/nodes/${id}/content`), {
@@ -824,6 +866,7 @@ export class DriveApi {
           "content-type": "application/octet-stream",
           "x-content-nonce": nonceHex,
           ...(keyEpoch !== undefined ? { "x-key-epoch": String(keyEpoch) } : {}),
+          ...(baseVersionId !== undefined ? { "x-base-version-id": baseVersionId ?? "null" } : {}),
         },
         body: ciphertext as unknown as BodyInit,
       });
@@ -833,13 +876,13 @@ export class DriveApi {
     return (await res.json()) as { node: NodeMeta };
   }
 
-  async getContent(id: string): Promise<{ bytes: Uint8Array; nonceHex: string }> {
+  async getContent(id: string): Promise<{ bytes: Uint8Array; nonceHex: string; baseVersionId: string | null; keyEpoch: number }> {
     const doFetch = () => fetch(this.url(`/nodes/${id}/content`), { headers: this.authHeaders() });
     let res = await doFetch();
     if (res.status === 401 && (await this.tryRefresh())) res = await doFetch();
     if (!res.ok) return this.parseError(res);
     const buf = new Uint8Array(await res.arrayBuffer());
-    return { bytes: buf, nonceHex: res.headers.get("x-content-nonce") ?? "" };
+    return { bytes: buf, nonceHex: res.headers.get("x-content-nonce") ?? "", ...contentSnapshot(res) };
   }
 
   // === Shares & links ======================================================
@@ -849,6 +892,8 @@ export class DriveApi {
   share(
     nodeId: string,
     body: {
+      groupPublicHex?: string;
+      orgKeyEpoch?: number;
       principalType: PrincipalType;
       principalId: string;
       roleId: string;
@@ -872,6 +917,7 @@ export class DriveApi {
   rotateNode(
     nodeId: string,
     body: {
+      orgKeyEpoch?: number;
       nameEncrypted: string;
       nameNonce: string;
       metaEncrypted?: string;
@@ -925,10 +971,10 @@ export class DriveApi {
       { auth: false },
     );
   }
-  async getLinkContent(token: string): Promise<{ bytes: Uint8Array; nonceHex: string }> {
+  async getLinkContent(token: string): Promise<{ bytes: Uint8Array; nonceHex: string; baseVersionId: string | null; keyEpoch: number }> {
     const res = await fetch(this.url(`/links/${token}/content`));
     if (!res.ok) return this.parseError(res);
-    return { bytes: new Uint8Array(await res.arrayBuffer()), nonceHex: res.headers.get("x-content-nonce") ?? "" };
+    return { bytes: new Uint8Array(await res.arrayBuffer()), nonceHex: res.headers.get("x-content-nonce") ?? "", ...contentSnapshot(res) };
   }
 
   // === Signature à distance (Approche A) ===================================
@@ -975,6 +1021,8 @@ export class DriveApi {
     ciphertext: Uint8Array,
     nonceHex: string,
     signerFprHex?: string,
+    baseVersionId?: string | null,
+    keyEpoch?: number,
   ): Promise<{ ok: boolean }> {
     const res = await fetch(this.url(`/links/${token}/sign`), {
       method: "POST",
@@ -982,6 +1030,8 @@ export class DriveApi {
         "content-type": "application/octet-stream",
         "x-content-nonce": nonceHex,
         ...(signerFprHex ? { "x-signer-fpr": signerFprHex } : {}),
+        ...(baseVersionId !== undefined ? { "x-base-version-id": baseVersionId ?? "null" } : {}),
+        ...(keyEpoch !== undefined ? { "x-key-epoch": String(keyEpoch) } : {}),
       },
       body: ciphertext as unknown as BodyInit,
     });

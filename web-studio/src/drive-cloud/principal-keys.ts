@@ -9,7 +9,7 @@
  *   une part restante ne peut pas être ré-emballée, au lieu de la supprimer en silence).
  */
 import type { OpsCtx } from "./ops";
-import { checkKeyPin, type PinKind } from "./key-pins";
+import { requireKeyPin, type PinKind } from "./key-pins";
 
 export interface PrincipalRef {
   principalType: "user" | "group" | "org";
@@ -38,7 +38,7 @@ export function makePrincipalResolver(ctx: Pick<OpsCtx, "api" | "orgId" | "orgPu
     }));
   const pinned = (kind: PinKind, id: string, pub: string | null | undefined, label?: string) => {
     if (!pub) return null;
-    checkKeyPin(kind, id, pub, label);
+    requireKeyPin(kind, id, pub, label);
     return pub;
   };
   return {

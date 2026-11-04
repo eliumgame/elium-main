@@ -151,7 +151,7 @@ describe("pictures of the page content", () => {
     const { PDFName, PDFDict } = await import("pdf-lib");
     const xo = doc.getPage(0).node.Resources()!.lookup(PDFName.of("XObject"), PDFDict);
     const widths = (await pagePlacements(doc.getPage(0))).map((p) =>
-      (xo.lookup(PDFName.of(p.name)) as unknown as { dict: InstanceType<typeof PDFDict> }).dict
+      (xo.lookup(PDFName.of(p.name)) as unknown as { dict: import("pdf-lib").PDFDict }).dict
         .get(PDFName.of("Width"))
         ?.toString(),
     );

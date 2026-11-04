@@ -16,6 +16,7 @@
  * réouverture et se propagent aux co-éditeurs (parité avec la surface locale).
  */
 import { useMemo, useRef, useState } from "react";
+import { useCollabNotice } from "../use-collab-notice";
 import { X, Wifi, WifiOff, Loader, PanelRightOpen, MessageSquare } from "lucide-react";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
@@ -78,11 +79,13 @@ export default function CollabDocEditor({
 
   const me: CollabUser = useMemo(() => ({ name: user.name, color: colorFor(user.id) }), [user.id, user.name]);
 
+  const notify = useCollabNotice();
   const [ydoc] = useState(() => new Y.Doc());
   const [provider] = useState(
     () =>
       new EncryptedYjsProvider(api, nodeId, nodeKey, ydoc, me, {
         onStatus: setStatus,
+        onNotice: notify,
         onReady: setCanWrite,
         ...(refetchKey ? { refetchKey } : {}),
       }),

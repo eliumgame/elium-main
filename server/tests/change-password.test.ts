@@ -40,7 +40,7 @@ async function buildApp(): Promise<FastifyInstance> {
   await app.register(rateLimit, { max: 600, timeWindow: "1 minute" });
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof ApiError)
-      return reply.status(err.statusCode).send({ error: { code: err.code, message: err.message } });
+      return reply.status(err.statusCode).send({ error: { code: err.code, message: err instanceof Error ? err.message : String(err) } });
     if (err instanceof ZodError)
       return reply.status(400).send({ error: { code: "validation", message: "Requête invalide." } });
     return reply.status(500).send({ error: { code: "internal", message: String(err) } });

@@ -21,7 +21,8 @@ import { badRequest, notFound, conflict, forbidden } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
 import { assertCanCreateOrg, claimSiteOrg, getSiteState } from "../lib/site-settings.js";
 import { consumeActivation, isActivationRequired, verifyActivation } from "../lib/activation.js";
-import { kickUser } from "../collab/relay.js";
+import { kickUser, kickRoom } from "../collab/relay.js";
+import { markRequiredNodeRotations } from "../lib/group-rotation.js";
 
 const hex = (len?: number) =>
   len ? z.string().regex(new RegExp(`^[0-9a-f]{${len}}$`)) : z.string().regex(/^[0-9a-f]+$/);
@@ -98,6 +99,14 @@ function roleDto(r: Record<string, unknown>) {
     permissions: r.permissions ?? [],
   };
 }
+
+/** Settings keys managed only by dedicated routes / housekeeping jobs. */
+const RESERVED_SETTINGS_KEYS = [
+  "keyRotationDays",
+  "keyRotationLastRotatedAt",
+  "keyRotationDueSince",
+  "orgKeyRotationRequired",
+] as const;
 
 export default async function orgRoutes(app: FastifyInstance): Promise<void> {
   app.addHook("preHandler", authenticate);
@@ -374,17 +383,45 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
       assertCanGrant(ctx, target);
     }
 
-    const removed = await queryOne(`DELETE FROM memberships WHERE org_id = $1 AND user_id = $2 RETURNING id`, [
-      orgId,
-      userId,
-    ]);
-    if (!removed) throw notFound("Membre introuvable dans cette organisation.");
+    const { removed, rotationGroups, rotationNodes } = await withTx(async c => {
+      const { rows: locked } = await c.query<{ owner_user_id: string }>(
+        `SELECT owner_user_id FROM organizations WHERE id = $1 FOR UPDATE`, [orgId]);
+      if (!locked[0]) throw notFound();
+      if (locked[0].owner_user_id === userId) throw conflict("Le propriétaire ne peut pas être retiré.");
+      const { rows: admins } = await c.query<{ admin_user_id: string }>(
+        `SELECT admin_user_id FROM org_recovery_keys WHERE org_id = $1 FOR UPDATE`, [orgId]);
+      const hadRecovery = admins.some(a => a.admin_user_id === userId);
+      if (hadRecovery && admins.length === 1) throw conflict("Ajoutez un autre administrateur de recouvrement avant ce retrait.");
+      const { rows } = await c.query<{ id: string }>(`DELETE FROM memberships WHERE org_id = $1 AND user_id = $2 RETURNING id`, [orgId, userId]);
+      if (!rows[0]) throw notFound("Membre introuvable dans cette organisation.");
+      const { rows: teams } = await c.query<{ group_id: string }>(
+        `DELETE FROM group_members gm USING groups g WHERE gm.group_id = g.id AND g.org_id = $1 AND gm.user_id = $2 RETURNING gm.group_id`, [orgId, userId]);
+      const rotationGroups = teams.map(g => g.group_id);
+      // Freeze future writes before discarding the grants that identify exposed keys.
+      const { rows: exposed } = await c.query<{ id: string }>(
+        `SELECT DISTINCT n.id FROM nodes n LEFT JOIN node_keys k ON k.node_id = n.id
+          WHERE n.org_id = $1 AND ($4::boolean OR n.owner_user_id = $2
+            OR (k.principal_type = 'user' AND k.principal_id = $2)
+            OR (k.principal_type = 'group' AND k.principal_id = ANY($3::uuid[])))`,
+        [orgId, userId, rotationGroups, hadRecovery]);
+      const rotationNodes = await markRequiredNodeRotations(c, exposed.map(n => n.id));
+      if (rotationGroups.length) await c.query(`UPDATE groups SET rotation_required = true WHERE id = ANY($1::uuid[])`, [rotationGroups]);
+      await c.query(`DELETE FROM node_keys k USING nodes n WHERE k.node_id = n.id AND n.org_id = $1 AND k.principal_type = 'user' AND k.principal_id = $2`, [orgId, userId]);
+      await c.query(`UPDATE nodes SET owner_user_id = $3 WHERE org_id = $1 AND owner_user_id = $2`, [orgId, userId, locked[0].owner_user_id]);
+      // Revocation is permanent: re-invitation must never resurrect old links.
+      await c.query(`UPDATE share_links sl SET revoked_at = now() FROM nodes n WHERE sl.node_id = n.id AND n.org_id = $1 AND sl.created_by = $2 AND sl.revoked_at IS NULL`, [orgId, userId]);
+      await c.query(`UPDATE signature_request_parties p SET status = 'cancelled' FROM share_links sl, nodes n WHERE p.link_id = sl.id AND sl.node_id = n.id AND n.org_id = $1 AND sl.created_by = $2 AND p.status = 'pending'`, [orgId, userId]);
+      await c.query(`DELETE FROM org_recovery_keys WHERE org_id = $1 AND admin_user_id = $2`, [orgId, userId]);
+      if (hadRecovery) await c.query(`UPDATE organizations SET settings = coalesce(settings, '{}'::jsonb) || jsonb_build_object('orgKeyRotationRequired', true, 'keyRotationDueSince', now()::text) WHERE id = $1`, [orgId]);
+      return { removed: rows[0], rotationGroups, rotationNodes };
+    });
     // Coupe immédiatement ses connexions temps réel (documents collab, canal
     // d'événements) : sans ça il garderait son canal jusqu'à déconnexion naturelle.
     kickUser(userId, "org-member-removed");
+    for (const id of rotationNodes) kickRoom(id, "key-rotation-required");
 
     await audit(orgId, actor.id, "member.remove", "membership", removed.id as string, { userId }, req.ip);
-    return { ok: true };
+    return { ok: true, rotationRequiredGroupIds: rotationGroups, rotationRequiredNodeIds: rotationNodes };
   });
 
   // --- Transfer organization ownership -------------------------------------
@@ -491,16 +528,22 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
     const actor = requireUser(req);
     await requireOrgPerm(req, orgId, "org.settings.manage");
 
-    // Identity provisioning has its own owner + fresh-reauth + role-validation
-    // route. Generic settings must neither overwrite nor remove that policy.
+    // Reserved keys are owned by dedicated routes/jobs (SCIM policy with its own
+    // owner + fresh-reauth check, key-rotation cadence and state). Generic
+    // settings must neither overwrite nor remove them.
     if (Object.hasOwn(b.settings, "scim")) {
       throw forbidden("Utilisez la configuration SCIM dédiée pour modifier la politique de provisionnement.");
     }
+    const reserved = RESERVED_SETTINGS_KEYS.filter((k) => Object.hasOwn(b.settings, k));
+    if (reserved.length) {
+      throw badRequest(`Clés réservées, non modifiables ici : ${reserved.join(", ")}.`);
+    }
 
+    // Shallow MERGE (never replace the whole document): unrelated keys, and all
+    // reserved keys, are preserved.
     const org = await queryOne<{ settings: unknown }>(
       `UPDATE organizations
-          SET settings = $2::jsonb || CASE WHEN settings ? 'scim'
-            THEN jsonb_build_object('scim', settings->'scim') ELSE '{}'::jsonb END,
+          SET settings = coalesce(settings, '{}'::jsonb) || $2::jsonb,
               updated_at = now() WHERE id = $1 RETURNING settings`,
       [orgId, JSON.stringify(b.settings)],
     );
@@ -631,7 +674,7 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
           .array(z.object({ adminUserId: z.string().uuid(), wrappedOrgPrivate: envelope }))
           .min(1)
           .max(1000),
-        expectedEpoch: z.number().int().nonnegative().optional(),
+        expectedEpoch: z.number().int().nonnegative(),
       })
       .parse(req.body);
     const actor = requireUser(req);
@@ -787,7 +830,7 @@ export interface OrgRotationPayload {
   newOrgPublicHex: string;
   nodeKeys: { nodeId: string; wrappedKey: Record<string, unknown> }[];
   recoveryKeys: { adminUserId: string; wrappedOrgPrivate: Record<string, unknown> }[];
-  expectedEpoch?: number;
+  expectedEpoch: number;
 }
 
 /** The DB-side mutation behind `POST /:orgId/recovery/rotate-org`. Requires a
@@ -804,28 +847,40 @@ export async function applyOrgKeyRotation(
       [orgId],
     );
     if (!org.rows.length) throw notFound();
-    if (payload.expectedEpoch !== undefined && org.rows[0]!.org_key_epoch !== payload.expectedEpoch) {
+    if (org.rows[0]!.org_key_epoch !== payload.expectedEpoch) {
       throw conflict("La clé d'organisation a changé entre-temps — relancez la rotation.");
     }
 
     // The new recovery-admin set must cover EVERY current admin (no lock-out)
     // and include the actor performing the rotation.
     const current = await c.query<{ admin_user_id: string }>(
-      `SELECT admin_user_id FROM org_recovery_keys WHERE org_id = $1`,
+      `SELECT admin_user_id FROM org_recovery_keys WHERE org_id = $1 FOR UPDATE`,
       [orgId],
     );
     const provided = new Set(payload.recoveryKeys.map((k) => k.adminUserId));
+    if (provided.size !== payload.recoveryKeys.length) throw badRequest("Administrateur de recouvrement dupliqué.");
     const missing = current.rows.map((r) => r.admin_user_id).filter((id) => !provided.has(id));
     if (missing.length)
       throw badRequest("La rotation doit re-chiffrer la clé pour tous les administrateurs de recouvrement.");
     if (!provided.has(actorUserId)) throw badRequest("La rotation doit inclure l'administrateur qui l'effectue.");
+
+    // Never destroy the old recovery key while any of its existing shares is
+    // absent from the rewrap payload (including nodes in the trash).
+    const existingKeys = await c.query<{ node_id: string }>(
+      `SELECT node_id FROM node_keys WHERE principal_type = 'org' AND principal_id = $1 FOR UPDATE`, [orgId],
+    );
+    const nodeIds = new Set(payload.nodeKeys.map(k => k.nodeId));
+    if (nodeIds.size !== payload.nodeKeys.length || nodeIds.size !== existingKeys.rows.length ||
+      existingKeys.rows.some(k => !nodeIds.has(k.node_id))) {
+      throw conflict("La liste des nœuds à ré-envelopper a changé ou est incomplète. Rechargez-la avant la rotation.");
+    }
 
     // Bump the epoch/public key, and stamp settings so the next housekeeping
     // pass knows this org just rotated (clears any stale "due" flag).
     await c.query(
       `UPDATE organizations SET org_public_hex = $2, org_key_epoch = org_key_epoch + 1,
           settings = coalesce(settings, '{}'::jsonb)
-                     || jsonb_build_object('keyRotationLastRotatedAt', now()::text, 'keyRotationDueSince', NULL),
+                     || jsonb_build_object('keyRotationLastRotatedAt', now()::text, 'keyRotationDueSince', NULL, 'orgKeyRotationRequired', false),
           updated_at = now()
         WHERE id = $1`,
       [orgId, payload.newOrgPublicHex],
@@ -840,6 +895,7 @@ export async function applyOrgKeyRotation(
         [nk.nodeId, orgId, JSON.stringify(nk.wrappedKey)],
       );
       rewrapped += r.rowCount ?? 0;
+      if (r.rowCount !== 1) throw conflict("Une part de recouvrement a changé pendant la rotation.");
     }
 
     // Replace all recovery-admin wrapped copies of the (new) org private key.

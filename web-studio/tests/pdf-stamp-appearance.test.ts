@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { zlibSync } from "fflate";
-import { PDFDocument, PDFName, PDFRawStream, type PDFContext, type PDFRef } from "pdf-lib";
+import { PDFDocument, PDFName, PDFRawStream, PDFDict, type PDFContext, type PDFRef } from "pdf-lib";
 // Node-compatible build (no worker/DOM needed) — mirrors what `PdfEngine` runs
 // through Vite in the browser, just without the bundler-specific worker setup.
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
@@ -37,7 +37,7 @@ function jpegBytes(): Uint8Array {
 /** `/Length` is derived from `contents` automatically at save time (see
  * `PDFStream.updateDict`) — no need to set it by hand. */
 function registerRawStream(ctx: PDFContext, dictProps: Record<string, unknown>, contents: Uint8Array): PDFRef {
-  return ctx.register(PDFRawStream.of(ctx.obj(dictProps as never), contents));
+  return ctx.register(PDFRawStream.of(PDFDict.fromMapWithContext(new Map(Object.entries(dictProps).map(([k, v]) => [PDFName.of(k), ctx.obj(v as number)])), ctx), contents));
 }
 
 /** A hand-built raw Image XObject (FlateDecode, DeviceRGB) — the "no camera, no
@@ -85,7 +85,7 @@ function registerStampAnnot(ctx: PDFContext, rect: number[], apRef?: PDFRef): PD
  * (verified empirically against this project's own pdfjs-dist build — both
  * come back `undefined`), so stamps are told apart here by their box size,
  * which the fixture controls and each stamp below has a distinct one. */
-const findByBoxSize = (annots: readonly { rect: { w: number; h: number } }[], w: number, h: number) =>
+const findByBoxSize = (annots: readonly import("../src/pdf/model/types").Annot[], w: number, h: number) =>
   annots.find((a) => Math.round(a.rect.w) === w && Math.round(a.rect.h) === h);
 
 function registerSquareAnnot(ctx: PDFContext, rect: number[]): PDFRef {

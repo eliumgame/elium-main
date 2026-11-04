@@ -45,6 +45,11 @@ def main(argv: list[str]) -> int:
     except ValueError:
         print("pip-audit-gate: sortie illisible de pip-audit :\n" + proc.stdout + proc.stderr, file=sys.stderr)
         return 1
+    if (not isinstance(report, dict) or not isinstance(report.get("dependencies"), list)
+            or not report["dependencies"] or proc.returncode not in (0, 1)
+            or any(dep.get("skip_reason") for dep in report["dependencies"])):
+        print("pip-audit-gate: audit incomplet ou erreur de l'outil (refus).", file=sys.stderr)
+        return 1
     blocking = blocking_findings(report, datetime.date.today().isoformat())
     if blocking:
         print("pip-audit-gate: failles bloquantes :\n  - " + "\n  - ".join(blocking), file=sys.stderr)

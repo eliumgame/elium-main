@@ -17,6 +17,8 @@ import { config } from "../config.js";
 import { ApiError } from "../lib/errors.js";
 import { assertUserQuota, getSiteSettings } from "../lib/site-settings.js";
 import { assertDiskSpace } from "../lib/disk.js";
+import { contentPreconditions, assertContentBase } from "../lib/content-preconditions.js";
+import { assertFreshPrincipalKeys } from "../lib/key-share-policy.js";
 import type { Readable } from "node:stream";
 
 const hexBytes = z.string().regex(/^[0-9a-f]*$/); // hex-encoded bytea
@@ -27,10 +29,12 @@ const keyShareSchema = z.object({
   principalId: z.string().uuid(),
   roleId: z.string().uuid(),
   wrappedKey: envelope,
+  groupPublicHex: z.string().regex(/^[0-9a-f]{130}$/).optional(),
   inheritedFrom: z.string().uuid().nullable().optional(),
 });
 
 const createSchema = z.object({
+  orgKeyEpoch: z.number().int().min(0).optional(),
   orgId: z.string().uuid(),
   parentId: z.string().uuid().nullable().default(null),
   kind: z.enum(["folder", "file"]),
@@ -108,6 +112,7 @@ function nodeMetaDto(n: Record<string, unknown>) {
     contentNonce: n.content_nonce ? Buffer.from(n.content_nonce as Buffer).toString("hex") : null,
     trashedAt: n.trashed_at ?? null,
     keyEpoch: n.key_epoch ?? 1,
+    rotationRequired: !!n.key_rotation_required,
     prevKeyWrapped: n.prev_key_wrapped ? Buffer.from(n.prev_key_wrapped as Buffer).toString("hex") : null,
     prevKeyNonce: n.prev_key_nonce ? Buffer.from(n.prev_key_nonce as Buffer).toString("hex") : null,
     createdAt: n.created_at,
@@ -158,6 +163,7 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
     for (const s of b.keyShares) await validateRole(s.roleId, b.orgId);
 
     const created = await withTx(async (c) => {
+      await assertFreshPrincipalKeys(c, b.orgId, b.keyShares, b.orgKeyEpoch);
       const { rows } = await c.query(
         `INSERT INTO nodes (org_id, parent_id, kind, owner_user_id, name_encrypted, name_nonce,
                             meta_encrypted, meta_nonce, app_kind, modified_by)
@@ -361,8 +367,8 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
 
     const revokedNodeIds = new Set<string>();
     const node = await withTx(async (c) => {
-      const { rows } = await c.query(`UPDATE nodes SET ${sets.join(", ")} WHERE id = $1 RETURNING *`, params);
-      if (!rows[0]) throw notFound();
+      const { rows } = await c.query(`UPDATE nodes SET ${sets.join(", ")} WHERE id = $1 AND NOT key_rotation_required RETURNING *`, params);
+      if (!rows[0]) throw conflict("Le nœud est indisponible ou sa clé doit être renouvelée avant modification.");
       if (isMove) {
         // A folder-inherited ACL grant is materialized (fanned out) onto every
         // descendant at share time (see the deep-share flow) — moving a node
@@ -486,6 +492,7 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
   // Content/version blobs are then re-encrypted via PUT /:id/versions/:vid/content,
   // and collab logs compacted via POST /api/collab/:id/compact.
   const rotateSchema = z.object({
+    orgKeyEpoch: z.number().int().min(0).optional(),
     nameEncrypted: hexBytes.min(2),
     nameNonce: hexBytes.min(2),
     metaEncrypted: hexBytes.optional(),
@@ -521,6 +528,7 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const { node, revokedLinks } = await withTx(async (c) => {
+      await assertFreshPrincipalKeys(c, access.orgId, b.keyShares, b.orgKeyEpoch);
       const { rows: cur } = await c.query(`SELECT key_epoch FROM nodes WHERE id = $1 FOR UPDATE`, [id]);
       if (!cur[0]) throw notFound();
       if (b.expectedEpoch !== undefined && cur[0].key_epoch !== b.expectedEpoch) {
@@ -564,7 +572,7 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
             SET name_encrypted = $2, name_nonce = $3,
                 meta_encrypted = $4, meta_nonce = $5,
                 prev_key_wrapped = $6, prev_key_nonce = $7,
-                key_epoch = key_epoch + 1, modified_at = now(), modified_by = $8
+                key_epoch = key_epoch + 1, key_rotation_required = false, modified_at = now(), modified_by = $8
           WHERE id = $1 RETURNING *`,
         [
           id,
@@ -614,6 +622,7 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
       const body = req.body as Readable | undefined;
       if (!body || typeof body.pipe !== "function")
         throw badRequest("Corps binaire attendu (application/octet-stream).");
+      const base = contentPreconditions(req.headers);
 
       // Disque presque plein : refus AVANT d'écrire (taille annoncée), puis re-contrôle sur la taille réelle.
       await assertDiskSpace(Number(req.headers["content-length"]) || 0);
@@ -637,13 +646,10 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
         throw err;
       }
 
-      const epochHeader = String(req.headers["x-key-epoch"] ?? "");
       const updated = await withTx(async (c) => {
-        const { rows: cur } = await c.query(`SELECT key_epoch FROM nodes WHERE id = $1 FOR UPDATE`, [id]);
+        const { rows: cur } = await c.query(`SELECT key_epoch, current_version_id, key_rotation_required FROM nodes WHERE id = $1 FOR UPDATE`, [id]);
         if (!cur[0]) throw notFound();
-        if (epochHeader && Number(epochHeader) !== cur[0].key_epoch) {
-          throw conflict("La clé du nœud a tourné — récupérez la nouvelle clé avant d'écrire.");
-        }
+        assertContentBase(base, cur[0]);
         // Storage quota: a new version ADDS `size` bytes (prior versions are kept).
         // NULL quota = unlimited. Checked in-tx just before the version is recorded.
         // The lock above is per-NODE, not per-org, so two concurrent uploads to
@@ -700,12 +706,14 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
   app.get("/:id/content", { config: { rateLimit: { max: 400, timeWindow: "1 minute" } } }, async (req, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     await requireNodePerm(req, id, "node.download");
-    const node = await queryOne<{ content_ref: string | null; content_nonce: Buffer | null }>(
-      `SELECT content_ref, content_nonce FROM nodes WHERE id = $1`,
+    const node = await queryOne<{ content_ref: string | null; content_nonce: Buffer | null; current_version_id: string | null; key_epoch: number }>(
+      `SELECT content_ref, content_nonce, current_version_id, key_epoch FROM nodes WHERE id = $1`,
       [id],
     );
     if (!node?.content_ref) throw notFound("Aucun contenu.");
     reply.header("content-type", "application/octet-stream");
+    reply.header("x-content-version-id", node.current_version_id ?? "null");
+    reply.header("x-key-epoch", String(node.key_epoch));
     if (node.content_nonce) reply.header("x-content-nonce", Buffer.from(node.content_nonce).toString("hex"));
     return reply.send(await storage().getStream(node.content_ref));
   });

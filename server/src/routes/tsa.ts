@@ -19,10 +19,23 @@ import { request as httpRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { BlockList, isIP, type LookupFunction } from "node:net";
 import { badRequest } from "../lib/errors.js";
+import { config } from "../config.js";
 
 const MAX_REQUEST = 8 * 1024;
 const MAX_REPLY = 64 * 1024;
 const TIMEOUT_MS = 15_000;
+
+/** Exactly one DER SEQUENCE, with definite minimal length and no trailing bytes. */
+export function isDerSequence(body: Buffer): boolean {
+  if (body.length < 2 || body[0] !== 0x30) return false;
+  const first = body[1]!;
+  if (first < 128) return body.length === first + 2;
+  const count = first & 127;
+  if (!count || count > 3 || body.length < count + 2 || body[2] === 0) return false;
+  let size = 0;
+  for (let i = 0; i < count; i++) size = size * 256 + body[2 + i]!;
+  return size >= 128 && body.length === size + count + 2;
+}
 
 // IANA special-purpose registries: everything that is not globally reachable
 // (or is documentation / benchmarking / protocol plumbing).
@@ -136,6 +149,7 @@ export async function resolveTsaTarget(url: string): Promise<{ problem: string }
   if (u.protocol !== "https:" && u.protocol !== "http:")
     return { problem: "Adresse du serveur d'horodatage invalide." };
   if (u.username || u.password) return { problem: "Adresse du serveur d'horodatage invalide." };
+  if (u.port && u.port !== "80" && u.port !== "443") return { problem: "Port réseau non autorisé pour l'horodatage." };
   const host = u.hostname.replace(/^\[|\]$/g, "");
   let addresses: { address: string; family: number }[];
   try {
@@ -216,6 +230,8 @@ export function relayTimestamp(target: TsaTarget, body: Buffer, options: RelayOp
       (res: IncomingMessage) => {
         const status = res.statusCode ?? 0;
         if (status < 200 || status >= 300) return finish(new TsaRefused(`HTTP ${status}`));
+        if (res.headers["content-type"]?.split(";")[0]?.trim().toLowerCase() !== "application/timestamp-reply")
+          return finish(new TsaRefused("unexpected content type"));
         if (Number(res.headers["content-length"] ?? 0) > MAX_REPLY) return finish(new TsaRefused("reply too large"));
         const chunks: Buffer[] = [];
         let size = 0;
@@ -224,7 +240,11 @@ export function relayTimestamp(target: TsaTarget, body: Buffer, options: RelayOp
           if (size > MAX_REPLY) return finish(new TsaRefused("reply too large"));
           chunks.push(chunk);
         });
-        res.on("end", () => finish(null, Buffer.concat(chunks)));
+        res.on("end", () => {
+          const data = Buffer.concat(chunks);
+          if (!isDerSequence(data)) return finish(new TsaRefused("invalid DER reply"));
+          finish(null, data);
+        });
         res.on("close", () => finish(new Error("reply interrupted"))); // no-op once "end" settled it
         res.on("error", (e) => finish(e));
       },
@@ -245,7 +265,8 @@ export default async function tsaRoutes(app: FastifyInstance): Promise<void> {
     const target = String(req.headers["x-elium-tsa-url"] ?? "").trim();
     const body = req.body;
     // A TimeStampReq is a DER SEQUENCE.
-    if (!Buffer.isBuffer(body) || !body.length || body[0] !== 0x30) throw badRequest("Demande d'horodatage invalide.");
+    if (!Buffer.isBuffer(body) || !isDerSequence(body)) throw badRequest("Demande d'horodatage invalide.");
+    if (!config.tsaAllowedUrls.includes(target)) throw badRequest("Autorité d'horodatage non autorisée par ce serveur.");
     const resolved = await resolveTsaTarget(target);
     if ("problem" in resolved) throw badRequest(resolved.problem);
     let data: Buffer;

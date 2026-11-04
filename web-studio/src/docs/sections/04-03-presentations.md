@@ -79,7 +79,7 @@ A4 uniquement.
 - Les **animations, transitions et sections** ne sont pas écrites dans le PPTX : elles sont perdues à l'export.
 - Les graphiques exportés sont limités à barres, courbe et camembert.
 - Les médias sont relus à l'import PPTX, avec un plafond de 40 Mo par média et 256 Mo au total ; les éléments écartés sont signalés.
-- Le modèle de graphique reste mono-série : l'import signale les séries supplémentaires non représentées.
+- Les graphiques à barres et en courbes sont **multi-séries** (import, export, rendu avec légende et couleurs distinctes par série), jusqu'à 12 séries et 500 points à l'import (avertissement au-delà). Le camembert n'utilise que la première série (avertissement). L'éditeur de données du panneau ne modifie que la première série ; les autres sont conservées et alignées lors de l'ajout ou de la suppression de points.
 - Les SmartArt PowerPoint sont ignorés à l'import.
 - Les animations sont des effets d'entrée uniquement.
 - Aucun export d'images des diapositives : le PDF passe par l'impression.

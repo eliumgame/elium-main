@@ -266,6 +266,7 @@ export function vaultParticipants(catalog: Catalog): VaultParticipant[] {
     { name: "classeurs", reencrypt: (a, b) => sheetStore.reencrypt(a, b) },
     { name: "présentations", reencrypt: (a, b) => deckStore.reencrypt(a, b) },
     { name: "PDF", reencrypt: (a, b) => pdfStore.reencrypt(a, b) },
+    { name: "récupération PDF", reencrypt: async (a, b) => (await import("./pdf-recovery-vault")).reencryptPdfRecovery(a, b) },
     { name: "catalogue", reencrypt: (a, b) => catalog.reencrypt(a, b) },
   ];
 }

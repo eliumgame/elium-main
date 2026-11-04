@@ -53,7 +53,7 @@ function annot(pageId: string, kind: Annot["kind"], rect = { x: 15, y: 60, w: 12
 }
 
 async function openJs(bytes: Uint8Array, password?: string) {
-  const task = pdfjsLib.getDocument({ data: bytes.slice(), password, isEvalSupported: false });
+  const task = pdfjsLib.getDocument({ data: bytes.slice(), password });
   const doc = await task.promise;
   return Object.assign(doc, { destroy: () => task.destroy() });
 }
@@ -115,7 +115,7 @@ describe("inserting pages from another PDF (SaveInput.transform)", () => {
     );
     const ownerOnly = await writeEncrypted(
       await PDFDocument.load(await makePdf(1, "Libre")),
-      createCrypt({ ownerPassword: "proprio" }),
+      createCrypt({ userPassword: "", ownerPassword: "proprio" }),
     );
     const userLocked = await writeEncrypted(
       await PDFDocument.load(await makePdf(1, "Verrou")),

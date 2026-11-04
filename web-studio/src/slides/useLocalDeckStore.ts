@@ -54,6 +54,23 @@ export interface DeckPersist {
   onSaved?: (deck: Deck, size: number) => void;
 }
 
+/**
+ * Décision pure d'écriture de l'autosauvegarde : aucun enregistrement avant la fin du chargement (sinon le deck
+ * vierge de départ écraserait le deck existant), aucun sur erreur de chargement (blob chiffré intact), et un
+ * nouvel élément resté vierge n'est pas créé.
+ */
+export function shouldPersistDeck(s: {
+  loaded: boolean;
+  loadError: boolean;
+  isNew: boolean;
+  savedOnce: boolean;
+  pristine: () => boolean;
+}): boolean {
+  if (!s.loaded || s.loadError) return false;
+  if (s.isNew && !s.savedOnce && s.pristine()) return false;
+  return true;
+}
+
 export function useLocalDeckStore(initial?: Deck, vaultSecret?: VaultSecret, persist?: DeckPersist): LocalDeckStore {
   const persistRef = useRef(persist);
   persistRef.current = persist;
@@ -137,9 +154,17 @@ export function useLocalDeckStore(initial?: Deck, vaultSecret?: VaultSecret, per
 
   /** Enregistre la présentation (sauf nouvel élément resté vierge) puis prévient l'espace de travail. */
   async function persistDeck(d: Deck): Promise<number | undefined> {
-    if (!loadedRef.current || loadErrorRef.current) return undefined;
     const p = persistRef.current;
-    if (p?.isNew && !savedOnce.current && isDeckPristine(d)) return undefined;
+    if (
+      !shouldPersistDeck({
+        loaded: loadedRef.current,
+        loadError: !!loadErrorRef.current,
+        isNew: !!p?.isNew,
+        savedOnce: savedOnce.current,
+        pristine: () => isDeckPristine(d),
+      })
+    )
+      return undefined;
     try {
       const size = await saveDeck(d, secretRef.current, p?.id);
       savedOnce.current = true;

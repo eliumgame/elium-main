@@ -63,7 +63,7 @@ async function buildTestApp(): Promise<FastifyInstance> {
 }
 
 beforeEach(() => {
-  config.site.singleDrive = false;
+  vi.spyOn(config.site, "singleDrive", "get").mockReturnValue(false);
   mockedQueryOne.mockReset().mockResolvedValue(null);
   mockedQuery.mockReset().mockResolvedValue([]);
 });
@@ -83,17 +83,24 @@ const USER_ROW = (pubHex: string) => ({
 
 describe("SSO : frontière de confiance du déploiement", () => {
   it("consumes a valid ID token once before issuing MFA and rejects replay", async () => {
-    config.site.singleDrive = true;
+    vi.spyOn(config.site, "singleDrive", "get").mockReturnValue(true);
     const orgId = randomUUID();
+    const NONCE = "n".repeat(24);
     const { publicKey, privateKey } = generateKeyPairSync("ed25519");
     const enc = (v: unknown) => Buffer.from(JSON.stringify(v)).toString("base64url");
-    const input = `${enc({ alg: "EdDSA" })}.${enc({ iss: "https://idp.example", aud: "app", sub: "alice", email: "alice@example.org", email_verified: true, iat: Math.floor(Date.now()/1000), exp: Math.floor(Date.now()/1000)+3600 })}`;
+    const input = `${enc({ alg: "EdDSA" })}.${enc({ iss: "https://idp.example", aud: "app", sub: "alice", email: "alice@example.org", email_verified: true, nonce: NONCE, iat: Math.floor(Date.now()/1000), exp: Math.floor(Date.now()/1000)+3600 })}`;
     const idToken = `${input}.${edSign(null, Buffer.from(input), privateKey).toString("base64url")}`;
+    const nonces = new Set<string>([sha256Hex(NONCE)]);
     const used = new Set<string>();
     mockedQuery.mockImplementation(async sql => sql.includes("SELECT id FROM organizations") ? [{ id: orgId }] : []);
     mockedQueryOne.mockImplementation(async (sql, params) => {
       if (sql.includes("SELECT sso_config")) return { sso_config: { issuer: "https://idp.example", clientId: "app", jwks: [publicKey.export({ format: "jwk" })] } };
       if (sql.includes("SELECT u.*")) return { ...USER_ROW("a".repeat(64)), membership_status: "active", mfa_enabled: true, sso_subject: "alice" };
+      if (sql.includes("DELETE FROM sso_nonces")) {
+        const h = params![0] as string;
+        if (!nonces.delete(h)) return null;
+        return { nonce_hash: h };
+      }
       if (sql.includes("INSERT INTO oidc_used_assertions")) {
         const hash = params![0] as string;
         if (used.has(hash)) return null;
@@ -102,23 +109,26 @@ describe("SSO : frontière de confiance du déploiement", () => {
       return null;
     });
     const app = await buildTestApp();
-    const request = { method: "POST" as const, url: "/api/auth/sso/verify", payload: { orgId, idToken } };
+    const request = { method: "POST" as const, url: "/api/auth/sso/verify", payload: { orgId, idToken, nonce: NONCE } };
     const first = await app.inject(request);
     expect(first.statusCode).toBe(200);
     expect(first.json().mfaRequired).toBe(true);
     const replay = await app.inject(request);
     expect(replay.statusCode).toBe(401);
-    expect(replay.json().error.message).toMatch(/déjà été utilisé/);
+    expect(replay.json().error.message).toMatch(/Nonce SSO/);
     expect(used.size).toBe(1);
+    // Sans nonce : refus de validation avant tout.
+    const noNonce = await app.inject({ method: "POST", url: "/api/auth/sso/verify", payload: { orgId, idToken } });
+    expect(noNonce.statusCode).toBe(400);
     await app.close();
   });
   it.each([false, true])("refuse plusieurs organisations (singleDrive=%s) avant toute vérification OIDC", async (singleDrive) => {
-    config.site.singleDrive = singleDrive;
+    vi.spyOn(config.site, "singleDrive", "get").mockReturnValue(singleDrive);
     const orgId = randomUUID();
     mockedQuery.mockResolvedValue([{ id: orgId }, { id: randomUUID() }] as never);
     const app = await buildTestApp();
     const res = await app.inject({ method: "POST", url: "/api/auth/sso/verify",
-      payload: { orgId, idToken: "forged-provider-token" } });
+      payload: { orgId, idToken: "forged-provider-token", nonce: "x".repeat(24) } });
     expect(res.statusCode).toBe(403);
     expect(mockedQueryOne).not.toHaveBeenCalled();
     expect(mockedQuery.mock.calls.every(([sql]) => sql.startsWith("SELECT"))).toBe(true);
@@ -126,16 +136,16 @@ describe("SSO : frontière de confiance du déploiement", () => {
   });
 
   it("autorise la recherche du fournisseur seulement pour l'organisation unique", async () => {
-    config.site.singleDrive = true;
+    vi.spyOn(config.site, "singleDrive", "get").mockReturnValue(true);
     const orgId = randomUUID();
     mockedQuery.mockResolvedValue([{ id: orgId }] as never);
     const app = await buildTestApp();
     const res = await app.inject({ method: "POST", url: "/api/auth/sso/verify",
-      payload: { orgId, idToken: "unknown-provider-token" } });
+      payload: { orgId, idToken: "unknown-provider-token", nonce: "x".repeat(24) } });
     expect(res.statusCode).toBe(400);
     expect(mockedQueryOne).toHaveBeenCalledWith(expect.stringContaining("SELECT sso_config"), [orgId]);
     const wrong = await app.inject({ method: "POST", url: "/api/auth/sso/verify",
-      payload: { orgId: randomUUID(), idToken: "unknown-provider-token" } });
+      payload: { orgId: randomUUID(), idToken: "unknown-provider-token", nonce: "x".repeat(24) } });
     expect(wrong.statusCode).toBe(403);
     await app.close();
   });
@@ -271,7 +281,7 @@ describe("rate limiting des routes sensibles", () => {
       const res = await app.inject({
         method: "POST",
         url: "/api/auth/sso/verify",
-        payload: { orgId: randomUUID(), idToken: "x".repeat(32) },
+        payload: { orgId: randomUUID(), idToken: "x".repeat(32), nonce: "x".repeat(24) },
       });
       last = res.statusCode;
       if (i < 20) expect(res.statusCode).toBe(403); // SSO interdit en multi-Drive
@@ -523,6 +533,35 @@ describe("SRV-10 / SRV-09 : mfaToken d'une connexion SSO et token_epoch", () => 
     const mfaToken = issueScopedToken(USER_ROW(kp.pubHex).id, "mfa-login");
     const res = await app.inject({ method: "POST", url: "/api/auth/login/mfa", payload: { mfaToken, code: "123456" } });
     expect(res.statusCode).toBe(401);
+    await app.close();
+  });
+});
+
+describe("POST /auth/sso/nonce", () => {
+  it("émet un nonce stocké haché (5 min), uniquement pour l'organisation unique", async () => {
+    vi.spyOn(config.site, "singleDrive", "get").mockReturnValue(true);
+    const orgId = randomUUID();
+    mockedQuery.mockImplementation(async (sql) => (sql.includes("SELECT id FROM organizations") ? [{ id: orgId }] : []));
+    const app = await buildTestApp();
+    const res = await app.inject({ method: "POST", url: "/api/auth/sso/nonce", payload: { orgId } });
+    expect(res.statusCode).toBe(200);
+    const { nonce } = res.json();
+    expect(nonce.length).toBeGreaterThanOrEqual(16);
+    const ins = mockedQuery.mock.calls.find(([sql]) => String(sql).includes("INSERT INTO sso_nonces"));
+    expect(ins).toBeTruthy();
+    expect(ins![1]).toEqual([sha256Hex(nonce), orgId]); // jamais le nonce en clair
+    const wrong = await app.inject({ method: "POST", url: "/api/auth/sso/nonce", payload: { orgId: randomUUID() } });
+    expect(wrong.statusCode).toBe(403);
+    await app.close();
+  });
+
+  it("limité à 30/min", async () => {
+    const app = await buildTestApp();
+    let last = 0;
+    for (let i = 0; i < 31; i++) {
+      last = (await app.inject({ method: "POST", url: "/api/auth/sso/nonce", payload: { orgId: randomUUID() } })).statusCode;
+    }
+    expect(last).toBe(429);
     await app.close();
   });
 });

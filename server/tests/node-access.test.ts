@@ -106,7 +106,7 @@ describe("déplacement : purge des node_keys héritées (fanned-out)", () => {
   /** withTx stub: run the callback with a client that records every SQL. */
   function captureTx(): { sqls: string[] } {
     const captured = { sqls: [] as string[] };
-    mockedWithTx.mockImplementation(async (fn: (c: unknown) => Promise<unknown>) => {
+    mockedWithTx.mockImplementation(async (fn) => {
       const client = {
         query: vi.fn(async (sql: string) => {
           captured.sqls.push(sql);
@@ -114,7 +114,7 @@ describe("déplacement : purge des node_keys héritées (fanned-out)", () => {
           return { rows: [] };
         }),
       };
-      return fn(client);
+      return fn(client as unknown as import("pg").PoolClient);
     });
     return captured;
   }
@@ -123,7 +123,7 @@ describe("déplacement : purge des node_keys héritées (fanned-out)", () => {
     const app = Fastify({ logger: false });
     app.setErrorHandler((err, _req, reply) => {
       if (err instanceof ApiError) {
-        return reply.status(err.statusCode).send({ error: { code: err.code, message: err.message } });
+        return reply.status(err.statusCode).send({ error: { code: err.code, message: err instanceof Error ? err.message : String(err) } });
       }
       if (err instanceof ZodError) {
         return reply.status(400).send({ error: { code: "validation", message: "Requête invalide." } });

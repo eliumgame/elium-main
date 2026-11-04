@@ -83,7 +83,7 @@ un PDF page par page, avec une couche de texte. La mise en page est lue et
 |---|---|---|
 | XLSX, export | Valeurs, formules, styles, fusions, mises en forme conditionnelles, validations, tailles, volets figés, filtre simple, notes, graphiques, tableaux nommés, noms définis, mise en page | La définition du tableau croisé (exporté en valeurs), les débordements natifs |
 | XLSX, import | Idem, plus formules partagées, dates 1904, lecture en flux des gros fichiers (voir ci-dessous) | Tableaux croisés Excel, images, formules matricielles `t="array"` |
-| CSV, import | Séparateur virgule, point-virgule ou tabulation détecté ; feuille « Importé » ; tout reste en texte | Types |
+| CSV, import | Séparateur virgule, point-virgule ou tabulation détecté ; feuille « Importé » ; les nombres valides (`12`, `-3`, `+5`, `12,5`, `1 234,5`) restent des nombres sommables ; le texte commençant par `=`, `+`, `-`, `@`, tabulation ou retour chariot sans être un nombre est importé en texte littéral (jamais exécuté comme formule) ; le reste, dates comprises, reste du texte | Types (les dates ne sont pas converties), formules |
 | CSV, export | Valeurs **affichées** de la feuille active, lignes visibles | Formules, autres feuilles |
 
 ### Taille et fluidité

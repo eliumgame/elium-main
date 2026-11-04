@@ -45,7 +45,7 @@ La protection tient si ces conditions sont vraies :
 | Substitution d'une ressource (police) | Partiel | Son nom (sha256) est vérifié à la lecture. Les ressources ne sont pas dans le sceau |
 | Bombe de décompression, JSON imbriqué, KDF gourmand | Oui | Bornes identiques Python et Web, tailles réelles contrôlées |
 | Mise à jour falsifiée | Oui | Signature Ed25519 du manifeste, puis SHA-256 des artefacts |
-| Serveur Drive curieux ou compromis | Partiel | Il ne voit que du chiffré, avec tailles par paliers. Il voit la structure, les droits et les dates. Voir « Le Drive d'entreprise » |
+| Serveur Drive curieux ou compromis | Partiel | Il ne voit que du chiffré, avec tailles par paliers. Il voit la structure, les droits et les dates. **Il fournit aussi les clés publiques des destinataires** : un serveur actif pourrait en substituer une et recevoir des clés de contenu. La parade est la confiance au premier usage (voir « Le Drive d'entreprise ») : elle n'est complète que si vous comparez les mots de sécurité. Voir « Le Drive d'entreprise » |
 
 ### Ce qui n'est pas protégé
 

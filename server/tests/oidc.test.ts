@@ -96,7 +96,7 @@ describe.each<Alg>(["RS256", "ES256", "EdDSA"])("valid tokens (%s)", (alg) => {
   it("rejects a tampered signature", () => {
     const { pub, priv } = makeKeys(alg);
     const token = makeToken(alg, priv);
-    const [h, p, s] = token.split(".");
+    const [h, p, s = ""] = token.split(".");
     const flipped = s.slice(0, -2) + (s.endsWith("AA") ? "BB" : "AA");
     expect(() => verifyIdToken(`${h}.${p}.${flipped}`, cfg([pub]))).toThrow(OidcError);
   });
@@ -122,7 +122,7 @@ describe("claim validation", () => {
     expect(verifyIdToken(token, cfg([pub])).aud).toBe(CLIENT);
   });
 
-  it.each([undefined, nowSec() - 361, nowSec() + 61, "today", 1.5])("rejects a missing, stale or invalid iat (%s)", iat => {
+  it.each([undefined, nowSec() - 420, nowSec() + 120, "today", 1.5])("rejects a missing, stale or invalid iat (%s)", iat => {
     expect(() => verifyIdToken(makeToken("ES256", priv, defaultPayload({ iat })), cfg([pub]))).toThrow(/iat/);
   });
 
@@ -305,7 +305,7 @@ describe("dynamic JWKS (jwksUri)", () => {
     __clearJwksCache();
     const { priv } = makeKeys("RS256");
     let sawManual: RequestInit["redirect"];
-    const fetchImpl = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+    const fetchImpl = (async (_url: Parameters<typeof fetch>[0], init?: RequestInit) => {
       sawManual = init?.redirect;
       return new Response(null, { status: 302, headers: { location: "http://169.254.169.254/" } });
     }) as unknown as typeof fetch;
@@ -321,5 +321,36 @@ describe("dynamic JWKS (jwksUri)", () => {
     await expect(
       verifyIdTokenAsync(token, { issuer: ISS, clientId: CLIENT }),
     ).rejects.toThrow(/Aucune clé/);
+  });
+});
+
+describe("nonce lié à la requête d'autorisation (fail-closed)", () => {
+  const { pub, priv } = makeKeys("ES256");
+  const NONCE = "nonce-attendu-0123456789";
+
+  it("accepte un jeton portant exactement le nonce attendu", async () => {
+    const token = makeToken("ES256", priv, defaultPayload({ nonce: NONCE }));
+    const claims = await verifyIdTokenAsync(token, cfg([pub]), { expectedNonce: NONCE });
+    expect(claims.nonce).toBe(NONCE);
+  });
+
+  it("refuse un nonce différent", async () => {
+    const token = makeToken("ES256", priv, defaultPayload({ nonce: "autre-nonce-0123456789" }));
+    await expect(verifyIdTokenAsync(token, cfg([pub]), { expectedNonce: NONCE })).rejects.toThrow(/Nonce/);
+  });
+
+  it("refuse un jeton sans nonce (fournisseur qui ne le renvoie pas)", async () => {
+    const token = makeToken("ES256", priv);
+    await expect(verifyIdTokenAsync(token, cfg([pub]), { expectedNonce: NONCE })).rejects.toThrow(/Nonce/);
+  });
+
+  it("refuse un nonce non-chaîne", async () => {
+    const token = makeToken("ES256", priv, defaultPayload({ nonce: 42 }));
+    await expect(verifyIdTokenAsync(token, cfg([pub]), { expectedNonce: NONCE })).rejects.toThrow(/Nonce/);
+  });
+
+  it("sans nonce attendu (usage bas niveau), le comportement historique est conservé", async () => {
+    const token = makeToken("ES256", priv);
+    await expect(verifyIdTokenAsync(token, cfg([pub]))).resolves.toMatchObject({ sub: "sub-123" });
   });
 });

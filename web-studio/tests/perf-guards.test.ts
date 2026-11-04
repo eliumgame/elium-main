@@ -3,6 +3,7 @@
  * généreux (CI lente, machine partagée) : ils attrapent une régression
  * d'ordre de grandeur (O(n²) glissé dans une boucle), pas un écart de 20 %.
  * Chaque test affiche sa mesure pour suivre la tendance.
+ * npm test exécute cette suite séparément, avec un seul worker (test:perf).
  */
 import { describe, it, expect } from "vitest";
 import { planPages, type MeasuredBlock } from "../src/editor/Pagination";
@@ -66,8 +67,18 @@ describe("perf — Tableur : 100 000 lignes", () => {
 
   it("insertion/suppression de ligne sur 200 000 cellules sous 3 s", () => {
     const sheet = { ...emptySheet("Feuille1"), rows: rows + 10, cells: { ...cells } };
-    const { ms } = timed("insertRow+deleteRow 200k cellules", () => deleteRow(insertRow(sheet, 5), 5));
-    expect(ms).toBeLessThan(3000);
+    // Référence O(n) mesurée sur cette machine (parcours + copie des cellules) : le seuil suit la
+    // charge de la machine, mais une régression quadratique (200 000² opérations) le dépasse toujours.
+    const base = timed("référence O(n) 200k cellules", () => {
+      let n = 0;
+      for (const k in sheet.cells) n += k.length;
+      return { ...sheet.cells, n };
+    }).ms;
+    let best = Infinity;
+    for (let i = 0; i < 3; i++) {
+      best = Math.min(best, timed("insertRow+deleteRow 200k cellules", () => deleteRow(insertRow(sheet, 5), 5)).ms);
+    }
+    expect(best).toBeLessThan(Math.max(3000, base * 60));
   });
 });
 

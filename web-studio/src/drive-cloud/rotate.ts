@@ -41,6 +41,7 @@ import {
 import type { KeyShareInput, ShareInfo, VersionInfo } from "./types";
 import { makePrincipalResolver, type PrincipalKeyResolver } from "./principal-keys";
 import { toHex, fromHex } from "../format/canonical";
+import { freshOrgContext } from "./org-context";
 
 export interface RotationStats {
   rotated: number;
@@ -94,6 +95,7 @@ export async function wrapForRemainingPrincipals(
       principalId: s.principalId,
       roleId: s.roleId,
       wrappedKey: await wrapNodeKeyFor(newKey, pub),
+      ...(s.principalType === "group" ? { groupPublicHex: pub } : {}),
       inheritedFrom: s.inheritedFrom ?? null,
     });
   }
@@ -251,6 +253,11 @@ export async function repairInterruptedRotation(
   entry: DriveEntry,
 ): Promise<{ fixed: number; remaining: number; collabRewritten: boolean }> {
   const out = { fixed: 0, remaining: 0, collabRewritten: false };
+  if (entry.rotationRequired) {
+    const result = await rotateNode(ctx, entry);
+    if (!result.ok || result.incomplete) out.remaining++;
+    return out;
+  }
   if (entry.kind !== "file" || !entry.prevKeyWrapped || !entry.prevKeyNonce) return out;
   const key = await nodeKeyFrom(ctx, entry.myWrappedKey);
   if (!key) return out;
@@ -286,7 +293,7 @@ export async function repairInterruptedRotation(
 export async function rotateNode(
   ctx: OpsCtx,
   entry: DriveEntry,
-  resolver: PrincipalKeyResolver = makePrincipalResolver(ctx),
+  resolver?: PrincipalKeyResolver,
 ): Promise<{
   ok: boolean;
   revokedLinks: number;
@@ -294,6 +301,8 @@ export async function rotateNode(
   incomplete?: boolean;
   missingPrincipals?: string[];
 }> {
+  ctx = await freshOrgContext(ctx);
+  resolver ??= makePrincipalResolver(ctx);
   const oldKey = await nodeKeyFrom(ctx, entry.myWrappedKey);
   if (!oldKey) return { ok: false, revokedLinks: 0 }; // cannot rotate what we cannot decrypt
   const prevOfOld = await previousNodeKey(entry, oldKey);
@@ -348,6 +357,7 @@ export async function rotateNode(
     prevKeyNonce: prevSlot.nonceHex,
     ...(entry.keyEpoch !== undefined ? { expectedEpoch: entry.keyEpoch } : {}),
     keyShares,
+    orgKeyEpoch: ctx.orgKeyEpoch,
   });
 
   let incomplete = false;

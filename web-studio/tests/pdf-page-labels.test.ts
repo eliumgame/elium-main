@@ -24,7 +24,7 @@ async function blank(n: number, labelled?: (doc: PDFDocument) => void): Promise<
 }
 
 async function labels(bytes: Uint8Array): Promise<string[] | null> {
-  const task = pdfjsLib.getDocument({ data: bytes.slice(), isEvalSupported: false });
+  const task = pdfjsLib.getDocument({ data: bytes.slice() });
   const out = (await (await task.promise).getPageLabels()) as string[] | null;
   await task.destroy();
   return out;
@@ -107,7 +107,7 @@ describe("bookmarks follow their pages", () => {
     // Excluded pages are not in a copy: the numbers follow.
     s = D.setPageSkipped(s, [p1], true); // written: blank, 3, 4
     const out = await PDFDocument.load((await buildPdf(await blank(4), s)).bytes);
-    const task = pdfjsLib.getDocument({ data: (await out.save()).slice(), isEvalSupported: false });
+    const task = pdfjsLib.getDocument({ data: (await out.save()).slice() });
     const js = await task.promise;
     const outline = (await js.getOutline()) as { title: string; dest: unknown[] }[];
     const pageOf = async (d: unknown[]) => (await js.getPageIndex(d[0] as never)) + 1;

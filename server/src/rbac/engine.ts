@@ -1,11 +1,15 @@
 /**
  * RBAC resolution. Turns (user, org) and (user, node) into a concrete set of
- * effective permission keys, by unioning:
- *   - the user's org-level role (membership),
- *   - the roles granted to their groups,
- *   - ACL entries (node_keys) on the node AND all its ancestors (folder shares
- *     cascade to descendants),
- * plus intrinsic grants (a node's owner has all node permissions).
+ * effective permission keys.
+ *   - Org context: ONLY the membership role (active members only) supplies
+ *     org-level permissions; group roles never carry org-level permissions.
+ *   - Node access: the union of the roles granted by ACL entries (node_keys) to
+ *     the user directly or via their groups, on the node AND all its ancestors
+ *     (folder shares cascade to descendants). The org-level role does NOT leak
+ *     into node permissions.
+ * plus intrinsic grants (the node owner and the org owner get all node
+ * permissions). A non-active member (never joined, suspended, removed) gets no
+ * node access at all.
  *
  * Authorization (can this request proceed) is distinct from cryptographic
  * capability (can the client decrypt) — this module answers only the former.

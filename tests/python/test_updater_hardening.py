@@ -176,6 +176,27 @@ def test_forged_pointer_to_unsigned_directory_is_refused(env):
     assert updater.effective_version() == "4.0.0"
 
 
+def _resign_with_version(priv, base: Path, version: str) -> None:
+    """Remplace le manifeste signé voisin de `base` par le même, annonçant une AUTRE version,
+    correctement re-signé avec la clé de confiance (seule la version diffère)."""
+    mpath, spath = updater._sidecar_paths(base)
+    data = json.loads(mpath.read_bytes())
+    data["version"] = version
+    raw = json.dumps(data, indent=2).encode()
+    mpath.write_bytes(raw)
+    spath.write_text(priv.sign(raw).hex(), encoding="utf-8")
+
+
+def test_overlay_whose_signed_manifest_announces_another_version_is_refused(env, monkeypatch):
+    priv, _, _, _ = _install_web(env, monkeypatch)
+    updater.reset_verification_cache()
+    assert updater.active_web_dir() is not None  # sain avant la substitution
+    _resign_with_version(priv, updater._web_root() / "4.1.0", "4.9.0")
+    updater.reset_verification_cache()
+    assert updater.active_web_dir() is None
+    assert updater.effective_version() == "4.0.0"
+
+
 def test_overlay_manifest_signed_by_unknown_key_is_refused(env, monkeypatch):
     _install_web(env, monkeypatch)
     other, other_pub = _keypair()
@@ -222,6 +243,15 @@ def test_exe_with_forged_manifest_signature_is_refused(env, monkeypatch):
     mpath, spath = updater._sidecar_paths(base)
     spath.write_text(attacker.sign(mpath.read_bytes()).hex(), encoding="utf-8")
     assert updater._verified_pending_exe() is None
+
+
+def test_pending_exe_whose_signed_manifest_announces_another_version_is_refused(env, monkeypatch):
+    priv, _ = _stage_exe(env, monkeypatch)
+    assert updater._verified_pending_exe() is not None  # sain avant la substitution
+    # Le manifeste signé (même sha256 d'exe, signature valide) annonce 4.3.0 ; pending.json dit 4.2.0.
+    _resign_with_version(priv, updater._bin_root() / "Elium-4.2.0", "4.3.0")
+    assert updater._verified_pending_exe() is None
+    assert (updater._bin_root() / "Elium-4.2.0.exe").exists()  # refus pur : rien n'est supprimé
 
 
 def test_unsigned_exe_planted_with_pending_json_is_refused(env):

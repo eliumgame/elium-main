@@ -63,8 +63,8 @@ describe("layers", () => {
       const cfg = await e.raw.getOptionalContentConfig();
       return (cfg as any).isVisible ? [...(cfg as any)].map(([id, g]: any) => [id, g.name, g.visible]) : null;
     });
-    expect(vis!.find((v: any) => v[1] === "PrintOnly")[2]).toBe(false);
-    expect(vis!.find((v: any) => v[1] === "A")[2]).toBe(true);
+    expect(vis!.find((v: any) => v[1] === "PrintOnly")![2]).toBe(false);
+    expect(vis!.find((v: any) => v[1] === "A")![2]).toBe(true);
   });
 });
 

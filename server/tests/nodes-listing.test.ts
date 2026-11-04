@@ -45,12 +45,12 @@ async function makeApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof ApiError) {
-      return reply.status(err.statusCode).send({ error: { code: err.code, message: err.message } });
+      return reply.status(err.statusCode).send({ error: { code: err.code, message: err instanceof Error ? err.message : String(err) } });
     }
     if (err instanceof ZodError) {
       return reply.status(400).send({ error: { code: "bad_request", message: "validation" } });
     }
-    return reply.status(500).send({ error: { code: "internal", message: err.message } });
+    return reply.status(500).send({ error: { code: "internal", message: err instanceof Error ? err.message : String(err) } });
   });
   await app.register(nodeRoutes, { prefix: "/api/nodes" });
   await app.ready();

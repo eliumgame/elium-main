@@ -27,7 +27,7 @@ describe.skipIf(!hasPython)("Cross-Platform Interoperability (Python <-> Web)", 
     const password = "interop_password_123";
 
     // Call python to encode
-    const blob = execFileSync(PYTHON_EXEC, [HELPER_SCRIPT, "encode", password, "false"], {
+    const blob = execFileSync(PYTHON_EXEC!, [HELPER_SCRIPT, "encode", password, "false"], {
       input: payloadStr,
     });
 
@@ -46,7 +46,7 @@ describe.skipIf(!hasPython)("Cross-Platform Interoperability (Python <-> Web)", 
     const password = "interop_password_cascade";
 
     // Call python to encode
-    const blob = execFileSync(PYTHON_EXEC, [HELPER_SCRIPT, "encode", password, "true"], {
+    const blob = execFileSync(PYTHON_EXEC!, [HELPER_SCRIPT, "encode", password, "true"], {
       input: payloadStr,
     });
 
@@ -67,7 +67,7 @@ describe.skipIf(!hasPython)("Cross-Platform Interoperability (Python <-> Web)", 
     const encoded = await EliumCryptoEngine.encodeContainer(payload, password, "web.txt");
 
     // Call python to decode
-    const resultJson = execFileSync(PYTHON_EXEC, [HELPER_SCRIPT, "decode", password], {
+    const resultJson = execFileSync(PYTHON_EXEC!, [HELPER_SCRIPT, "decode", password], {
       input: Buffer.from(encoded),
       encoding: "utf-8",
     });

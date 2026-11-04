@@ -81,6 +81,27 @@ export interface ChartData {
   labels: string[];
   values: number[];
   title?: string;
+  /** Name of the first series (`values`); legend label. Absent = "Série 1". */
+  seriesName?: string;
+  /** Additional series (2nd and later), additive: old clients ignore it and keep
+   *  showing the first series. Each `values` is index-aligned with `labels`. */
+  series?: ChartSeries[];
+}
+export interface ChartSeries {
+  name: string;
+  values: number[];
+}
+/** Caps applied on PPTX import. */
+export const MAX_CHART_SERIES = 12;
+export const MAX_CHART_POINTS = 500;
+
+/** All series of a chart (first one + extras), as {label, values} for rendering. */
+export function chartSeriesOf(c: ChartData): { label: string; values: number[] }[] {
+  const extra = Array.isArray(c.series) ? c.series : [];
+  return [
+    { label: c.seriesName || "Série 1", values: c.values },
+    ...extra.map((s, i) => ({ label: s.name || `Série ${i + 2}`, values: Array.isArray(s.values) ? s.values : [] })),
+  ];
 }
 
 /**

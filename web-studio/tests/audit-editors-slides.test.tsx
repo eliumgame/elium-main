@@ -141,7 +141,7 @@ describe("audit F présentations", () => {
               y: 0,
               w: 50,
               h: 50,
-              chart: { kind: "bar" as const, labels: ["A"], values: [2] },
+              chart: { kind: "pie" as const, labels: ["A"], values: [2] },
             },
           ],
         },

@@ -27,6 +27,7 @@ async function sweepEphemeralTables(app: FastifyInstance): Promise<void> {
   const statements: [string, string][] = [
     ["login_challenges", `DELETE FROM login_challenges WHERE expires_at < now()`],
     ["oidc_used_assertions", `DELETE FROM oidc_used_assertions WHERE expires_at < now()`],
+    ["sso_nonces", `DELETE FROM sso_nonces WHERE expires_at < now()`],
     ["webauthn_challenges", `DELETE FROM webauthn_challenges WHERE expires_at < now()`],
     ["webauthn_login_challenges", `DELETE FROM webauthn_login_challenges WHERE expires_at < now()`],
     // Sessions expirées OU révoquées depuis > 7 jours (on garde brièvement les

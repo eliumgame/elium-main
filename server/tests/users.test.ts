@@ -74,12 +74,12 @@ async function makeApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof ApiError) {
-      return reply.status(err.statusCode).send({ error: { code: err.code, message: err.message } });
+      return reply.status(err.statusCode).send({ error: { code: err.code, message: err instanceof Error ? err.message : String(err) } });
     }
     if (err instanceof ZodError) {
       return reply.status(400).send({ error: { code: "bad_request", message: "validation" } });
     }
-    return reply.status(500).send({ error: { code: "internal", message: err.message } });
+    return reply.status(500).send({ error: { code: "internal", message: err instanceof Error ? err.message : String(err) } });
   });
   await app.register(userRoutes, { prefix: "/api/users" });
   await app.ready();
@@ -130,6 +130,20 @@ describe("GET /api/users/lookup", () => {
     expect(both.statusCode).toBe(400);
     const neither = await app.inject({ method: "GET", url: "/api/users/lookup" });
     expect(neither.statusCode).toBe(400);
+  });
+
+  it("restreint la recherche aux comptes partageant une organisation active avec l'appelant", async () => {
+    mQueryOne.mockResolvedValueOnce(userRow() as never);
+    const app = await makeApp();
+    await app.inject({ method: "GET", url: "/api/users/lookup?email=u@example.org" });
+    await app.inject({ method: "GET", url: `/api/users/lookup?fingerprint=${HEX64}` });
+    for (const call of mQueryOne.mock.calls.slice(-2)) {
+      const sql = String(call[0]);
+      expect(sql).toMatch(/FROM memberships mine JOIN memberships theirs ON theirs.org_id = mine.org_id/);
+      expect(sql).toMatch(/mine.status = 'active'/);
+      expect(sql).toMatch(/theirs.status = 'active'/);
+      expect((call[1] as unknown[])[1]).toBe(USER); // l'appelant
+    }
   });
 
   it("404s when no active user matches", async () => {

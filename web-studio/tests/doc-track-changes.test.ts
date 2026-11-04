@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach } from "vitest";
-import { Editor } from "@tiptap/core";
+import { Editor, type JSONContent } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { DOMParser as PMDOMParser, Fragment, Slice } from "@tiptap/pm/model";
 import { Insertion, Deletion, TrackChanges, isSuggesting } from "../src/editor/TrackChanges";
@@ -31,7 +31,7 @@ function makeSuggestingEditor(author = "Alice", content = "<p>Bonjour le monde</
  *  `beforeinput`/composition pipeline, which jsdom does not implement for
  *  contenteditable. */
 function typeText(editor: Editor, from: number, to: number, text: string): boolean {
-  return !!editor.view.someProp("handleTextInput", (f) => f(editor.view, from, to, text));
+  return !!editor.view.someProp("handleTextInput", (f) => f(editor.view, from, to, text, () => editor.state.tr.insertText(text, from, to)));
 }
 
 /** Real keydown, dispatched on the view's own DOM node — exercises the exact
@@ -311,9 +311,9 @@ describe("TrackChanges — accepter/refuser UNE modification", () => {
 
   it("acceptChange/rejectChange à une position sans marque est un no-op", () => {
     editor = makeSuggestingEditor();
-    const before = editor.getJSON();
+    const before = (editor.getJSON() as JSONContent);
     editor.commands.acceptChange(3);
-    expect(editor.getJSON()).toEqual(before);
+    expect((editor.getJSON() as JSONContent)).toEqual(before);
   });
 });
 
@@ -322,7 +322,7 @@ describe("TrackChanges — Entrée suivie (saut de paragraphe)", () => {
     editor = makeSuggestingEditor();
     editor.commands.setTextSelection(9); // après "Bonjour "
     expect(pressKey(editor, "Enter")).toBe(true);
-    const json = editor.getJSON();
+    const json = (editor.getJSON() as JSONContent);
     expect(json.content).toHaveLength(2);
     expect(json.content![0]!.content?.map((n) => n.text).join("")).toBe("Bonjour ");
     expect(json.content![1]!.content?.map((n) => n.text).join("")).toBe("le monde");
@@ -337,7 +337,7 @@ describe("TrackChanges — Entrée suivie (saut de paragraphe)", () => {
     pressKey(editor, "Enter");
     const [b] = breaksOf(editor);
     editor.commands.rejectBreak(b!.pos);
-    expect(editor.getJSON().content).toHaveLength(1);
+    expect((editor.getJSON() as JSONContent).content).toHaveLength(1);
     expect(editor.getText()).toBe("Bonjour le monde");
   });
 
@@ -347,7 +347,7 @@ describe("TrackChanges — Entrée suivie (saut de paragraphe)", () => {
     pressKey(editor, "Enter");
     const [b] = breaksOf(editor);
     editor.commands.acceptBreak(b!.pos);
-    expect(editor.getJSON().content).toHaveLength(2);
+    expect((editor.getJSON() as JSONContent).content).toHaveLength(2);
     expect(breaksOf(editor)).toHaveLength(0);
   });
 
@@ -359,7 +359,7 @@ describe("TrackChanges — Entrée suivie (saut de paragraphe)", () => {
     });
     editor.commands.setTextSelection(pos);
     pressKey(editor, "Enter");
-    const listItems = editor.getJSON().content![0]!.content ?? [];
+    const listItems = (editor.getJSON() as JSONContent).content![0]!.content ?? [];
     expect(listItems).toHaveLength(2); // la liste s'est bien scindée nativement...
     expect(breaksOf(editor)).toHaveLength(0); // ...mais rien n'a été marqué comme changement suivi
   });
@@ -378,7 +378,7 @@ describe("TrackChanges — fusion de paragraphes suivie (Backspace/Delete en bor
     });
     editor.commands.setTextSelection(pos);
     expect(pressKey(editor, "Backspace")).toBe(true);
-    expect(editor.getJSON().content).toHaveLength(2); // toujours deux blocs
+    expect((editor.getJSON() as JSONContent).content).toHaveLength(2); // toujours deux blocs
     const breaks = breaksOf(editor);
     expect(breaks).toHaveLength(1);
     expect(breaks[0]!.kind).toBe("merge");
@@ -402,7 +402,7 @@ describe("TrackChanges — fusion de paragraphes suivie (Backspace/Delete en bor
     pressKey(editor, "Backspace");
     const [b] = breaksOf(editor);
     editor.commands.acceptBreak(b!.pos);
-    expect(editor.getJSON().content).toHaveLength(1);
+    expect((editor.getJSON() as JSONContent).content).toHaveLength(1);
     expect(editor.getText()).toBe("Bonjourle monde");
   });
 
@@ -416,7 +416,7 @@ describe("TrackChanges — fusion de paragraphes suivie (Backspace/Delete en bor
     pressKey(editor, "Backspace");
     const [b] = breaksOf(editor);
     editor.commands.rejectBreak(b!.pos);
-    expect(editor.getJSON().content).toHaveLength(2);
+    expect((editor.getJSON() as JSONContent).content).toHaveLength(2);
     expect(breaksOf(editor)).toHaveLength(0);
     expect(editor.getText()).toBe("Bonjour\n\nle monde"); // toujours deux paragraphes -> séparateur de bloc
   });
@@ -449,7 +449,7 @@ describe("TrackChanges — tout accepter / tout refuser", () => {
     expect(marksOf(editor, "insertion")).toHaveLength(0);
     expect(marksOf(editor, "deletion")).toHaveLength(0);
     expect(breaksOf(editor)).toHaveLength(0);
-    expect(editor.getJSON().content).toHaveLength(1); // la fusion en attente a bien été jointe
+    expect((editor.getJSON() as JSONContent).content).toHaveLength(1); // la fusion en attente a bien été jointe
     expect(editor.getText()).toBe("XBonjour lemondeSuite"); // X gardé, l'espace "le|monde" retiré, tout joint
   });
 
@@ -459,7 +459,7 @@ describe("TrackChanges — tout accepter / tout refuser", () => {
     expect(marksOf(editor, "insertion")).toHaveLength(0);
     expect(marksOf(editor, "deletion")).toHaveLength(0);
     expect(breaksOf(editor)).toHaveLength(0);
-    expect(editor.getJSON().content).toHaveLength(2); // la fusion proposée est annulée : toujours 2 blocs
+    expect((editor.getJSON() as JSONContent).content).toHaveLength(2); // la fusion proposée est annulée : toujours 2 blocs
     expect(editor.getText()).not.toContain("X"); // l'insertion est retirée
     expect(editor.getText()).toContain("Bonjour le monde"); // la suppression est restaurée
   });

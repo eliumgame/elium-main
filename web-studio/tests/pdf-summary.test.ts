@@ -18,7 +18,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(
 /** « Résumer les commentaires »: a PDF of the commented pages, their comments listed and linked. */
 
 async function texts(bytes: Uint8Array): Promise<string[]> {
-  const task = pdfjsLib.getDocument({ data: bytes.slice(), isEvalSupported: false });
+  const task = pdfjsLib.getDocument({ data: bytes.slice() });
   const doc = await task.promise;
   const out: string[] = [];
   for (let i = 1; i <= doc.numPages; i++) {
@@ -150,7 +150,7 @@ describe("summary line breaks", () => {
     };
     const rendered = (await buildPdf(await src.save(), s, { interactiveAnnots: false })).bytes;
     const summary = await buildCommentSummary(rendered, s, { title: "d", kindLabel: KIND_LABEL });
-    const task = pdfjsLib.getDocument({ data: summary.slice(), isEvalSupported: false });
+    const task = pdfjsLib.getDocument({ data: summary.slice() });
     const tc = await (await (await task.promise).getPage(1)).getTextContent();
     const items = (tc.items as { str: string; transform: number[] }[]).filter((i) => /ligne/.test(i.str));
     await task.destroy();

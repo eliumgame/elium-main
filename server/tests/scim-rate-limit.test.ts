@@ -33,7 +33,7 @@ async function makeApp(): Promise<FastifyInstance> {
   await app.register(rateLimit, { max: 600, timeWindow: "1 minute" });
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof ApiError) {
-      return reply.status(err.statusCode).send({ error: { code: err.code, message: err.message } });
+      return reply.status(err.statusCode).send({ error: { code: err.code, message: err instanceof Error ? err.message : String(err) } });
     }
     if (err instanceof ZodError) {
       return reply.status(400).send({ error: { code: "bad_request", message: "validation" } });
@@ -41,7 +41,7 @@ async function makeApp(): Promise<FastifyInstance> {
     if ((err as { statusCode?: number }).statusCode === 429) {
       return reply.status(429).send({ error: { code: "rate_limited", message: "Trop de requêtes." } });
     }
-    return reply.status(500).send({ error: { code: "internal", message: err.message } });
+    return reply.status(500).send({ error: { code: "internal", message: err instanceof Error ? err.message : String(err) } });
   });
   await app.register(scimRoutes, { prefix: "/api" });
   await app.ready();

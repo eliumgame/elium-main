@@ -170,7 +170,9 @@ describe("sauvegarde : aller-retour complet", () => {
   it("les révocations du carnet de confiance font l'aller-retour avec les secrets", async () => {
     const a = machine();
     await seed(a);
-    const revocations = JSON.stringify([{ publicKeyHex: "ab".repeat(32), reason: "compromise", at: "2026-10-01" }]);
+    const revocations = JSON.stringify([
+      { publicKeyHex: "ab".repeat(32), revokedAt: "2026-10-01", reason: "compromised" },
+    ]);
     a.store.set("elium_trust_revocations", revocations);
     const back = await openBackup(
       await packBackup(await collectSnapshot(a.deps, { includeSecrets: true }), { includeSecrets: true }),

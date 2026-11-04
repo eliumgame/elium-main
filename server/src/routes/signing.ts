@@ -31,6 +31,8 @@ import { sha256Hex, randomToken } from "../lib/crypto-server.js";
 import { storage } from "../storage/adapter.js";
 import { config } from "../config.js";
 import { assertDiskSpace } from "../lib/disk.js";
+import { assertUserQuota } from "../lib/site-settings.js";
+import { contentPreconditions, assertContentBase } from "../lib/content-preconditions.js";
 import { audit } from "../lib/audit.js";
 import { kickRoom, notifyOrg } from "../collab/relay.js";
 
@@ -335,6 +337,7 @@ export default async function signingRoutes(app: FastifyInstance): Promise<void>
       }
 
       const { node_id: nodeId, org_id: orgId } = link;
+      const base = contentPreconditions(req.headers);
 
       // Flux direct vers le stockage (borné + comptabilisé), comme PUT content.
       await assertDiskSpace(Number(req.headers["content-length"]) || 0);
@@ -350,6 +353,7 @@ export default async function signingRoutes(app: FastifyInstance): Promise<void>
       }
 
       await withTx(async (c) => {
+        await assertDiskSpace(size);
         // Revérification SOUS VERROU : tout ce qui précède (le SELECT initial du
         // lien, la décision de signer, et surtout `store.putStream()` qui peut
         // prendre un temps arbitraire pour un gros fichier) s'est déroulé HORS
@@ -371,8 +375,10 @@ export default async function signingRoutes(app: FastifyInstance): Promise<void>
           `SELECT p.status AS party_status, sl.revoked_at AS link_revoked_at
              FROM signature_request_parties p
              JOIN share_links sl ON sl.id = p.link_id
-            WHERE p.id = $1
-            FOR UPDATE`,
+             JOIN nodes n ON n.id = sl.node_id
+            WHERE p.id = $1 AND ${LIVE_SHARE_POLICY}
+              AND (sl.expires_at IS NULL OR sl.expires_at > now())
+            FOR UPDATE OF p, sl`,
           [link.party_id],
         );
         if (!pr[0]) throw notFound("Partie introuvable.");
@@ -381,8 +387,9 @@ export default async function signingRoutes(app: FastifyInstance): Promise<void>
           throw conflict("Cette partie a déjà signé ou n'est plus en attente de signature.");
         }
 
-        const { rows: cur } = await c.query(`SELECT key_epoch FROM nodes WHERE id = $1 FOR UPDATE`, [nodeId]);
+        const { rows: cur } = await c.query(`SELECT key_epoch, current_version_id, owner_user_id, key_rotation_required FROM nodes WHERE id = $1 FOR UPDATE`, [nodeId]);
         if (!cur[0]) throw notFound();
+        assertContentBase(base, cur[0]);
 
         // Quota org sérialisé (verrou consultatif org-scoped), comme PUT content.
         await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [orgId]);
@@ -398,6 +405,7 @@ export default async function signingRoutes(app: FastifyInstance): Promise<void>
         if (quota != null && used + size > Number(quota)) {
           throw insufficientStorage(`Quota atteint : ${used + size} octets requis pour ${Number(quota)} alloués.`);
         }
+        if (cur[0].owner_user_id) await assertUserQuota(orgId, cur[0].owner_user_id as string, size);
 
         const { rows: vrows } = await c.query(
           `SELECT COALESCE(MAX(version_no), 0) + 1 AS next FROM node_versions WHERE node_id = $1`,

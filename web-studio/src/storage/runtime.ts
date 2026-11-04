@@ -15,6 +15,7 @@ import { DIRTY_EVENT } from "../workspace/sync-dirty";
 import { FileMirror, type MirrorExtra, type MirrorStatus } from "./file-mirror";
 import { syncDriveOrigin } from "./drive-origin";
 import { detectPersistence, requestPersistentStorage } from "./persistence";
+import { withoutTrustSettings, splitTrustRecords } from "../workspace/sync-guard";
 
 const enc = (s: string) => new TextEncoder().encode(s);
 const dec = (b: Uint8Array) => new TextDecoder().decode(b);
@@ -65,7 +66,7 @@ function pieceExtra(p: ExtraPiece): MirrorExtra {
       return Object.values(rec).some((l) => l.length) ? packRecords(rec) : undefined;
     },
     async write(bytes) {
-      await applyExtra(p, await unpackRecords(bytes));
+      await applyExtra(p, splitTrustRecords(p.stores, await unpackRecords(bytes)).kept);
     },
     async isEmpty() {
       const db = await p.open();
@@ -102,7 +103,7 @@ function settingsExtra(): MirrorExtra {
     },
     async write(bytes) {
       const o = pickKeys(JSON.parse(dec(bytes)) as Record<string, string | null>, SETTINGS_KEYS);
-      for (const [k, v] of Object.entries(o)) if (get(k) === null) localStorage.setItem(k, v);
+      for (const [k, v] of Object.entries(withoutTrustSettings(o))) if (get(k) === null) localStorage.setItem(k, v);
     },
     async isEmpty() {
       return SETTINGS_KEYS.every((k) => get(k) === null);

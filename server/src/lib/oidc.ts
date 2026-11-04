@@ -15,7 +15,7 @@
  * IdP rotated its keys).
  */
 import { safeHttpsGet } from "./safe-fetch.js";
-import { createPublicKey, createVerify, verify as edVerify, type JsonWebKey } from "node:crypto";
+import { createPublicKey, createVerify, timingSafeEqual, verify as edVerify, type JsonWebKey } from "node:crypto";
 
 export interface OidcConfig {
   issuer: string;
@@ -37,6 +37,8 @@ export interface OidcClaims {
   iss: string;
   aud: string;
   issuedAt: number;
+  /** Nonce du jeton (présent si le fournisseur l'a renvoyé). */
+  nonce?: string;
 }
 
 export class OidcError extends Error {}
@@ -108,6 +110,7 @@ export function verifyIdTokenWithKeys(
   config: OidcConfig,
   jwks: JsonWebKey[],
   atMs = Date.now(),
+  expectedNonce?: string,
 ): OidcClaims {
   const { header, payload, headerB64, payloadB64, sigB64 } = parseToken(idToken);
 
@@ -163,6 +166,17 @@ export function verifyIdTokenWithKeys(
     throw new OidcError("Partie autorisée (azp) inattendue.");
   }
 
+  // Nonce lié à la requête d'autorisation (anti-rejeu / anti-injection de jeton). Fail-closed :
+  // si un nonce est attendu et que le fournisseur ne le renvoie pas (ou le modifie), on refuse.
+  if (expectedNonce !== undefined) {
+    const got = typeof payload.nonce === "string" ? payload.nonce : "";
+    const a = Buffer.from(got, "utf8");
+    const b = Buffer.from(expectedNonce, "utf8");
+    if (!expectedNonce || a.length !== b.length || !timingSafeEqual(a, b)) {
+      throw new OidcError("Nonce du jeton d'identité absent ou inattendu : relancez la connexion SSO.");
+    }
+  }
+
   const sub = typeof payload.sub === "string" ? payload.sub : "";
   if (!sub) throw new OidcError("Le jeton d'identité ne contient pas de sujet (sub).");
 
@@ -184,6 +198,7 @@ export function verifyIdTokenWithKeys(
     iss: config.issuer,
     aud: config.clientId,
     issuedAt: payload.iat,
+    ...(typeof payload.nonce === "string" ? { nonce: payload.nonce } : {}),
   };
 }
 
@@ -216,6 +231,8 @@ export interface VerifyOpts {
   /** Skip the cache and refetch. */
   forceRefresh?: boolean;
   timeoutMs?: number;
+  /** Nonce attendu : le jeton doit porter exactement ce `nonce` (sinon refus). */
+  expectedNonce?: string;
 }
 
 /** Test hook: clear the in-process JWKS cache. */
@@ -313,12 +330,12 @@ export async function verifyIdTokenAsync(
   const atMs = opts.atMs ?? Date.now();
   const jwks = await resolveJwks(config, opts);
   try {
-    return verifyIdTokenWithKeys(idToken, config, jwks, atMs);
+    return verifyIdTokenWithKeys(idToken, config, jwks, atMs, opts.expectedNonce);
   } catch (e) {
     const isKidMiss = e instanceof OidcError && /correspondante/.test(e.message);
     if (isKidMiss && config.jwksUri && !opts.forceRefresh) {
       const fresh = await resolveJwks(config, { ...opts, forceRefresh: true });
-      return verifyIdTokenWithKeys(idToken, config, fresh, atMs);
+      return verifyIdTokenWithKeys(idToken, config, fresh, atMs, opts.expectedNonce);
     }
     throw e;
   }

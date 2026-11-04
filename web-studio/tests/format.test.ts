@@ -155,7 +155,7 @@ describe("signature proof", () => {
   async function sign() {
     const model = createDocumentModel();
     const id = await generateIdentity();
-    const proof = await createProof({ signatureId: "sig_1", model, signer, privateKeyHex: id.privateKeyHex });
+    const proof = await createProof({ signatureId: "sig_1", model, signer, privateKeyHex: id.privateKeyHex! });
     const sig: EliumSignature = {
       id: "sig_1",
       kind: "typed",

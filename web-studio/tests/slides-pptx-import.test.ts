@@ -277,6 +277,23 @@ describe("PPTX import — chart type detection", () => {
     expect(warnings).toEqual(["combiné"]);
   });
 
+  it("chart multi-séries (3) : toutes les séries sont importées avec leurs noms, sans avertissement", () => {
+    const mk = (name: string, vals: number[]) =>
+      `<c:ser><c:tx><c:v>${name}</c:v></c:tx><c:cat><c:strLit><c:pt idx="0"><c:v>X</c:v></c:pt><c:pt idx="1"><c:v>Y</c:v></c:pt></c:strLit></c:cat>` +
+      `<c:val><c:numLit><c:pt idx="0"><c:v>${vals[0]}</c:v></c:pt><c:pt idx="1"><c:v>${vals[1]}</c:v></c:pt></c:numLit></c:val></c:ser>`;
+    const plot = `<c:barChart>${mk("A", [1, 2])}${mk("B", [3, 4])}${mk("C", [5, 6])}</c:barChart>`;
+    const warnings: string[] = [];
+    const d = importPptx(withChartXml(chartSpace(plot)), (w) => warnings.push(w));
+    const chart = d.slides[0]!.elements!.find((e) => e.type === "chart");
+    expect(chart?.chart?.values).toEqual([1, 2]);
+    expect(chart?.chart?.seriesName).toBe("A");
+    expect(chart?.chart?.series).toEqual([
+      { name: "B", values: [3, 4] },
+      { name: "C", values: [5, 6] },
+    ]);
+    expect(warnings).toEqual([]);
+  });
+
   it("never calls onWarning for a normal bar/line/pie import", () => {
     const warnings: string[] = [];
     importPptx(deckToPptx(chartDeck()), (w) => warnings.push(w));

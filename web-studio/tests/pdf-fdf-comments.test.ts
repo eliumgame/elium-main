@@ -16,7 +16,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(
 /** Comments as FDF: Acrobat's native comment file, both ways. */
 
 async function readAnnotations(pdf: Uint8Array): Promise<RawAnnotation[][]> {
-  const task = pdfjsLib.getDocument({ data: pdf.slice(), isEvalSupported: false });
+  const task = pdfjsLib.getDocument({ data: pdf.slice() });
   const doc = await task.promise;
   const out: RawAnnotation[][] = [];
   for (let i = 1; i <= doc.numPages; i++) out.push((await (await doc.getPage(i)).getAnnotations()) as RawAnnotation[]);

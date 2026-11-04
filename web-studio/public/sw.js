@@ -17,13 +17,24 @@ const CACHE = "elium-cache-" + BUILD;
 const CORE = /*__PRECACHE_CORE__*/ [];
 const HEAVY = /*__PRECACHE_HEAVY__*/ [];
 
+function isShellPath(path) {
+  // Le routeur applicatif est dans le fragment ; les vrais fichiers ne sont pas le shell.
+  return path === "/" || path === "/index.html";
+}
+
+function cacheable(path, res) {
+  if (!res || !res.ok || res.redirected) return false;
+  const html = (res.headers.get("content-type") || "").split(";", 1)[0].trim().toLowerCase() === "text/html";
+  return isShellPath(path) ? html : !html;
+}
+
 async function warm(urls) {
   const cache = await caches.open(CACHE);
   await Promise.allSettled(
     urls.map(async (u) => {
       if (await cache.match(u)) return;
       const res = await fetch(u, { cache: "reload" });
-      if (res && res.ok) await cache.put(u, res);
+      if (cacheable(new URL(u, self.location.origin).pathname, res)) await cache.put(u, res);
     }),
   );
 }
@@ -62,15 +73,16 @@ self.addEventListener("fetch", (event) => {
   // Identité du build + dernière version publiée : toujours frais (jamais servis depuis le cache).
   if (url.pathname === "/release.json") return;
   // Réponses d'API : jamais mises en cache (données par compte, potentiellement sensibles).
-  if (url.pathname.startsWith("/api/")) return;
+  if (url.pathname === "/api" || url.pathname.startsWith("/api/")) return;
 
   if (req.mode === "navigate") {
+    if (!isShellPath(url.pathname)) return;
     event.respondWith(
       (async () => {
         try {
           const fresh = await fetch(req);
           const cache = await caches.open(CACHE);
-          cache.put("/index.html", fresh.clone());
+          if (cacheable(url.pathname, fresh)) await cache.put("/index.html", fresh.clone());
           return fresh;
         } catch {
           const cache = await caches.open(CACHE);
@@ -88,17 +100,17 @@ self.addEventListener("fetch", (event) => {
       if (cached) {
         // Les fichiers hashés sont immuables ; les autres sont rafraîchis en tâche de fond.
         if (!/\/assets\//.test(url.pathname) && !/\/(fonts|tesseract|tessdata|pdfjs)\//.test(url.pathname)) {
-          fetch(req)
+          event.waitUntil(fetch(req)
             .then((res) => {
-              if (res && res.ok) cache.put(req, res.clone());
+              if (cacheable(url.pathname, res)) return cache.put(req, res.clone());
             })
-            .catch(() => {});
+            .catch(() => {}));
         }
         return cached;
       }
       try {
         const res = await fetch(req);
-        if (res && res.ok) cache.put(req, res.clone());
+        if (cacheable(url.pathname, res)) await cache.put(req, res.clone());
         return res;
       } catch {
         return Response.error();

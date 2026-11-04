@@ -28,6 +28,8 @@ import {
   type ShapeKind,
   type ElementType,
   type ChartData,
+  MAX_CHART_POINTS,
+  MAX_CHART_SERIES,
   type ChartKind,
   type LayoutPlaceholder,
   type PlaceholderKind,
@@ -882,22 +884,63 @@ function detectChartKind(xml: string): { kind?: ChartKind; unsupportedLabel?: st
 /** Parse a DrawingML chart part (literal or cached data) back to ChartData.
  *  `unsupportedLabel` is set (data is always null then) when the chart's real
  *  type has no Élium equivalent — the caller must warn instead of importing it. */
-function parseChart(xml: string): { data: ChartData | null; unsupportedLabel?: string } {
+function parseChart(xml: string): { data: ChartData | null; unsupportedLabel?: string; warnings?: string[] } {
   const { kind, unsupportedLabel } = detectChartKind(xml);
   if (unsupportedLabel) return { data: null, unsupportedLabel };
   if (!kind) return { data: null };
-  const ptValues = (blockXml: string): string[] =>
-    [...blockXml.matchAll(/<c:pt\b[^>]*>\s*<c:v>([\s\S]*?)<\/c:v>/g)].map((m) => unescapeXml(m[1]!.trim()));
-  const catBlock = /<c:cat>([\s\S]*?)<\/c:cat>/.exec(xml)?.[1] ?? "";
-  const valBlock = /<c:val>([\s\S]*?)<\/c:val>/.exec(xml)?.[1] ?? "";
-  const labels = ptValues(catBlock);
-  const values = ptValues(valBlock).map((v) => Number(v) || 0);
-  // Title: the chart's own <c:title> rich text if present, else the series name.
+  // Points are placed by their c:idx (sparse/blank points become 0); a hostile
+  // idx is skipped so it can't allocate a huge array.
+  const ptValues = (blockXml: string): string[] => {
+    const out: string[] = [];
+    let seq = 0;
+    for (const m of blockXml.matchAll(/<c:pt\b([^>]*)>\s*<c:v>([\s\S]*?)<\/c:v>/g)) {
+      const idxAttr = attr(m[0], "idx");
+      const idx = idxAttr !== undefined && /^\d+$/.test(idxAttr) ? Number(idxAttr) : seq;
+      seq = idx + 1;
+      if (idx >= MAX_CHART_POINTS * 4) continue;
+      while (out.length < idx) out.push("");
+      out[idx] = unescapeXml(m[2]!.trim());
+    }
+    return out;
+  };
+  const warnings: string[] = [];
+  const sers = [...xml.matchAll(/<c:ser\b[^>]*>([\s\S]*?)<\/c:ser>/g)].map((m) => m[1]!);
+  const parsed = sers.map((sx) => {
+    const tx = /<c:tx>([\s\S]*?)<\/c:tx>/.exec(sx)?.[1] ?? "";
+    const name = unescapeXml((/<c:v>([\s\S]*?)<\/c:v>/.exec(tx)?.[1] ?? "").trim());
+    return {
+      name,
+      cat: ptValues(/<c:cat>([\s\S]*?)<\/c:cat>/.exec(sx)?.[1] ?? ""),
+      val: ptValues(/<c:val>([\s\S]*?)<\/c:val>/.exec(sx)?.[1] ?? "").map((v) => Number(v) || 0),
+    };
+  });
+  const first = parsed[0] ?? { name: "", cat: [] as string[], val: [] as number[] };
+  let labels = (parsed.find((p) => p.cat.length)?.cat ?? first.cat).slice();
+  let values = first.val.slice();
+  // Title: the chart's own <c:title> rich text if present, else (single series) the series name.
   const titleRich = /<c:title>[\s\S]*?<a:t>([\s\S]*?)<\/a:t>/.exec(xml)?.[1];
-  const serTx = /<c:tx>\s*<c:v>([\s\S]*?)<\/c:v>/.exec(xml)?.[1];
-  const title = unescapeXml((titleRich ?? serTx ?? "").trim()) || undefined;
-  if (!labels.length && !values.length) return { data: null };
-  return { data: { kind, labels, values, ...(title ? { title } : {}) } };
+  const multi = parsed.length > 1 && kind !== "pie";
+  const title = unescapeXml((titleRich ?? (multi ? "" : first.name)).trim()) || undefined;
+  if (!labels.length && !values.length) return { data: null, warnings };
+  if (parsed.length > 1 && !multi) warnings.push("Graphique multi-séries : seule la première série est importée.");
+  if (Math.max(labels.length, values.length) > MAX_CHART_POINTS) {
+    labels = labels.slice(0, MAX_CHART_POINTS);
+    values = values.slice(0, MAX_CHART_POINTS);
+    warnings.push(`Graphique : plus de ${MAX_CHART_POINTS} points, les points excédentaires sont ignorés.`);
+  }
+  const data: ChartData = { kind, labels, values, ...(title ? { title } : {}) };
+  if (multi) {
+    const kept = parsed.slice(1, MAX_CHART_SERIES);
+    if (parsed.length > MAX_CHART_SERIES)
+      warnings.push(`Graphique : plus de ${MAX_CHART_SERIES} séries, les séries excédentaires sont ignorées.`);
+    const n = Math.max(labels.length, values.length);
+    if (first.name) data.seriesName = first.name;
+    data.series = kept.map((p, i) => ({
+      name: p.name || `Série ${i + 2}`,
+      values: Array.from({ length: n }, (_, k) => p.val[k] ?? 0),
+    }));
+  }
+  return { data, warnings };
 }
 
 function parseGraphicFrame(block: string, pc: ParseCtx, tf: Tf): SlideElement | null {
@@ -910,13 +953,12 @@ function parseGraphicFrame(block: string, pc: ParseCtx, tf: Tf): SlideElement | 
     const bytes = target ? pc.media.get(resolveMedia(target)) : undefined;
     if (!bytes) return null;
     const chartXml = strFromU8(bytes);
-    const { data, unsupportedLabel } = parseChart(chartXml);
+    const { data, unsupportedLabel, warnings } = parseChart(chartXml);
     if (unsupportedLabel) {
       pc.onWarning?.(unsupportedLabel);
       return null;
     }
-    if (data && (chartXml.match(/<c:ser\b/g) ?? []).length > 1)
-      pc.onWarning?.("Graphique multi-séries : seule la première série est importée.");
+    for (const w of warnings ?? []) pc.onWarning?.(w);
     return data ? el({ type: "chart", chart: data }, g) : null;
   }
   if (!/<a:tbl\b/.test(block)) return null; // SmartArt / OLE → skip (degrade)

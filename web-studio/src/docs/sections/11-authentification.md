@@ -17,7 +17,9 @@ La connexion est un **défi-réponse** :
 | 2 | `POST /login/verify` | Le client renvoie la **signature** du défi, le serveur vérifie |
 | 3 | `POST /login/mfa` | Seulement si un second facteur est actif |
 
-Tous les échecs de l'étape 2 renvoient le **même message**. Un compte inconnu reçoit de faux paramètres de dérivation, de forme identique à un vrai compte (route `prelogin`). Cette protection concerne le parcours de connexion : l'inscription peut signaler qu'un compte existe déjà, et l'annuaire accessible aux membres permet une recherche exacte. Le second facteur applique également le verrouillage temporaire par compte décrit ci-dessous.
+Tous les échecs de l'étape 2 renvoient le **même message**. Un compte inconnu reçoit de faux paramètres de dérivation, de forme identique à un vrai compte (route `prelogin`). Cette protection concerne **uniquement le parcours de connexion**. L'inscription (`POST /register`) répond toujours `409` « un compte existe déjà » : l'identité cryptographique est générée côté client et la session est ouverte immédiatement, sans vérification d'e-mail, donc une réponse neutre casserait le parcours ; elle reste limitée à 20 appels par minute et par IP, et soumise au contrôle d'inscription (invitation, code d'activation) quand il est actif.
+
+**Annuaire** : `GET /users/lookup` (par e-mail exact ou empreinte) ne renvoie qu'un compte **actif partageant au moins une organisation active** avec l'appelant. Un compte inexistant et un compte hors de vos organisations donnent le même `404` : un utilisateur authentifié ne peut pas sonder l'existence de comptes étrangers à ses organisations. Pour inviter quelqu'un qui n'est pas encore membre, on passe par l'invitation d'organisation (lien), qui ne révèle rien sur l'existence du compte. Le second facteur applique également le verrouillage temporaire par compte décrit ci-dessous.
 
 > Limite résiduelle, identique à SRP : si la clé publique d'authentification fuit, une attaque par dictionnaire hors ligne reste possible, au coût d'un Argon2id par essai. C'est ce coût qui protège un mot de passe faible.
 
@@ -74,7 +76,9 @@ Le propriétaire configure l'émetteur (`issuer`), l'identifiant client, les cl�
 - Le jeton est **refusé** si le fournisseur n'a pas vérifié l'e-mail (`email_verified`). Cela ferme une prise de contrôle de compte.
 - Le compte doit **déjà exister** et être membre actif de l'organisation. Le `sub` est lié à la première connexion, puis comparé.
 - Le téléchargement des clés (`jwksUri`) exige HTTPS, refuse les adresses privées et **ne suit aucune redirection**.
-- Route publique : `POST /auth/sso/verify` (20 appels par minute).
+- **Nonce lié à la requête** : le client demande d'abord `POST /auth/sso/nonce` (`{ orgId }`, 30 appels par minute) et reçoit un nonce aléatoire valable **5 minutes**, à usage unique, stocké **haché** côté serveur. Il le place dans le paramètre `nonce` de la requête d'autorisation OIDC, puis l'envoie avec le jeton d'identité à `POST /auth/sso/verify` (`{ orgId, idToken, nonce }`). Le jeton doit porter exactement ce `nonce` (comparaison en temps constant) et le nonce est consommé atomiquement, propre à l'organisation. **Fail-closed** : un fournisseur qui ne renvoie pas le claim `nonce` (ou le modifie) est refusé ; il faut alors un fournisseur conforme OIDC Core, qui renvoie le nonce de la requête.
+- Le jeton d'identité doit aussi avoir été émis il y a moins de 5 minutes et ne sert qu'**une seule fois** (rejeu refusé).
+- Routes publiques : `POST /auth/sso/nonce` et `POST /auth/sso/verify` (20 appels par minute).
 
 **Le SSO prouve l'identité, il ne déverrouille aucune clé.** Le navigateur dérive toujours sa clé maître d'une phrase de passe que le serveur ne voit pas.
 
@@ -114,6 +118,6 @@ Avec Redis, les compteurs sont **partagés** entre instances. Voir le chapitre s
 
 ### Limites connues de l'authentification
 
-- Le Drive ne propose **pas de bouton de connexion SSO** : le serveur vérifie le jeton d'identité, mais l'interface n'organise pas la redirection vers le fournisseur. La partie administration (configuration, jeton SCIM) existe.
+- Le bouton **Se connecter avec le SSO de l'organisation** n'apparaît que si le serveur publie une configuration SSO (route publique `GET /auth/sso/config`, mono-Drive uniquement). L'`redirect_uri` envoyé au fournisseur est l'origine de l'application : elle doit être déclarée telle quelle chez lui. Le fournisseur doit autoriser la lecture de son document de découverte depuis le navigateur (CORS) et la politique CSP `connect-src` doit l'admettre. Après le retour SSO (et la 2FA locale si le compte en a une), la session s'ouvre **verrouillée** : la phrase de passe ou la clé d'accès reste nécessaire.
 - Les sessions peuvent être consultées et révoquées dans l'onglet Sécurité.
 - Perdre mot de passe, appareils et recouvrement rend les fichiers définitivement illisibles.

@@ -24,7 +24,7 @@ Le workflow **Elium — Publication** démarre après une CI verte sur `master`.
 | Job | Rôle |
 |---|---|
 | `gate` | Vérifie que la CI est verte sur **ce** commit, lit la version, constate si elle existe déjà |
-| `build` | Construit sous Windows, **sans aucun secret** |
+| `build` | Construit sous Windows ; ne reçoit **aucune clé de signature des mises à jour** (seuls `SIGN_CERT` et `SIGN_CERT_PASSWORD`, facultatifs, pour l'étape Authenticode) |
 | `images` | Construit les images Docker, les pousse sur GHCR et les signe (cosign) |
 | `publish` | **Seul** job qui voit la clé de signature : signe, publie, atteste, vérifie |
 
@@ -76,7 +76,7 @@ La CI les installe avec `pip install --require-hashes`.
 ### Audits de dépendances
 
 - **Python** : `scripts/pip_audit_gate.py`. Les dépendances **livrées** (`runtime.txt`) **bloquent** à la moindre faille connue, sauf exception datée. Les outils de développement (`dev.txt`) sont audités à titre **informatif** (le job continue).
-- **npm (interface)** : `web-studio/scripts/audit-gate.mjs` bloque sur toute faille élevée ou critique des dépendances de production, sauf les exceptions **datées et justifiées** de la liste. Aujourd'hui une seule : `node-forge` (aucun correctif publié ; la fonction touchée n'est jamais appelée), à réexaminer avant le 31 décembre 2026. Passé le délai, l'exception échoue d'elle-même.
+- **npm (interface)** : `web-studio/scripts/audit-gate.mjs` bloque sur toute faille élevée ou critique des dépendances de production, sauf les exceptions **datées et justifiées** de la liste. Aujourd'hui la liste est **vide** : `node-forge` 1.4.2, version corrigée, est publiée et installée. Toute future exception doit porter une date de réexamen ; passé le délai, elle échoue d'elle-même.
 - **npm (serveur)** : `npm audit --omit=dev --audit-level=high`, sans exception.
 
 **Dependabot** propose chaque semaine des mises à jour pour npm (interface et serveur), pip, les actions GitHub et les images Docker. Les montées de version **majeures** sont ignorées (elles cassent le build, on les fait à la main), avec trois demandes ouvertes au plus par dossier. Les demandes sont relues, jamais fusionnées seules.
@@ -100,5 +100,5 @@ La première chaîne complète n'a pas réussi du premier coup. Les causes, tout
 
 - Pas de signature de code Windows : SmartScreen peut avertir à la première exécution.
 - Le retour arrière d'une release publiée est manuel.
-- `pyproject.toml` garde une version figée (`4.0.0`), sans effet : la version réelle est celle de `src/elium/__init__.py`.
+- `pyproject.toml` porte aussi la version (`4.32.0` aujourd'hui) : elle doit rester alignée sur `src/elium/__init__.py`, qui fait foi ; `installer/stamp_version.py` met les deux à jour.
 - La chaîne serveur (images signées jusqu'au VPS) n'a pas été exercée sur un vrai serveur, voir le chapitre sur l'exploitation.

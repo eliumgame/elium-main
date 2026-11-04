@@ -147,6 +147,8 @@ export class FileMirror {
   private extraDirty = new Set<string>();
   private chain: Promise<unknown> = Promise.resolve();
   private timer: ReturnType<typeof setTimeout> | undefined;
+  private owner: string | null = null;
+  private scoped = false;
 
   constructor(private deps: MirrorDeps) {}
 
@@ -184,6 +186,32 @@ export class FileMirror {
 
   /** Démarrage : restauration non destructive, copie de sécurité au 1er lancement, premier miroir. */
   async start(): Promise<{ restored: number }> {
+    if (!this.scoped) {
+      this.owner = this.deps.storage.get("elium_local_workspace_owner");
+      const backend = this.deps.backend;
+      // Keep the launcher's two-component path contract. Never automatically import
+      // unowned legacy files into an authenticated account: the local cache seeds its
+      // new mirror, while old files remain available for an explicit restore.
+      if (this.owner) {
+        const prefix = `compte-${(await sha256Hex(enc(this.owner))).slice(0, 32)}-`;
+        const path = (p: string) => {
+          if (this.deps.storage.get("elium_local_workspace_owner") !== this.owner)
+            throw new Error("Compte modifié : redémarrez le miroir local.");
+          const [dir, name] = p.split("/");
+          return `${dir}/${prefix}${name}`;
+        };
+        this.deps = { ...this.deps, backend: {
+          root: backend.root,
+          list: async () => (await backend.list()).filter((f) => f.p.split("/")[1]?.startsWith(prefix))
+            .map((f) => ({ ...f, p: f.p.replace(`/${prefix}`, "/") })),
+          read: (p) => backend.read(path(p)),
+          write: (p, b) => backend.write(path(p), b),
+          remove: (p, o) => backend.remove(path(p), o),
+        } };
+        this.appliedKey += `:${prefix}`;
+      }
+      this.scoped = true;
+    }
     this.status({ state: "syncing" });
     const { cat, blocked } = await this.readCatalogFile();
     // Fichiers scellés mais coffre retiré sur cette machine : si l'espace local a des données, il fait foi

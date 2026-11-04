@@ -8,7 +8,7 @@
  */
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach } from "vitest";
-import { Editor } from "@tiptap/react";
+import { Editor, type JSONContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { unzipSync, strFromU8 } from "fflate";
 import { ColumnSection, MAX_COLUMNS, MIN_COLUMNS, clampColumns } from "../src/editor/wordExtensions";
@@ -56,7 +56,7 @@ describe("Colonnes — commandes de l'éditeur", () => {
     editor = makeEditor("<p>alpha</p>");
     editor.commands.setTextSelection(2);
     expect(editor.commands.setColumns({ count: 3, gapMm: 12, separator: true })).toBe(true);
-    const json = editor.getJSON();
+    const json = (editor.getJSON() as JSONContent);
     const section = json.content!.find((n) => n.type === "columnSection");
     expect(section).toBeDefined();
     expect(section!.attrs).toMatchObject({ count: 3, gapMm: 12, separator: true });
@@ -68,7 +68,7 @@ describe("Colonnes — commandes de l'éditeur", () => {
     editor.commands.setTextSelection(2);
     editor.commands.setColumns({ count: 2 });
     editor.commands.updateColumns({ count: 4, separator: true });
-    const sections = (editor.getJSON().content ?? []).filter((n) => n.type === "columnSection");
+    const sections = ((editor.getJSON() as JSONContent).content ?? []).filter((n) => n.type === "columnSection");
     expect(sections).toHaveLength(1);
     expect(sections[0]!.attrs).toMatchObject({ count: 4, separator: true });
   });
@@ -78,7 +78,7 @@ describe("Colonnes — commandes de l'éditeur", () => {
     editor.commands.setTextSelection(2);
     editor.commands.setColumns({ count: 2 });
     expect(editor.commands.unsetColumns()).toBe(true);
-    const json = editor.getJSON();
+    const json = (editor.getJSON() as JSONContent);
     expect(json.content!.some((n) => n.type === "columnSection")).toBe(false);
     expect(json.content!.some((n) => n.content?.[0]?.text === "alpha")).toBe(true);
   });

@@ -9,9 +9,9 @@ export const enCommands: Record<keyof typeof frCommands, string> = {
   "backup.includes_2": "Included: preferences, shortcuts, language, theme and proofing settings.",
   "backup.excludes":
     "Excluded: version history, signing circuits and drafts (circuits travel inside the .elium files), and — unless requested — identity and keys.",
-  "backup.include_secrets": "Include the signing identity, the receiving key and the trust book",
+  "backup.include_secrets": "Include password-encrypted keys and the trust book",
   "backup.include_secrets_hint":
-    "These stay encrypted by their own password, but the backup becomes sensitive. Protect it with a password.",
+    "Password-protected keys stay encrypted, but the backup becomes sensitive: protect it with a password. Derived keys are not in this archive: restore them with the recovery phrase or the .eliumkey file.",
   "backup.password": "Backup password (optional)",
   "backup.password_hint":
     "Encrypts the whole archive (Argon2id + AES-256-GCM). Without it, anyone holding the file can read it.",
@@ -62,8 +62,9 @@ export const enCommands: Record<keyof typeof frCommands, string> = {
   "backup.conflict_replace": "Replace with the backup's version",
   "backup.conflict_skip": "Skip (keep the current version)",
   "backup.apply_settings": "Also restore preferences and settings",
-  "backup.apply_secrets": "Also restore the identity and keys",
-  "backup.apply_secrets_warn": "This replaces this computer's signing identity, receiving key and trust book.",
+  "backup.apply_secrets": "Also restore the trust book and encrypted keys",
+  "backup.apply_secrets_warn":
+    "Replaces this computer's password-protected identity and receiving key (if the backup holds them) and merges the trust book. Derived keys are not affected: use the recovery phrase or the .eliumkey file.",
   "backup.restore_apply": "Restore",
   "backup.restore_done": "Restore complete",
   "backup.restore_done_errors": "Restore complete with errors",

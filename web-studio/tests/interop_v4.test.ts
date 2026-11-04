@@ -22,7 +22,7 @@ const hasPython = Boolean(PYTHON_EXEC);
 describe.skipIf(!hasPython)("v4 cross-language interop (Python <-> Web)", () => {
   it("Web reads a standard .elium written by Python", async () => {
     const text = "Bonjour depuis Python — document v4.";
-    const blob = execFileSync(PYTHON_EXEC, [HELPER, "doc-encode", "standard", "-"], { input: text });
+    const blob = execFileSync(PYTHON_EXEC!, [HELPER, "doc-encode", "standard", "-"], { input: text });
 
     const { file, integrity } = await readEliumPackage(new Uint8Array(blob));
     expect(file.manifest.profile).toBe("standard");
@@ -42,7 +42,7 @@ describe.skipIf(!hasPython)("v4 cross-language interop (Python <-> Web)", () => 
     });
     const blob = await writeEliumPackage(file);
 
-    const out = execFileSync(PYTHON_EXEC, [HELPER, "doc-decode", "-"], {
+    const out = execFileSync(PYTHON_EXEC!, [HELPER, "doc-decode", "-"], {
       input: Buffer.from(blob),
       encoding: "utf-8",
     });
@@ -53,7 +53,7 @@ describe.skipIf(!hasPython)("v4 cross-language interop (Python <-> Web)", () => 
 
   it("Web reads an encrypted .elium written by Python", async () => {
     const text = "Contenu chiffré interop";
-    const blob = execFileSync(PYTHON_EXEC, [HELPER, "doc-encode", "encrypted", "s3cret-pass"], { input: text });
+    const blob = execFileSync(PYTHON_EXEC!, [HELPER, "doc-encode", "encrypted", "s3cret-pass"], { input: text });
 
     const { file } = await readEliumPackage(new Uint8Array(blob), { password: "s3cret-pass" });
     expect(file.manifest.protection.encrypted).toBe(true);

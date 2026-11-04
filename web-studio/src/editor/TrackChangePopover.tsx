@@ -26,6 +26,9 @@ export default function TrackChangePopover({
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  // La demande peut venir d'un document non fiable : décodage défensif (jamais d'objet rendu tel quel).
+  const author = typeof request.author === "string" ? request.author : "";
+  const kindLabel = KIND_LABEL[request.kind] ?? "Modification suivie";
 
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
@@ -60,8 +63,8 @@ export default function TrackChangePopover({
   return (
     <div className="trackpop" ref={ref} style={style} role="menu">
       <div className="trackpop__head">
-        <span className="trackpop__kind">{KIND_LABEL[request.kind]}</span>
-        {request.author && <span className="trackpop__author">{request.author}</span>}
+        <span className="trackpop__kind">{kindLabel}</span>
+        {author && <span className="trackpop__author">{author}</span>}
       </div>
       <div className="trackpop__actions">
         <button

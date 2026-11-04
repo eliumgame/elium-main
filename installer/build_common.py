@@ -70,7 +70,8 @@ def build_runtime_id() -> str:
         pyinstaller = importlib.metadata.version("pyinstaller")
     except importlib.metadata.PackageNotFoundError:
         return ""  # gate sans dépendances : le job build recalcule après installation
-    return f"CPython {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}; PyInstaller {pyinstaller}"
+    runtime = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    return f"CPython {runtime}; PyInstaller {pyinstaller}"
 
 
 def compute_code_hash(root: Path | None = None, runtime_id: str = "") -> str:

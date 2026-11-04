@@ -111,6 +111,13 @@ describe("C2PA : manifestes altérés", () => {
     expect(r.assertionsValid).toBe(false);
   });
 
+  it("une liaison c2pa.hash.data__9 non référencée par le claim (exclusion = tout le fichier) n'est jamais valide", async () => {
+    const fx = await buildC2paFixture({ unreferencedFullExclusion: true });
+    const r = await verifyC2pa(fx.bytes, { anchors: [] });
+    expect(r.status).not.toMatch(/^valid_/);
+    expect(r.bindingValid).not.toBe(true);
+  });
+
   it("renvoie « absent » sans manifeste et « non vérifié » sur un JUMBF illisible", async () => {
     expect((await verifyC2pa(new Uint8Array([0xff, 0xd8, 0xff, 0xd9]))).status).toBe("absent");
     const fx = await buildC2paFixture();

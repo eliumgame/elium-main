@@ -6,9 +6,9 @@ export const frCommands = {
   "backup.includes_2": "Inclus : préférences, raccourcis, langue, thème et réglages du correcteur.",
   "backup.excludes":
     "Exclus : historique de versions, circuits Parapheur et brouillons (les circuits voyagent dans les .elium), et — sauf demande — identité et clés.",
-  "backup.include_secrets": "Inclure l'identité de signature, la clé de réception et le carnet de confiance",
+  "backup.include_secrets": "Inclure les clés chiffrées par mot de passe et le carnet de confiance",
   "backup.include_secrets_hint":
-    "Ces éléments restent chiffrés par leur propre mot de passe, mais la sauvegarde devient sensible. Protégez-la par un mot de passe.",
+    "Les clés protégées par mot de passe restent chiffrées, mais la sauvegarde devient sensible : protégez-la par un mot de passe. Les clés dérivées ne sont pas dans cette archive : elles se restaurent par la phrase de récupération ou le fichier .eliumkey.",
   "backup.password": "Mot de passe de la sauvegarde (facultatif)",
   "backup.password_hint":
     "Chiffre l'archive entière (Argon2id + AES-256-GCM). Sans lui, le fichier est lisible par quiconque le détient.",
@@ -60,9 +60,9 @@ export const frCommands = {
   "backup.conflict_replace": "Remplacer par la version de la sauvegarde",
   "backup.conflict_skip": "Ignorer (garder la version actuelle)",
   "backup.apply_settings": "Restaurer aussi les préférences et réglages",
-  "backup.apply_secrets": "Restaurer aussi l'identité et les clés",
+  "backup.apply_secrets": "Restaurer aussi le carnet de confiance et les clés chiffrées",
   "backup.apply_secrets_warn":
-    "Cela remplace l'identité de signature, la clé de réception et le carnet de confiance de cet ordinateur.",
+    "Remplace l'identité et la clé de réception protégées par mot de passe de cet ordinateur (si la sauvegarde en contient) et fusionne le carnet de confiance. Les clés dérivées ne sont pas concernées : utilisez la phrase de récupération ou le fichier .eliumkey.",
   "backup.restore_apply": "Restaurer",
   "backup.restore_done": "Restauration terminée",
   "backup.restore_done_errors": "Restauration terminée avec des erreurs",

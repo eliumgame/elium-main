@@ -70,11 +70,11 @@ import { invalidateSiteSettings } from "../src/lib/site-settings.js";
 const mQuery = vi.mocked(query);
 const mQueryOne = vi.mocked(queryOne);
 
-async function makeApp(register: (app: FastifyInstance) => Promise<unknown>): Promise<FastifyInstance> {
+async function makeApp(register: (app: FastifyInstance) => PromiseLike<unknown>): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof ApiError) {
-      return reply.status(err.statusCode).send({ error: { code: err.code, message: err.message } });
+      return reply.status(err.statusCode).send({ error: { code: err.code, message: err instanceof Error ? err.message : String(err) } });
     }
     if (err instanceof ZodError) return reply.status(400).send({ error: { code: "bad_request" } });
     return reply.status(500).send({ error: { code: "internal", message: String(err) } });

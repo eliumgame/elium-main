@@ -8,7 +8,7 @@ import pytest
 
 
 def _fresh_python(code, *args):
-    result = subprocess.run(
+    result = subprocess.run(  # noqa: S603 - interpréteur courant, code de test fixe
         [sys.executable, "-c", textwrap.dedent(code), *args],
         capture_output=True,
         text=True,

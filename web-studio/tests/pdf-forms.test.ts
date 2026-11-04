@@ -9,8 +9,9 @@ import {
   readFields,
   suggestFields,
   type RawWidget,
+  type FieldBox,
 } from "../src/pdf/ops/forms";
-import type { CreatedField, FieldBox } from "../src/pdf/model/types";
+import type { CreatedField } from "../src/pdf/model/types";
 
 // ---------------------------------------------------------------------------
 // readFields — mapping pdf.js widget annotations to the app's own model

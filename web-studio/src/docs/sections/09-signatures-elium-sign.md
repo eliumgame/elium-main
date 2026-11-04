@@ -120,6 +120,21 @@ confiance de votre liste**. Il n'utilise pas de magasin de certificats du systè
 compare aussi la révision signée au fichier final pour dire ce qui a changé depuis, au
 regard du niveau de certification.
 
+Les rôles des objets modifiables viennent de la version signée. Un ajout au DSS
+ou aux métadonnées ne peut pas masquer une modification du contenu signé. Le
+contrôle vérifie également les références xref et le trou réservé au CMS : une
+redirection vers un ancien objet caché ou des octets non signés parasites invalide
+le verdict. Une révision postérieure reste signalée même si les contrôles ne
+détectent aucun changement de contenu ; **Afficher la version signée** permet de
+consulter ce que le signataire a effectivement signé.
+
+Ce contrôle reste conservateur : une mise à jour dont les références xref ne sont
+pas analysables, les nouveaux objets comprimés, la libération d'objets ou certains
+flux à longueur indirecte entraînent un refus de validation. Ce refus ne prouve pas
+à lui seul une falsification. Les contraintes `basicConstraints`, `keyUsage` et de
+profondeur sont imposées aux autorités de la chaîne ; approuver une feuille
+n'autorise que ce certificat lui-même. La révocation n'est pas vérifiée hors ligne.
+
 Un certificat **auto-signé** n'a pas d'autorité de certification : les autres lecteurs
 affichent « identité non vérifiée » tant que le destinataire n'a pas ajouté votre
 certificat exporté à ses identités de confiance. Pour une coche « approuvée », utilisez

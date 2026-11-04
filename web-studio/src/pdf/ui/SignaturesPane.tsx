@@ -53,7 +53,10 @@ export function signaturesSummary(list: PadesVerification[]): { verdict: Verdict
   if (verdicts.includes("invalid"))
     return { verdict: "invalid", text: `${by}Au moins une signature est invalide ou le document a été modifié.` };
   if (verdicts.every((x) => x === "valid"))
-    return { verdict: "valid", text: `${by}Signé et toutes les signatures sont valides.` };
+    return {
+      verdict: "valid",
+      text: `${by}Signé et toutes les signatures sont valides.${list.some((v) => !v.coversWholeDocument) ? " Le fichier contient des révisions postérieures : consultez les modifications et la version signée." : ""}`,
+    };
   return {
     verdict: "unknown",
     text: `${by}Au moins une signature présente un problème : identité du signataire non vérifiée ou certificat hors validité.`,
@@ -65,6 +68,14 @@ const ICON: Record<Verdict, React.ReactNode> = {
   unknown: <HelpCircle size={16} className="pdfx-sig__warn" />,
   invalid: <XCircle size={16} className="pdfx-sig__bad" />,
 };
+
+export function signatureRevisionMessage(v: PadesVerification): string {
+  if (v.modifications === "disallowed") return "Des modifications NON autorisées ont été apportées depuis :";
+  if (v.modifications === "allowed") return "Des modifications autorisées ont été apportées depuis :";
+  return v.coversWholeDocument
+    ? "Aucune modification depuis la signature."
+    : "Le fichier contient une révision postérieure. Aucun changement de contenu détecté par les contrôles pris en charge ; consultez la version signée.";
+}
 
 function when(iso?: string): string {
   if (!iso) return "date inconnue";
@@ -86,13 +97,12 @@ function Details({ v, p }: { v: PadesVerification; p: SignaturesPaneProps }) {
           ? "La signature est intacte : le document n'a pas été modifié depuis dans la version signée."
           : "La signature n'est pas intacte : le contenu signé a été modifié ou la signature est corrompue."}
       </p>
-      <p>
-        {v.modifications === "none"
-          ? "Aucune modification depuis la signature."
-          : v.modifications === "allowed"
-            ? "Des modifications autorisées ont été apportées depuis :"
-            : "Des modifications NON autorisées ont été apportées depuis :"}
-      </p>
+      <p>{signatureRevisionMessage(v)}</p>
+      {!v.coversWholeDocument && (
+        <button className="eb eb--outline eb--sm" onClick={() => p.onSignedVersion(v)}>
+          Afficher la version signée
+        </button>
+      )}
       {v.changes.length > 0 && (
         <ul>
           {v.changes.map((c, i) => (
@@ -162,11 +172,6 @@ function Details({ v, p }: { v: PadesVerification; p: SignaturesPaneProps }) {
         <button className="eb eb--outline eb--sm" onClick={() => p.onGoToField(v.fieldName)}>
           Afficher le champ
         </button>
-        {!v.coversWholeDocument && (
-          <button className="eb eb--outline eb--sm" onClick={() => p.onSignedVersion(v)}>
-            Afficher la version signée
-          </button>
-        )}
         {v.trust !== "trusted" && v.certificate && (
           <button className="eb eb--outline eb--sm" onClick={() => p.onTrust(v)}>
             <ShieldCheck size={14} /> Approuver ce certificat

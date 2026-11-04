@@ -72,7 +72,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(cors, {
     origin: config.corsOrigins.length ? config.corsOrigins : true,
     credentials: true,
-    exposedHeaders: ["x-content-nonce"],
+    exposedHeaders: ["x-content-nonce", "x-content-version-id", "x-key-epoch"],
   });
   // Toute réponse d'API peut porter des données de compte (profil, organisation,
   // ACL…) : jamais mise en cache par le navigateur ni un intermédiaire partagé, y
@@ -139,6 +139,10 @@ export async function buildApp(): Promise<FastifyInstance> {
     }
     if ((err as { statusCode?: number }).statusCode === 400) {
       return reply.status(400).send({ error: { code: "bad_request", message: "Requête invalide." } });
+    }
+    const status = (err as { statusCode?: number }).statusCode;
+    if (Number.isInteger(status) && status! >= 400 && status! < 500) {
+      return reply.status(status!).send({ error: { code: "bad_request", message: "Requête refusée." } });
     }
     req.log.error({ err }, "unhandled error");
     return reply.status(500).send({ error: { code: "internal", message: "Erreur interne du serveur." } });

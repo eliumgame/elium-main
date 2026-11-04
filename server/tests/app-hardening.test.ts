@@ -39,6 +39,13 @@ describe("cap JSON (maxJsonBytes) sur la vraie app", () => {
     });
     expect(resBad.statusCode).toBe(400);
 
+    const unsupported = await app.inject({
+      method: "POST", url: "/api/auth/prelogin",
+      headers: { "content-type": "application/xml" }, payload: "<request />",
+    });
+    expect(unsupported.statusCode).toBe(415);
+    expect(unsupported.json().error.code).toBe("bad_request");
+
     // Sanity: a normal-size, well-formed body still goes through the parser.
     const resOk = await app.inject({
       method: "POST",

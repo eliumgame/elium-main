@@ -11,7 +11,7 @@ export function serializeRequestForLog(req: {
 }) {
   return {
     method: req.method,
-    url: (req.url ?? "").split("?")[0],
+    url: (req.url ?? "").split("?")[0]!.replace(/(\/api\/links\/)[^/]+/g, "$1[redacted]"),
     host: req.host,
     remoteAddress: req.ip,
     remotePort: req.socket?.remotePort,

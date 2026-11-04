@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import { serializeRequestForLog } from "../src/lib/log-serializers.js";
 
 describe("serializeRequestForLog", () => {
+  it.each(["", "/content", "/sign", "/decline"])("redacts public link bearer tokens %s", suffix => {
+    const out = serializeRequestForLog({ url: `/api/links/SECRET${suffix}?password=HIDDEN` });
+    expect(out.url).toBe(`/api/links/[redacted]${suffix}`);
+    expect(JSON.stringify(out)).not.toMatch(/SECRET|HIDDEN/);
+  });
   it("retire la query string (jeton du WebSocket collab) de l'URL journalisée", () => {
     const out = serializeRequestForLog({
       method: "GET",

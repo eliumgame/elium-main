@@ -355,8 +355,9 @@ function cellOf(input: string): { raw: string; style?: CellStyle } {
     }
     return { raw };
   }
-  // Text starting with « = » stays text: `exportXlsx` writes every cell literally (no formula).
-  return { raw: text };
+  // Quote text in the sheet model, including any existing apostrophe. The
+  // exporter removes this one marker and preserves the original text exactly.
+  return { raw: `'${text}` };
 }
 
 function sheetOf(name: string, rows: readonly (readonly string[])[], header: boolean): SheetData {
@@ -433,8 +434,8 @@ export function exportXlsx(layout: readonly PageText[]): Uint8Array {
     sheets.push(sheetOf("Texte", rows, false));
   }
   const wb: Workbook = { sheets, active: 0 };
-  // Data out of a PDF, never formulas: « =HYPERLINK(…) » printed in a table stays that text.
-  return workbookToXlsx(wb, { literalText: true });
+  // cellOf quotes every non-numeric cell; parsed numbers retain numeric types.
+  return workbookToXlsx(wb);
 }
 
 // ---------------------------------------------------------------------------

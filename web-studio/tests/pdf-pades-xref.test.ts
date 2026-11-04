@@ -82,7 +82,7 @@ function redirect(signed: Uint8Array, offset: number, kind: "table" | "stream" |
 }
 
 async function visibleText(bytes: Uint8Array) {
-  const task = pdfjs.getDocument({ data: bytes.slice(), isEvalSupported: false });
+  const task = pdfjs.getDocument({ data: bytes.slice() });
   try {
     const doc = await task.promise;
     const text = await (await doc.getPage(1)).getTextContent();

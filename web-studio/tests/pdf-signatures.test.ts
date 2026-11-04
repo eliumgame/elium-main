@@ -210,6 +210,39 @@ describe("PAdES signing", () => {
     expect(v!.modifications).toBe("none");
   });
 
+  it("refuses removing AcroForm or changing its direct dictionary after certification", async () => {
+    const signed = await signPdfBytes(await makePdf(true), RSA, "pw", { certify: 1 });
+    const removed = await update(signed, (doc) => {
+      doc.catalog.delete(PDFName.of("AcroForm"));
+    });
+    const [missing] = await verifyPdfSignatures(removed);
+    expect(missing).toBeDefined();
+    expect(missing!.valid).toBe(false);
+    expect(missing!.modifications).toBe("disallowed");
+    const changed = await update(signed, (doc) => {
+      const acro = doc.catalog.lookup(PDFName.of("AcroForm"), PDFDict).clone(doc.context);
+      acro.set(PDFName.of("NeedAppearances"), doc.context.obj(true));
+      doc.catalog.set(PDFName.of("AcroForm"), acro);
+    });
+    expect((await verifyPdfSignatures(changed))[0]!.modifications).toBe("disallowed");
+  });
+
+  it.each([1, 2, 3] as const)("classifies direct annotations under DocMDP P=%s", async (certify) => {
+    const signed = await signPdfBytes(await makePdf(), RSA, "pw", { certify });
+    const changed = await update(signed, (doc) => {
+      const note = doc.context.obj({
+        Type: "Annot",
+        Subtype: "Text",
+        Rect: [0, 0, 10, 10],
+        Contents: PDFHexString.fromText("Note"),
+      });
+      doc.getPage(0).node.lookup(PDFName.of("Annots"), PDFArray).push(note);
+    });
+    const [v] = await verifyPdfSignatures(changed);
+    expect(v!.modifications).toBe(certify === 3 ? "allowed" : "disallowed");
+    expect(v!.valid).toBe(certify === 3);
+  });
+
   it("refuses a field rename and keeps FieldMDP locks on modified appearance streams", async () => {
     const source = await PDFDocument.load(await makePdf(true));
     const page = source.getPage(0);

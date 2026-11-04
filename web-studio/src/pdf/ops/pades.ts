@@ -1481,6 +1481,68 @@ export function diffRevisions(
       registerEditable(r, d, false);
     }
   }
+  // /AcroForm can be a direct dictionary in the catalog. Compare it and its
+  // field tree explicitly, not just through the indirect-object diff below.
+  const finalAcro = fin.catalog.lookup(PDFName.of("AcroForm"));
+  const acroKeys = new Set(["/Fields", "/SigFlags"]);
+  if (acro instanceof PDFDict) {
+    if (!(finalAcro instanceof PDFDict) || dictWithout(acro, acroKeys) !== dictWithout(finalAcro, acroKeys))
+      add("disallowed", "Structure du formulaire modifiée");
+  } else if (finalAcro instanceof PDFDict && dictWithout(finalAcro, acroKeys)) {
+    add("disallowed", "Structure du formulaire ajoutée");
+  }
+  const fieldTree = (doc: PDFDocument, root: PDFObject | undefined) => {
+    const out = new Map<string, PDFDict>();
+    const seen = new Set<PDFObject>();
+    const visit = (item: PDFObject, depth: number) => {
+      if (seen.has(item)) return;
+      seen.add(item);
+      if (depth > 32) {
+        add("disallowed", "Arbre de formulaire trop profond pour être vérifié");
+        return;
+      }
+      const value = doc.context.lookup(item);
+      if (!(value instanceof PDFDict)) {
+        add("disallowed", "Champ de formulaire illisible");
+        return;
+      }
+      out.set(item.toString(), value);
+      const kids = value.lookup(PDFName.of("Kids"));
+      if (kids instanceof PDFArray) for (let i = 0; i < kids.size(); i++) visit(kids.get(i), depth + 1);
+    };
+    const fields = root instanceof PDFDict ? root.lookup(PDFName.of("Fields")) : undefined;
+    if (fields instanceof PDFArray) for (let i = 0; i < fields.size(); i++) visit(fields.get(i), 0);
+    return out;
+  };
+  const oldFields = fieldTree(rev, acro);
+  const newFields = fieldTree(fin, finalAcro);
+  for (const key of oldFields.keys()) if (!newFields.has(key)) add("disallowed", "Champ supprimé ou remplacé");
+  for (const [key, field] of newFields)
+    if (!oldFields.has(key)) {
+      const signature = inheritedFT(field) === "Sig";
+      add(signature ? "signature" : "disallowed", signature ? "Champ de signature ajouté" : "Champ ajouté");
+    }
+  // Direct annotation dictionaries otherwise disappear into the allowed
+  // /Annots change of a page dictionary and would escape DocMDP P=1/P=2.
+  fin.getPages().forEach((page, i) => {
+    const before = rev.getPages()[i]?.node.lookup(PDFName.of("Annots"));
+    const oldItems = new Set(before instanceof PDFArray ? before.asArray().map(String) : []);
+    const after = page.node.lookup(PDFName.of("Annots"));
+    if (!(after instanceof PDFArray)) return;
+    for (let j = 0; j < after.size(); j++) {
+      if (oldItems.has(String(after.get(j)))) continue;
+      const item = after.lookup(j);
+      if (!(item instanceof PDFDict)) {
+        add("disallowed", "Annotation illisible");
+        continue;
+      }
+      const kind = kindOfAnnot(item);
+      add(
+        kind === "form" ? "disallowed" : kind,
+        kind === "signature" ? "Champ de signature ajouté" : kind === "form" ? "Champ ajouté" : "Commentaire ajouté",
+      );
+    }
+  });
   // Removed annotations and fields.
   rev.getPages().forEach((p, pi) => {
     const before = p.node.lookup(PDFName.of("Annots"));
@@ -1819,6 +1881,7 @@ export async function verifyPdfSignatures(
     const lock = ref.locks ? { ...ref.locks, p: fieldLock?.p } : fieldLock;
     if (lock) out.locks = lock.action === "All" ? ["*"] : lock.fields;
     try {
+      if (!sig) throw new Error("Le dictionnaire de signature ne peut pas être relié à la version signée.");
       if (sigTampered)
         throw new Error("Le dictionnaire de cette signature ne figure pas tel quel dans la version signée.");
       if (a !== 0 || b <= 0 || c <= b || c + d > bytes.length || bytes[b] !== 0x3c || bytes[c - 1] !== 0x3e)

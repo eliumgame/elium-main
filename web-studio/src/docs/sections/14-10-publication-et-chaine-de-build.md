@@ -100,5 +100,5 @@ La première chaîne complète n'a pas réussi du premier coup. Les causes, tout
 
 - Pas de signature de code Windows : SmartScreen peut avertir à la première exécution.
 - Le retour arrière d'une release publiée est manuel.
-- `pyproject.toml` porte aussi la version (`4.32.0` aujourd'hui) : elle doit rester alignée sur `src/elium/__init__.py`, qui fait foi ; `installer/stamp_version.py` met les deux à jour.
+- `pyproject.toml` porte aussi la version (`4.33.0` aujourd'hui) : elle doit rester alignée sur `src/elium/__init__.py`, qui fait foi ; `installer/stamp_version.py` met les deux à jour.
 - La chaîne serveur (images signées jusqu'au VPS) n'a pas été exercée sur un vrai serveur, voir le chapitre sur l'exploitation.

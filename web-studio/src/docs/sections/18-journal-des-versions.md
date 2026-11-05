@@ -1,6 +1,15 @@
 ## Journal des versions
 
-> Dernière version publiée : **4.32.0**, étiquetée le 31 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
+> Dernière version publiée : **4.33.0**, étiquetée le 5 novembre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
+
+### Version 4.33.0 — Clôture de l'audit de sécurité et mise à jour sûre du serveur
+
+- **Signatures de PDF** : la vérification détecte maintenant les modifications faites après la signature (remplacement du document, objets signés modifiés, révisions cachées, trou dans la signature), y compris sur un document certifié.
+- **Connexion et sessions** : verrou du second facteur par compte, ré-authentification pour le changement de mot de passe, la suppression du compte et l'enrôlement TOTP, nonce à usage unique pour le SSO et bouton « Se connecter avec le SSO de l'organisation », recherche d'utilisateurs limitée aux organisations communes.
+- **Drive** : rotations et révocations de clés qui ne perdent plus les parts d'équipe ni les modifications des co-auteurs, rotation de la clé d'équipe au retrait d'un membre, avis de premier usage sur les clés publiques, contrôle du contenu rendu par un signataire, refus d'une mise à jour collaborative trop volumineuse signalé à l'utilisateur, sauvegarde « Sauvegarde Elium » protégée contre le détournement.
+- **Présentations** : éditeur de graphiques multi-séries (tableau étiquettes × séries) et barres empilées, import et export PowerPoint complets pour ces graphiques ; l'autosauvegarde n'écrase plus une présentation existante.
+- **Tableur** : l'import CSV garde les nombres comme nombres et neutralise les formules ; dates et fonctions d'arrondi corrigées.
+- **Serveur et mise à jour** : restauration atomique (une base neuve est validée avant la bascule), sauvegarde vérifiée avec copie du fichier `.env`, retour arrière plus sûr, période de compatibilité avec les anciens clients (`LEGACY_CLIENT_COMPAT`, à désactiver à la version suivante).
 
 ### Version 4.32.0 — Sécurité (suite) et nouveaux modèles de documents
 

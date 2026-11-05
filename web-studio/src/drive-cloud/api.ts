@@ -22,7 +22,10 @@ import type {
 import type { RegistrationPayload, PasswordChange } from "./account";
 import type { WrappedKey } from "./node-crypto";
 
-export interface ContentSnapshot { baseVersionId: string | null; keyEpoch: number }
+export interface ContentSnapshot {
+  baseVersionId: string | null;
+  keyEpoch: number;
+}
 export interface GroupRotationInput {
   expectedGroupPublicHex: string;
   groupPublicHex: string;
@@ -263,7 +266,8 @@ export class DriveApi {
     // précondition) : message clair, non trompeur. La saisie locale reste dans l'onglet.
     if (code === "client_outdated" || res.status === 428) {
       code = "client_outdated";
-      message = "Mise à jour requise : rechargez la page — vos modifications locales ne sont pas perdues tant que cet onglet reste ouvert.";
+      message =
+        "Mise à jour requise : rechargez la page — vos modifications locales ne sont pas perdues tant que cet onglet reste ouvert.";
     }
     throw new ApiError(res.status, code, message, details);
   }
@@ -294,13 +298,18 @@ export class DriveApi {
           });
           if (!res.ok) {
             // A temporary outage/rate limit must not erase a usable session.
-            if (res.status === 401 && this.tokens?.refreshToken === rt &&
-              (!this.readTokens || this.readTokens()?.refreshToken === rt)) this.setTokens(null);
+            if (
+              res.status === 401 &&
+              this.tokens?.refreshToken === rt &&
+              (!this.readTokens || this.readTokens()?.refreshToken === rt)
+            )
+              this.setTokens(null);
             return false;
           }
           const t = (await res.json()) as Tokens;
           // Ignore an in-flight response after logout or a different login.
-          if (this.tokens?.refreshToken !== rt || (this.readTokens && this.readTokens()?.refreshToken !== rt)) return false;
+          if (this.tokens?.refreshToken !== rt || (this.readTokens && this.readTokens()?.refreshToken !== rt))
+            return false;
           this.setTokens(t);
           return true;
         } catch {
@@ -311,11 +320,13 @@ export class DriveApi {
       // Without this browser capability, shared sessions fail closed instead of
       // risking refresh-token replay and revoking another tab's session.
       const run = this.readTokens
-        ? (typeof navigator !== "undefined" && navigator.locks
+        ? typeof navigator !== "undefined" && navigator.locks
           ? navigator.locks.request(`elium-drive-refresh:${this.baseUrl}`, refresh)
-          : Promise.resolve(false))
+          : Promise.resolve(false)
         : refresh();
-      this.refreshing = (async () => await run)().finally(() => { this.refreshing = null; });
+      this.refreshing = (async () => await run)().finally(() => {
+        this.refreshing = null;
+      });
     }
     return this.refreshing;
   }
@@ -799,13 +810,24 @@ export class DriveApi {
     return this.json<{ ok: boolean }>("POST", `/orgs/${orgId}/groups/${groupId}/members`, { body });
   }
   getGroupRotationNodes(orgId: string, groupId: string) {
-    return this.json<{ groupPublicHex: string; nodes: GroupRotationInput["nodeKeys"] }>("GET", `/orgs/${orgId}/groups/${groupId}/rotation-nodes`);
+    return this.json<{ groupPublicHex: string; nodes: GroupRotationInput["nodeKeys"] }>(
+      "GET",
+      `/orgs/${orgId}/groups/${groupId}/rotation-nodes`,
+    );
   }
   rotateGroup(orgId: string, groupId: string, body: GroupRotationInput) {
-    return this.json<{ ok: boolean; rotationRequiredNodeIds: string[] }>("POST", `/orgs/${orgId}/groups/${groupId}/rotate`, { body });
+    return this.json<{ ok: boolean; rotationRequiredNodeIds: string[] }>(
+      "POST",
+      `/orgs/${orgId}/groups/${groupId}/rotate`,
+      { body },
+    );
   }
   removeGroupMember(orgId: string, groupId: string, userId: string, body: GroupRotationInput) {
-    return this.json<{ ok: boolean; rotationRequiredNodeIds: string[] }>("DELETE", `/orgs/${orgId}/groups/${groupId}/members/${userId}`, { body });
+    return this.json<{ ok: boolean; rotationRequiredNodeIds: string[] }>(
+      "DELETE",
+      `/orgs/${orgId}/groups/${groupId}/members/${userId}`,
+      { body },
+    );
   }
   deleteGroup(orgId: string, groupId: string) {
     return this.json<{ ok: boolean; rotationRequiredNodeIds: string[] }>("DELETE", `/orgs/${orgId}/groups/${groupId}`);
@@ -882,7 +904,9 @@ export class DriveApi {
     return (await res.json()) as { node: NodeMeta };
   }
 
-  async getContent(id: string): Promise<{ bytes: Uint8Array; nonceHex: string; baseVersionId: string | null; keyEpoch: number }> {
+  async getContent(
+    id: string,
+  ): Promise<{ bytes: Uint8Array; nonceHex: string; baseVersionId: string | null; keyEpoch: number }> {
     const doFetch = () => fetch(this.url(`/nodes/${id}/content`), { headers: this.authHeaders() });
     let res = await doFetch();
     if (res.status === 401 && (await this.tryRefresh())) res = await doFetch();
@@ -977,10 +1001,16 @@ export class DriveApi {
       { auth: false },
     );
   }
-  async getLinkContent(token: string): Promise<{ bytes: Uint8Array; nonceHex: string; baseVersionId: string | null; keyEpoch: number }> {
+  async getLinkContent(
+    token: string,
+  ): Promise<{ bytes: Uint8Array; nonceHex: string; baseVersionId: string | null; keyEpoch: number }> {
     const res = await fetch(this.url(`/links/${token}/content`));
     if (!res.ok) return this.parseError(res);
-    return { bytes: new Uint8Array(await res.arrayBuffer()), nonceHex: res.headers.get("x-content-nonce") ?? "", ...contentSnapshot(res) };
+    return {
+      bytes: new Uint8Array(await res.arrayBuffer()),
+      nonceHex: res.headers.get("x-content-nonce") ?? "",
+      ...contentSnapshot(res),
+    };
   }
 
   // === Signature à distance (Approche A) ===================================

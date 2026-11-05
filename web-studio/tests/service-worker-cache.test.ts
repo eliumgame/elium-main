@@ -10,15 +10,27 @@ function worker(response: Response | Error) {
     return response;
   });
   runInNewContext(readFileSync(new URL("../public/sw.js", import.meta.url), "utf8"), {
-    self: { location: { origin: "https://app.test" }, addEventListener: (n: string, f: (e: unknown) => void) => handlers.set(n, f) },
-    caches: { open: async () => cache }, URL, Response, fetch,
+    self: {
+      location: { origin: "https://app.test" },
+      addEventListener: (n: string, f: (e: unknown) => void) => handlers.set(n, f),
+    },
+    caches: { open: async () => cache },
+    URL,
+    Response,
+    fetch,
   });
   return {
-    cache, fetch,
+    cache,
+    fetch,
     async request(path: string, mode = "navigate") {
       let pending: Promise<Response> | undefined;
-      handlers.get("fetch")!({ request: { url: `https://app.test${path}`, method: "GET", mode },
-        respondWith: (p: Promise<Response>) => { pending = p; }, waitUntil: vi.fn() });
+      handlers.get("fetch")!({
+        request: { url: `https://app.test${path}`, method: "GET", mode },
+        respondWith: (p: Promise<Response>) => {
+          pending = p;
+        },
+        waitUntil: vi.fn(),
+      });
       return pending;
     },
   };
@@ -30,11 +42,14 @@ describe("service worker — intégrité du shell hors ligne", () => {
     await w.request("/");
     expect(w.cache.put).not.toHaveBeenCalled();
   });
-  it.each(["/robots.txt", "/sitemap.xml", "/assets/a.js", "/api", "/api/health"])("ne traite pas %s comme shell", async (path) => {
-    const w = worker(new Response("file"));
-    await w.request(path);
-    expect(w.fetch).not.toHaveBeenCalled();
-  });
+  it.each(["/robots.txt", "/sitemap.xml", "/assets/a.js", "/api", "/api/health"])(
+    "ne traite pas %s comme shell",
+    async (path) => {
+      const w = worker(new Response("file"));
+      await w.request(path);
+      expect(w.fetch).not.toHaveBeenCalled();
+    },
+  );
   it("ne met pas de HTML à la place d'un asset, même pendant le préchargement", async () => {
     const w = worker(new Response("<html>fallback</html>", { headers: { "content-type": "text/html" } }));
     await w.request("/assets/missing.js", "cors");

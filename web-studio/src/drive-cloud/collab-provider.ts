@@ -23,7 +23,9 @@ export function updateRejectedMessage(info: { code: string; maxBytes?: number })
     return "Le quota de stockage est atteint : cette modification n’a pas été envoyée.";
   }
   const limit =
-    typeof info.maxBytes === "number" && info.maxBytes > 0 ? ` (limite : ${Math.max(1, Math.round(info.maxBytes / 1024))} Ko)` : "";
+    typeof info.maxBytes === "number" && info.maxBytes > 0
+      ? ` (limite : ${Math.max(1, Math.round(info.maxBytes / 1024))} Ko)`
+      : "";
   return `Cette modification est trop volumineuse pour être synchronisée${limit} et n’a pas été envoyée.`;
 }
 
@@ -78,12 +80,19 @@ export class EncryptedYjsProvider {
         if (typeof p?.u === "string" && p.u.length <= 64 * 1024 && /^[0-9a-f]+$/i.test(p.u) && from && peerId) {
           let name = this.names.get(from);
           if (!name) {
-            name = api.getUser(from).then(({ user }) => typeof user.displayName === "string" ? user.displayName : "Participant");
+            name = api
+              .getUser(from)
+              .then(({ user }) => (typeof user.displayName === "string" ? user.displayName : "Participant"));
             this.names.set(from, name);
           }
           const bound = this.boundAwareness;
-          void name.then((n) => { if (!this.destroyed && bound === this.boundAwareness) bound.apply(fromHex(p.u!), from, peerId, n); })
-            .catch(() => { this.names.delete(from); });
+          void name
+            .then((n) => {
+              if (!this.destroyed && bound === this.boundAwareness) bound.apply(fromHex(p.u!), from, peerId, n);
+            })
+            .catch(() => {
+              this.names.delete(from);
+            });
         }
       },
       // On (re)connection, re-broadcast our presence: the initial

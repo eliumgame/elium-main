@@ -7,7 +7,13 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { moveWithKeyShares } from "../src/drive-cloud/move";
 import type { OpsCtx, DriveEntry } from "../src/drive-cloud/ops";
-import { encryptName, generateNodeKey, unwrapNodeKey, wrapNodeKeyFor, type WrappedKey } from "../src/drive-cloud/node-crypto";
+import {
+  encryptName,
+  generateNodeKey,
+  unwrapNodeKey,
+  wrapNodeKeyFor,
+  type WrappedKey,
+} from "../src/drive-cloud/node-crypto";
 import { generateRecipientKeypair } from "../src/crypto/recipients";
 import { setKeyPinStorage } from "../src/drive-cloud/key-pins";
 
@@ -28,31 +34,79 @@ describe("moveWithKeyShares", () => {
     const me = await generateRecipientKeypair();
     const team = await generateRecipientKeypair();
     const other = await generateRecipientKeypair();
-    const parents: Record<string, string | null> = { projet: null, brouillons: "projet", final: "projet", f: "brouillons", c: "f" };
-    const kinds: Record<string, "folder" | "file"> = { projet: "folder", brouillons: "folder", final: "folder", f: "folder", c: "file" };
-    const keys: Record<string, Uint8Array> = Object.fromEntries(Object.keys(parents).map((k) => [k, generateNodeKey()]));
+    const parents: Record<string, string | null> = {
+      projet: null,
+      brouillons: "projet",
+      final: "projet",
+      f: "brouillons",
+      c: "f",
+    };
+    const kinds: Record<string, "folder" | "file"> = {
+      projet: "folder",
+      brouillons: "folder",
+      final: "folder",
+      f: "folder",
+      c: "file",
+    };
+    const keys: Record<string, Uint8Array> = Object.fromEntries(
+      Object.keys(parents).map((k) => [k, generateNodeKey()]),
+    );
     let rows: Row[] = [];
     let n = 0;
-    const add = async (nodeId: string, principalType: Row["principalType"], principalId: string, pub: string, inheritedFrom: string | null) =>
-      rows.push({ id: `r${n++}`, nodeId, principalType, principalId, roleId: "r", inheritedFrom, wrappedKey: await wrapNodeKeyFor(keys[nodeId]!, pub) });
+    const add = async (
+      nodeId: string,
+      principalType: Row["principalType"],
+      principalId: string,
+      pub: string,
+      inheritedFrom: string | null,
+    ) =>
+      rows.push({
+        id: `r${n++}`,
+        nodeId,
+        principalType,
+        principalId,
+        roleId: "r",
+        inheritedFrom,
+        wrappedKey: await wrapNodeKeyFor(keys[nodeId]!, pub),
+      });
     for (const id of Object.keys(parents)) {
       // Moi : part héritée seulement (je ne suis pas propriétaire) sauf sur projet.
       await add(id, "user", "me", me.publicHex, id === "projet" ? null : "projet");
       await add(id, "group", "team", team.publicHex, id === "projet" ? null : "projet");
     }
     // « brouillons » est AUSSI partagé (profondément) avec « other » : il ne doit pas suivre le déplacement.
-    for (const id of ["brouillons", "f", "c"]) await add(id, "user", "other", other.publicHex, id === "brouillons" ? null : "brouillons");
+    for (const id of ["brouillons", "f", "c"])
+      await add(id, "user", "other", other.publicHex, id === "brouillons" ? null : "brouillons");
 
-    const subtree = (root: string): string[] => [root, ...Object.keys(parents).filter((k) => parents[k] === root).flatMap(subtree)];
+    const subtree = (root: string): string[] => [
+      root,
+      ...Object.keys(parents)
+        .filter((k) => parents[k] === root)
+        .flatMap(subtree),
+    ];
     const entry = async (id: string): Promise<DriveEntry> => {
       const mine = rows.find((r) => r.nodeId === id && r.principalId === "me");
       const nm = await encryptName(keys[id]!, id);
-      return { id, parentId: parents[id]!, kind: kinds[id]!, nameEncrypted: nm.nameEncrypted, nameNonce: nm.nameNonce, myWrappedKey: mine?.wrappedKey ?? null, name: id } as DriveEntry;
+      return {
+        id,
+        parentId: parents[id]!,
+        kind: kinds[id]!,
+        nameEncrypted: nm.nameEncrypted,
+        nameNonce: nm.nameNonce,
+        myWrappedKey: mine?.wrappedKey ?? null,
+        name: id,
+      } as DriveEntry;
     };
     const api = {
       listShares: async (id: string) => ({ shares: rows.filter((r) => r.nodeId === id) }),
       listChildren: async (_org: string, parentId?: string, trashed = false) => ({
-        nodes: trashed ? [] : await Promise.all(Object.keys(parents).filter((k) => parents[k] === parentId).map(entry)),
+        nodes: trashed
+          ? []
+          : await Promise.all(
+              Object.keys(parents)
+                .filter((k) => parents[k] === parentId)
+                .map(entry),
+            ),
       }),
       patchNode: async (id: string, body: { parentId: string | null }) => {
         parents[id] = body.parentId;
@@ -65,7 +119,9 @@ describe("moveWithKeyShares", () => {
         rows.push({ id: `r${n++}`, nodeId, ...b, inheritedFrom: b.inheritedFrom ?? null });
         return { share: {} };
       },
-      getUser: async (id: string) => ({ user: { id, email: `${id}@x`, p256PublicHex: id === "me" ? me.publicHex : other.publicHex } }),
+      getUser: async (id: string) => ({
+        user: { id, email: `${id}@x`, p256PublicHex: id === "me" ? me.publicHex : other.publicHex },
+      }),
       listGroups: async () => ({ groups: [{ id: "team", groupPublicHex: team.publicHex }] }),
       groupKeys: async () => ({ groups: [{ id: "team", groupPublicHex: team.publicHex }] }),
       myGroups: async () => ({ groups: [] }),

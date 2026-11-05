@@ -60,7 +60,8 @@ export async function withOrgKey<T>(ctx: RecoveryContext, fn: (orgKp: RecipientK
   const orgKp: RecipientKeypair = { privateHex: toHex(privBytes), publicHex: ctx.orgPublicHex };
   try {
     const derived = toHex(p256.getPublicKey(privBytes, false));
-    if (derived.toLowerCase() !== ctx.orgPublicHex.toLowerCase()) throw new Error("La clé publique de l'organisation ne correspond pas à sa clé de recouvrement.");
+    if (derived.toLowerCase() !== ctx.orgPublicHex.toLowerCase())
+      throw new Error("La clé publique de l'organisation ne correspond pas à sa clé de recouvrement.");
     requireKeyPin("org", ctx.orgId, derived);
     return await fn(orgKp);
   } finally {
@@ -174,7 +175,9 @@ export async function rotateOrgKey(
   if (admins.length === 0) throw new Error("Aucun administrateur de recouvrement pour la rotation.");
   if (typeof ctx.api.listOrgs === "function") {
     const { organizations } = await ctx.api.listOrgs();
-    const org = (organizations as { id: string; orgPublicHex: string; orgKeyEpoch: number }[]).find((o) => o.id === ctx.orgId);
+    const org = (organizations as { id: string; orgPublicHex: string; orgKeyEpoch: number }[]).find(
+      (o) => o.id === ctx.orgId,
+    );
     if (!org) throw new Error("Organisation inaccessible.");
     ctx = { ...ctx, orgPublicHex: org.orgPublicHex, orgKeyEpoch: org.orgKeyEpoch };
   }

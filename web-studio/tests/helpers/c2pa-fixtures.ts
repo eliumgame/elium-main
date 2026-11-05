@@ -252,7 +252,12 @@ export async function buildC2paFixture(opts: FixtureOptions = {}): Promise<Fixtu
         ["instanceID", "xmp:iid:test"],
         ["alg", "sha256"],
         ["signature", "self#jumbf=c2pa.signature"],
-        ["assertions", full ? [ref("c2pa.actions", actionsBox)] : [ref("c2pa.actions", actionsBox), ref("c2pa.hash.data", hashDataBox)]],
+        [
+          "assertions",
+          full
+            ? [ref("c2pa.actions", actionsBox)]
+            : [ref("c2pa.actions", actionsBox), ref("c2pa.hash.data", hashDataBox)],
+        ],
       ]),
     );
     const protectedBytes = encodeCbor(M([[1, COSE[alg]]]));

@@ -112,8 +112,9 @@ const asMap = <V>(ys: YSheet, key: string): Y.Map<V> | undefined => {
 /** Snapshot immuable et COMPLET d'une feuille CRDT en `SheetData`. */
 export function sheetSnapshot(ys: YSheet): SheetData {
   if (!(ys instanceof Y.Map)) return { name: "Feuille illisible", rows: 20, cols: 8, cells: {} };
-  const styles = Object.fromEntries([...(asMap<CellStyle>(ys, "styles")?.entries() ?? [])]
-    .filter(([ref, value]) => cellRef(ref) && cellStyle(value))) as Record<string, CellStyle>;
+  const styles = Object.fromEntries(
+    [...(asMap<CellStyle>(ys, "styles")?.entries() ?? [])].filter(([ref, value]) => cellRef(ref) && cellStyle(value)),
+  ) as Record<string, CellStyle>;
 
   const colWidths: Record<number, number> = {};
   for (const [k, w] of asMap<number>(ys, "colWidths")?.entries() ?? []) {
@@ -125,8 +126,9 @@ export function sheetSnapshot(ys: YSheet): SheetData {
     const n = Number(k);
     if (int(n) && typeof h === "number" && Number.isFinite(h) && h >= 16 && h <= 4096) rowHeights[n] = h;
   }
-  const notes = Object.fromEntries([...(asMap<string>(ys, "notes")?.entries() ?? [])]
-    .filter(([ref, value]) => cellRef(ref) && str(value))) as Record<string, string>;
+  const notes = Object.fromEntries(
+    [...(asMap<string>(ys, "notes")?.entries() ?? [])].filter(([ref, value]) => cellRef(ref) && str(value)),
+  ) as Record<string, string>;
 
   const merges = [...(asMap<MergeRect>(ys, "merges")?.values() ?? [])].filter(sheetExtras.merges);
   const condFormats = [...(asMap<CondRule>(ys, "condFormats")?.values() ?? [])].filter(sheetExtras.condFormats);
@@ -140,7 +142,7 @@ export function sheetSnapshot(ys: YSheet): SheetData {
   const pivot = ys.get("pivot") as PivotObject | undefined;
 
   const out: SheetData = {
-    name: str(ys.get("name")) ? ys.get("name") as string : "Feuille",
+    name: str(ys.get("name")) ? (ys.get("name") as string) : "Feuille",
     rows: dimension(ys.get("rows"), 20, 1_048_576),
     cols: dimension(ys.get("cols"), 8, 16_384),
     cells: cellsSnapshot(ys.get("cells") as YCells | undefined),
@@ -164,7 +166,10 @@ export function sheetSnapshot(ys: YSheet): SheetData {
 /** Snapshot complet du classeur (feuilles + plages nommées). */
 export function workbookSnapshot(ySheets: YSheets, yNames: Y.Map<string>, active: number): Workbook {
   const sheets = ySheets instanceof Y.Array ? ySheets.toArray().map(sheetSnapshot) : [];
-  const names: NamedRange[] = yNames instanceof Y.Map ? [...yNames.entries()].filter(([, ref]) => str(ref)).map(([name, ref]) => ({ name, ref })) : [];
+  const names: NamedRange[] =
+    yNames instanceof Y.Map
+      ? [...yNames.entries()].filter(([, ref]) => str(ref)).map(([name, ref]) => ({ name, ref }))
+      : [];
   const wb: Workbook = { sheets, active: Math.max(0, Math.min(active, sheets.length - 1)) };
   if (names.length) wb.names = names;
   return wb;

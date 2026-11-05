@@ -430,8 +430,13 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
       return;
     }
     const keyState = await queryOne<{ key_epoch: number; key_rotation_required: boolean }>(
-      `SELECT key_epoch, key_rotation_required FROM nodes WHERE id = $1`, [nodeId]);
-    if (!keyState) { socket.close(1008, "forbidden"); return; }
+      `SELECT key_epoch, key_rotation_required FROM nodes WHERE id = $1`,
+      [nodeId],
+    );
+    if (!keyState) {
+      socket.close(1008, "forbidden");
+      return;
+    }
     // Le client a pu partir pendant les requêtes d'admission : ne rien enregistrer.
     if (life.closed) return;
 
@@ -639,35 +644,39 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
   // Replaces the whole update log with ONE snapshot encrypted under the NEW
   // node key, then kicks the room so every peer reconnects and re-fetches its
   // wrapped key. The snapshot is opaque ciphertext like any other update.
-  app.post("/api/collab/:nodeId/compact", { preHandler: authenticate, bodyLimit: COMPACT_BODY_LIMIT }, async (req: FastifyRequest) => {
-    const nodeId = (req.params as { nodeId: string }).nodeId;
-    const user = requireUser(req);
-    const access = await requireNodePerm(req, nodeId, "node.acl.manage");
-    const body = (req.body ?? {}) as { ciphertext?: unknown; nonce?: unknown; upToSeq?: unknown };
-    const ct = typeof body.ciphertext === "string" ? body.ciphertext : "";
-    const nonce = typeof body.nonce === "string" ? body.nonce : "";
-    if (!/^[0-9a-f]+$/i.test(ct) || !/^[0-9a-f]{24}$/i.test(nonce)) {
-      throw badRequest("Snapshot invalide (ciphertext/nonce hex attendus).");
-    }
-    // Le snapshot ne remplace QUE ce que le client a réellement lu et intégré : jusqu'à
-    // `upToSeq` inclus. Une mise à jour arrivée entre-temps (id supérieur) est conservée.
-    const upToSeq = body.upToSeq;
-    if (typeof upToSeq !== "number" || !Number.isSafeInteger(upToSeq) || upToSeq < 0) {
-      throw badRequest("upToSeq (dernier numéro de séquence intégré au snapshot) est requis.");
-    }
-    const seq = await withTx(async (c) => {
-      await c.query(`DELETE FROM collab_updates WHERE node_id = $1 AND id <= $2`, [nodeId, upToSeq]);
-      const { rows } = await c.query(
-        `INSERT INTO collab_updates (node_id, update_ciphertext, update_nonce, author_user_id)
+  app.post(
+    "/api/collab/:nodeId/compact",
+    { preHandler: authenticate, bodyLimit: COMPACT_BODY_LIMIT },
+    async (req: FastifyRequest) => {
+      const nodeId = (req.params as { nodeId: string }).nodeId;
+      const user = requireUser(req);
+      const access = await requireNodePerm(req, nodeId, "node.acl.manage");
+      const body = (req.body ?? {}) as { ciphertext?: unknown; nonce?: unknown; upToSeq?: unknown };
+      const ct = typeof body.ciphertext === "string" ? body.ciphertext : "";
+      const nonce = typeof body.nonce === "string" ? body.nonce : "";
+      if (!/^[0-9a-f]+$/i.test(ct) || !/^[0-9a-f]{24}$/i.test(nonce)) {
+        throw badRequest("Snapshot invalide (ciphertext/nonce hex attendus).");
+      }
+      // Le snapshot ne remplace QUE ce que le client a réellement lu et intégré : jusqu'à
+      // `upToSeq` inclus. Une mise à jour arrivée entre-temps (id supérieur) est conservée.
+      const upToSeq = body.upToSeq;
+      if (typeof upToSeq !== "number" || !Number.isSafeInteger(upToSeq) || upToSeq < 0) {
+        throw badRequest("upToSeq (dernier numéro de séquence intégré au snapshot) est requis.");
+      }
+      const seq = await withTx(async (c) => {
+        await c.query(`DELETE FROM collab_updates WHERE node_id = $1 AND id <= $2`, [nodeId, upToSeq]);
+        const { rows } = await c.query(
+          `INSERT INTO collab_updates (node_id, update_ciphertext, update_nonce, author_user_id)
            VALUES ($1, $2, $3, $4) RETURNING id`,
-        [nodeId, Buffer.from(ct, "hex"), Buffer.from(nonce, "hex"), user.id],
-      );
-      return rows[0]?.id as number;
-    });
-    kickRoom(nodeId);
-    await audit(access.orgId, user.id, "collab.compact", access.kind, nodeId, { seq }, req.ip);
-    return { seq };
-  });
+          [nodeId, Buffer.from(ct, "hex"), Buffer.from(nonce, "hex"), user.id],
+        );
+        return rows[0]?.id as number;
+      });
+      kickRoom(nodeId);
+      await audit(access.orgId, user.id, "collab.compact", access.kind, nodeId, { seq }, req.ip);
+      return { seq };
+    },
+  );
 
   // --- REST backlog (catch-up) --------------------------------------------
   app.get("/api/collab/:nodeId/updates", { preHandler: authenticate }, async (req: FastifyRequest) => {

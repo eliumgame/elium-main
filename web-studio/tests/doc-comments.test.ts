@@ -206,10 +206,12 @@ describe("Comment — export/import DOCX (word/comments.xml)", () => {
         t("contrat", [
           {
             type: "comment",
-            attrs: { ...baseAttrs({
-              resolved: true,
-              replies: [{ id: "r1", author: "Bob", text: "réponse", createdAt: "2026-01-02T00:00:00Z" }],
-            }) },
+            attrs: {
+              ...baseAttrs({
+                resolved: true,
+                replies: [{ id: "r1", author: "Bob", text: "réponse", createdAt: "2026-01-02T00:00:00Z" }],
+              }),
+            },
           },
         ]),
       ),

@@ -42,14 +42,15 @@ export default function VersionsDialog({
 
   const reload = useCallback(async () => {
     const [{ versions: v }, { permissions }] = await Promise.all([
-      ctx.api.listVersions(entry.id), ctx.api.getNode(entry.id),
+      ctx.api.listVersions(entry.id),
+      ctx.api.getNode(entry.id),
     ]);
     setVersions((v as Version[]) ?? []);
     setCanRestore(permissions.includes("node.version.restore"));
   }, [ctx.api, entry.id]);
 
   useEffect(() => {
-    void reload().catch(e => setError(e instanceof Error ? e.message : "Historique indisponible."));
+    void reload().catch((e) => setError(e instanceof Error ? e.message : "Historique indisponible."));
   }, [reload]);
 
   const download = async (ver: Version) => {
@@ -126,14 +127,16 @@ export default function VersionsDialog({
                     <button className="elx-icon" title="Télécharger cette version" onClick={() => void download(v)}>
                       <Download size={15} />
                     </button>
-                    {canRestore && <button
-                      className="elx-icon"
-                      title="Restaurer cette version"
-                      disabled={busy}
-                      onClick={() => void restore(v)}
-                    >
-                      <RotateCcw size={15} />
-                    </button>}
+                    {canRestore && (
+                      <button
+                        className="elx-icon"
+                        title="Restaurer cette version"
+                        disabled={busy}
+                        onClick={() => void restore(v)}
+                      >
+                        <RotateCcw size={15} />
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

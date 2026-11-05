@@ -260,16 +260,18 @@ export default async function groupRoutes(app: FastifyInstance): Promise<void> {
     );
     if (!member) throw badRequest("Cet utilisateur n'appartient pas à cette organisation.");
 
-    const row = await withTx(async c => {
-      await assertFreshPrincipalKeys(c, orgId, [{ principalType: "group", principalId: groupId, groupPublicHex: b.expectedGroupPublicHex }]);
+    const row = await withTx(async (c) => {
+      await assertFreshPrincipalKeys(c, orgId, [
+        { principalType: "group", principalId: groupId, groupPublicHex: b.expectedGroupPublicHex },
+      ]);
       const { rows } = await c.query<{ user_id: string; is_manager: boolean; added_at: string }>(
-      `INSERT INTO group_members (group_id, user_id, wrapped_group_private, is_manager)
+        `INSERT INTO group_members (group_id, user_id, wrapped_group_private, is_manager)
        VALUES ($1,$2,$3,$4)
        ON CONFLICT (group_id, user_id)
        DO UPDATE SET wrapped_group_private = EXCLUDED.wrapped_group_private,
                      is_manager = EXCLUDED.is_manager
        RETURNING user_id, is_manager, added_at`,
-      [groupId, b.userId, JSON.stringify(b.wrappedGroupPrivate), b.isManager],
+        [groupId, b.userId, JSON.stringify(b.wrappedGroupPrivate), b.isManager],
       );
       return rows[0];
     });
@@ -285,28 +287,38 @@ export default async function groupRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.get("/:orgId/groups/:groupId/rotation-nodes", async req => {
+  app.get("/:orgId/groups/:groupId/rotation-nodes", async (req) => {
     const { orgId, groupId } = z.object({ orgId: z.string().uuid(), groupId: z.string().uuid() }).parse(req.params);
     const ctx = await requireOrgPerm(req, orgId, "group.manage");
     const user = requireUser(req);
     const group = await loadGroupInOrg(groupId, orgId);
     if (!ctx.isOwner) {
-      const manager = await queryOne<{ is_manager: boolean }>(`SELECT is_manager FROM group_members WHERE group_id = $1 AND user_id = $2`, [groupId, user.id]);
+      const manager = await queryOne<{ is_manager: boolean }>(
+        `SELECT is_manager FROM group_members WHERE group_id = $1 AND user_id = $2`,
+        [groupId, user.id],
+      );
       if (!manager?.is_manager) throw forbidden("Gestionnaire d'équipe requis.");
     }
     const rows = await query<{ node_id: string; wrapped_key: unknown; key_epoch: number }>(
       `SELECT nk.node_id, nk.wrapped_key, n.key_epoch FROM node_keys nk JOIN nodes n ON n.id = nk.node_id
-         WHERE nk.principal_type = 'group' AND nk.principal_id = $1 AND n.org_id = $2 ORDER BY nk.node_id`, [groupId, orgId]);
-    return { groupPublicHex: group.group_public_hex, nodes: rows.map(n => ({ nodeId: n.node_id, wrappedKey: n.wrapped_key, keyEpoch: n.key_epoch })) };
+         WHERE nk.principal_type = 'group' AND nk.principal_id = $1 AND n.org_id = $2 ORDER BY nk.node_id`,
+      [groupId, orgId],
+    );
+    return {
+      groupPublicHex: group.group_public_hex,
+      nodes: rows.map((n) => ({ nodeId: n.node_id, wrappedKey: n.wrapped_key, keyEpoch: n.key_epoch })),
+    };
   });
 
-  app.post("/:orgId/groups/:groupId/rotate", async req => {
+  app.post("/:orgId/groups/:groupId/rotate", async (req) => {
     const { orgId, groupId } = z.object({ orgId: z.string().uuid(), groupId: z.string().uuid() }).parse(req.params);
     const ctx = await requireOrgPerm(req, orgId, "group.manage");
     const user = requireUser(req);
     requireNewClientBody(req.body, ["expectedGroupPublicHex", "groupPublicHex", "members", "nodeKeys"]);
     const b = groupRotationSchema.parse(req.body);
-    const rotationRequiredNodeIds = await withTx(c => applyGroupKeyRotation(c, orgId, groupId, user.id, ctx.isOwner, b));
+    const rotationRequiredNodeIds = await withTx((c) =>
+      applyGroupKeyRotation(c, orgId, groupId, user.id, ctx.isOwner, b),
+    );
     for (const id of rotationRequiredNodeIds) kickRoom(id, "key-rotation-required");
     notifyOrg(orgId);
     await audit(orgId, user.id, "group.key.rotate", "group", groupId, {}, req.ip);
@@ -322,7 +334,9 @@ export default async function groupRoutes(app: FastifyInstance): Promise<void> {
     const user = requireUser(req);
     requireNewClientBody(req.body, ["expectedGroupPublicHex", "groupPublicHex", "members", "nodeKeys"]);
     const b = groupRotationSchema.parse(req.body);
-    const rotationRequiredNodeIds = await withTx(c => applyGroupKeyRotation(c, orgId, groupId, user.id, ctx.isOwner, b, userId));
+    const rotationRequiredNodeIds = await withTx((c) =>
+      applyGroupKeyRotation(c, orgId, groupId, user.id, ctx.isOwner, b, userId),
+    );
     for (const id of rotationRequiredNodeIds) kickRoom(id, "key-rotation-required");
     // Un retrait de groupe peut retirer l'accès à des nœuds : coupe ses connexions
     // temps réel plutôt que de les laisser vivre jusqu'à déconnexion naturelle.
@@ -344,11 +358,17 @@ export default async function groupRoutes(app: FastifyInstance): Promise<void> {
     const members = await query<{ user_id: string }>(`SELECT user_id FROM group_members WHERE group_id = $1`, [
       groupId,
     ]);
-    const rotationRequiredNodeIds = await withTx(async c => {
+    const rotationRequiredNodeIds = await withTx(async (c) => {
       await c.query(`SELECT id FROM organizations WHERE id = $1 FOR SHARE`, [orgId]);
       await c.query(`SELECT id FROM groups WHERE id = $1 AND org_id = $2 FOR UPDATE`, [groupId, orgId]);
-      const { rows } = await c.query<{ node_id: string }>(`SELECT node_id FROM node_keys WHERE principal_type = 'group' AND principal_id = $1`, [groupId]);
-      const pending = await markRequiredNodeRotations(c, rows.map(r => r.node_id));
+      const { rows } = await c.query<{ node_id: string }>(
+        `SELECT node_id FROM node_keys WHERE principal_type = 'group' AND principal_id = $1`,
+        [groupId],
+      );
+      const pending = await markRequiredNodeRotations(
+        c,
+        rows.map((r) => r.node_id),
+      );
       await c.query(`DELETE FROM node_keys WHERE principal_type = 'group' AND principal_id = $1`, [groupId]);
       await c.query(`DELETE FROM groups WHERE id = $1 AND org_id = $2`, [groupId, orgId]);
       return pending;

@@ -11,33 +11,53 @@ describe("Drive refresh", () => {
   it("serializes two tabs and reuses the first tab's persisted rotation", async () => {
     let saved: Tokens | null = old;
     let queue = Promise.resolve();
-    vi.stubGlobal("navigator", { locks: { request: (_name: string, fn: () => Promise<boolean>) => {
-      const result = queue.then(fn);
-      queue = result.then(() => {});
-      return result;
-    } } });
+    vi.stubGlobal("navigator", {
+      locks: {
+        request: (_name: string, fn: () => Promise<boolean>) => {
+          const result = queue.then(fn);
+          queue = result.then(() => {});
+          return result;
+        },
+      },
+    });
     let rotations = 0;
-    vi.stubGlobal("fetch", vi.fn(async (url: string, opts: RequestInit) => {
-      if (url.endsWith("/auth/refresh")) {
-        rotations++;
-        expect(JSON.parse(String(opts.body)).refreshToken).toBe(old.refreshToken);
-        return reply(200, fresh);
-      }
-      return (opts.headers as Record<string, string>).authorization === "Bearer fresh"
-        ? reply(200, { organizations: [] }) : reply(401, { error: { code: "unauthorized" } });
-    }));
-    const client = () => new DriveApi({ tokens: old, readTokens: () => saved, onTokens: t => { saved = t; } });
-    const a = client(), b = client();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, opts: RequestInit) => {
+        if (url.endsWith("/auth/refresh")) {
+          rotations++;
+          expect(JSON.parse(String(opts.body)).refreshToken).toBe(old.refreshToken);
+          return reply(200, fresh);
+        }
+        return (opts.headers as Record<string, string>).authorization === "Bearer fresh"
+          ? reply(200, { organizations: [] })
+          : reply(401, { error: { code: "unauthorized" } });
+      }),
+    );
+    const client = () =>
+      new DriveApi({
+        tokens: old,
+        readTokens: () => saved,
+        onTokens: (t) => {
+          saved = t;
+        },
+      });
+    const a = client(),
+      b = client();
     await Promise.all([a.listOrgs(), b.listOrgs()]);
     expect(rotations).toBe(1);
     expect(a.getTokens()).toEqual(fresh);
     expect(b.getTokens()).toEqual(fresh);
   });
 
-  it.each([429, 500, 503])("preserves tokens after temporary HTTP %s", async status => {
+  it.each([429, 500, 503])("preserves tokens after temporary HTTP %s", async (status) => {
     const onTokens = vi.fn();
-    vi.stubGlobal("fetch", vi.fn(async (url: string) => url.endsWith("/auth/refresh")
-      ? reply(status, {}) : reply(401, { error: { code: "unauthorized" } })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        url.endsWith("/auth/refresh") ? reply(status, {}) : reply(401, { error: { code: "unauthorized" } }),
+      ),
+    );
     const api = new DriveApi({ tokens: old, onTokens });
     await expect(api.listOrgs()).rejects.toThrow();
     expect(api.getTokens()).toEqual(old);
@@ -45,7 +65,10 @@ describe("Drive refresh", () => {
   });
 
   it("clears tokens on definitive refresh rejection", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => reply(401, { error: { code: "unauthorized" } })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => reply(401, { error: { code: "unauthorized" } })),
+    );
     const api = new DriveApi({ tokens: old });
     await expect(api.listOrgs()).rejects.toThrow();
     expect(api.getTokens()).toBeNull();
@@ -53,10 +76,16 @@ describe("Drive refresh", () => {
 
   it("does not restore a logged-out session from an in-flight refresh", async () => {
     let api: DriveApi;
-    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
-      if (url.endsWith("/auth/refresh")) { api.setTokens(null); return reply(200, fresh); }
-      return reply(401, { error: { code: "unauthorized" } });
-    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.endsWith("/auth/refresh")) {
+          api.setTokens(null);
+          return reply(200, fresh);
+        }
+        return reply(401, { error: { code: "unauthorized" } });
+      }),
+    );
     api = new DriveApi({ tokens: old });
     await expect(api.listOrgs()).rejects.toThrow();
     expect(api.getTokens()).toBeNull();

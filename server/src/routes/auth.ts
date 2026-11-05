@@ -23,7 +23,14 @@ import type { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { query, queryOne, withTx } from "../db/pool.js";
-import { verifyEd25519, sha256Hex, randomHex, encryptServerSecret, decryptServerSecret, backupCodeHash } from "../lib/crypto-server.js";
+import {
+  verifyEd25519,
+  sha256Hex,
+  randomHex,
+  encryptServerSecret,
+  decryptServerSecret,
+  backupCodeHash,
+} from "../lib/crypto-server.js";
 import {
   issueAccessToken,
   newRefreshToken,
@@ -576,7 +583,10 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
       const backupCodes = generateBackupCodes(10);
       await query(`DELETE FROM mfa_backup_codes WHERE user_id = $1`, [user.id]);
       for (const c of backupCodes) {
-        await query(`INSERT INTO mfa_backup_codes (user_id, code_hash) VALUES ($1, $2)`, [user.id, backupCodeHash(user.id, c)]);
+        await query(`INSERT INTO mfa_backup_codes (user_id, code_hash) VALUES ($1, $2)`, [
+          user.id,
+          backupCodeHash(user.id, c),
+        ]);
       }
       await query(
         `UPDATE users
@@ -623,7 +633,10 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
       const backupCodes = generateBackupCodes(10);
       await query(`DELETE FROM mfa_backup_codes WHERE user_id = $1`, [user.id]);
       for (const c of backupCodes) {
-        await query(`INSERT INTO mfa_backup_codes (user_id, code_hash) VALUES ($1, $2)`, [user.id, backupCodeHash(user.id, c)]);
+        await query(`INSERT INTO mfa_backup_codes (user_id, code_hash) VALUES ($1, $2)`, [
+          user.id,
+          backupCodeHash(user.id, c),
+        ]);
       }
       await audit(null, user.id, "auth.mfa.backup_regen", "user", user.id, {}, req.ip);
       return { backupCodes };

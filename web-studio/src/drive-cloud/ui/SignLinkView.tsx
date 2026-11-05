@@ -104,62 +104,73 @@ export default function SignLinkView({
   );
 
   // Ouverture du lien (et rechargement de la dernière version après un 409 de contenu de base).
-  const load = useCallback(async (notice?: string) => {
-    {
-      try {
-        const params = new URLSearchParams(location.hash.replace(/^#/, ""));
-        const [priv, pub] = (params.get("k") ?? "").split(".");
-        if (!priv || !pub) throw new Error("Lien incomplet : secret de déchiffrement manquant.");
-        const api = new DriveApi();
-        const opened = await openSignLink(api, token, priv, pub);
-        snapshot.current = { baseVersionId: opened.baseVersionId, keyEpoch: opened.keyEpoch };
-        if (notice) {
-          // Le signataire doit relire la nouvelle version : jamais de re-signature automatique.
-          setErr(notice);
-          setPwdErr(notice);
-        }
-        if (opened.kind !== "file" || !opened.hasContent)
-          throw new Error("Ce lien ne pointe pas vers un document signable.");
-        if (isPdf(opened.bytes)) {
-          setState({
-            phase: "ready",
-            doc: { docType: "pdf", title: opened.name || "Document PDF", bytes: opened.bytes, nodeKey: opened.nodeKey },
-          });
-          return;
-        }
-        let file: EliumFile;
+  const load = useCallback(
+    async (notice?: string) => {
+      {
         try {
-          ({ file } = await readEliumPackage(opened.bytes, {}));
-        } catch (e) {
-          if (e instanceof EliumPasswordRequired) {
-            // Protection distincte du secret du lien : demande le mot de passe
-            // du document lui-même avant de continuer (voir `submitPassword`).
+          const params = new URLSearchParams(location.hash.replace(/^#/, ""));
+          const [priv, pub] = (params.get("k") ?? "").split(".");
+          if (!priv || !pub) throw new Error("Lien incomplet : secret de déchiffrement manquant.");
+          const api = new DriveApi();
+          const opened = await openSignLink(api, token, priv, pub);
+          snapshot.current = { baseVersionId: opened.baseVersionId, keyEpoch: opened.keyEpoch };
+          if (notice) {
+            // Le signataire doit relire la nouvelle version : jamais de re-signature automatique.
+            setErr(notice);
+            setPwdErr(notice);
+          }
+          if (opened.kind !== "file" || !opened.hasContent)
+            throw new Error("Ce lien ne pointe pas vers un document signable.");
+          if (isPdf(opened.bytes)) {
             setState({
-              phase: "password",
-              bytes: opened.bytes,
-              nodeKey: opened.nodeKey,
-              name: opened.name || "Document",
+              phase: "ready",
+              doc: {
+                docType: "pdf",
+                title: opened.name || "Document PDF",
+                bytes: opened.bytes,
+                nodeKey: opened.nodeKey,
+              },
             });
             return;
           }
-          throw new Error("Document illisible (format .elium ou PDF attendu).");
+          let file: EliumFile;
+          try {
+            ({ file } = await readEliumPackage(opened.bytes, {}));
+          } catch (e) {
+            if (e instanceof EliumPasswordRequired) {
+              // Protection distincte du secret du lien : demande le mot de passe
+              // du document lui-même avant de continuer (voir `submitPassword`).
+              setState({
+                phase: "password",
+                bytes: opened.bytes,
+                nodeKey: opened.nodeKey,
+                name: opened.name || "Document",
+              });
+              return;
+            }
+            throw new Error("Document illisible (format .elium ou PDF attendu).");
+          }
+          const preview = extractText(file.document.doc).trim().slice(0, 600);
+          setState({
+            phase: "ready",
+            doc: {
+              docType: "elium",
+              title: file.manifest.title || opened.name || "Document",
+              preview,
+              file,
+              nodeKey: opened.nodeKey,
+            },
+          });
+        } catch (e) {
+          setState({
+            phase: "error",
+            message: e instanceof Error ? e.message : "Lien introuvable, révoqué ou expiré.",
+          });
         }
-        const preview = extractText(file.document.doc).trim().slice(0, 600);
-        setState({
-          phase: "ready",
-          doc: {
-            docType: "elium",
-            title: file.manifest.title || opened.name || "Document",
-            preview,
-            file,
-            nodeKey: opened.nodeKey,
-          },
-        });
-      } catch (e) {
-        setState({ phase: "error", message: e instanceof Error ? e.message : "Lien introuvable, révoqué ou expiré." });
       }
-    }
-  }, [token]);
+    },
+    [token],
+  );
 
   useEffect(() => {
     void load();
@@ -197,7 +208,10 @@ export default function SignLinkView({
     try {
       const api = new DriveApi();
       if (doc.docType === "elium") {
-        doc.file = { ...doc.file, manifest: { ...doc.file.manifest, docId: doc.file.manifest.docId || crypto.randomUUID() } };
+        doc.file = {
+          ...doc.file,
+          manifest: { ...doc.file.manifest, docId: doc.file.manifest.docId || crypto.randomUUID() },
+        };
         // Identité Ed25519 à la volée — aucune inscription requise.
         const id = await generateIdentity();
         const sigId = randomId("sig");

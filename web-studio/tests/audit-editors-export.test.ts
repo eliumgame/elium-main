@@ -6,7 +6,11 @@ describe("audit F exports and pagination", () => {
   it("exports final revision text including generated headings", () => {
     const model = {
       schema: "elium-doc/1",
-      page: { format: "A4" as const, orientation: "portrait" as const, margins: { top: 20, right: 20, bottom: 20, left: 20 } },
+      page: {
+        format: "A4" as const,
+        orientation: "portrait" as const,
+        margins: { top: 20, right: 20, bottom: 20, left: 20 },
+      },
       doc: {
         type: "doc",
         content: [
@@ -31,7 +35,11 @@ describe("audit F exports and pagination", () => {
   it("keeps paragraph formatting and dropcap in a single style attribute", () => {
     const model = {
       schema: "elium-doc/1",
-      page: { format: "A4" as const, orientation: "portrait" as const, margins: { top: 20, right: 20, bottom: 20, left: 20 } },
+      page: {
+        format: "A4" as const,
+        orientation: "portrait" as const,
+        margins: { top: 20, right: 20, bottom: 20, left: 20 },
+      },
       doc: {
         type: "doc",
         content: [

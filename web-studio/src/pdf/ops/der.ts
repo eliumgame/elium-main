@@ -330,8 +330,7 @@ export function parseCertificate(der: Uint8Array): Certificate {
       } else if (id === OID.keyUsage) {
         const bits = content(value);
         keyCertSign = value.tag === 0x03 && bits.length > 1 && !!(bits[1]! & 0x04);
-      }
-      else if (id === OID.subjectKeyIdentifier) subjectKeyId = content(value);
+      } else if (id === OID.subjectKeyIdentifier) subjectKeyId = content(value);
     }
   }
   const sigBits = content(sigT);

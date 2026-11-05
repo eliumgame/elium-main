@@ -3,7 +3,8 @@ import { ApiError, badRequest, conflict } from "./errors.js";
 
 /** Code d'erreur stable : le client doit être rechargé / mis à jour. */
 export const CLIENT_OUTDATED_CODE = "client_outdated";
-export const CLIENT_OUTDATED_MESSAGE = "Cette version de l'application est trop ancienne : rechargez la page ou mettez l'application à jour.";
+export const CLIENT_OUTDATED_MESSAGE =
+  "Cette version de l'application est trop ancienne : rechargez la page ou mettez l'application à jour.";
 /** En-tête posé sur les réponses servies en mode de compatibilité (exposé en CORS, cf. app.ts). */
 export const DEPRECATION_HEADER = "x-elium-deprecated";
 export const DEPRECATION_VALUE = "client-outdated";
@@ -31,7 +32,10 @@ export type ContentBase = { versionId: string | null; epoch: number; legacy?: bo
  * garantir que le client a vu la dernière version ; l'écriture crée toutefois
  * TOUJOURS une nouvelle version, l'historique n'est jamais supprimé.
  */
-export function contentPreconditions(headers: Record<string, unknown>, legacyCompat: boolean = config.legacyClientCompat): ContentBase {
+export function contentPreconditions(
+  headers: Record<string, unknown>,
+  legacyCompat: boolean = config.legacyClientCompat,
+): ContentBase {
   const version = headers["x-base-version-id"];
   const epoch = headers["x-key-epoch"];
   if (version === undefined && epoch === undefined) {
@@ -39,9 +43,16 @@ export function contentPreconditions(headers: Record<string, unknown>, legacyCom
     throw clientOutdated(428);
   }
   if (version === undefined || epoch === undefined) {
-    throw new ApiError(428, "precondition_required", "Rechargez le fichier : sa version et son époque de clé sont requises.");
+    throw new ApiError(
+      428,
+      "precondition_required",
+      "Rechargez le fichier : sa version et son époque de clé sont requises.",
+    );
   }
-  if (typeof version !== "string" || (version !== "null" && !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(version))) {
+  if (
+    typeof version !== "string" ||
+    (version !== "null" && !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(version))
+  ) {
     throw badRequest("En-tête x-base-version-id invalide.");
   }
   if (typeof epoch !== "string" || !/^[1-9][0-9]*$/.test(epoch) || !Number.isSafeInteger(Number(epoch))) {
@@ -50,7 +61,10 @@ export function contentPreconditions(headers: Record<string, unknown>, legacyCom
   return { versionId: version === "null" ? null : version.toLowerCase(), epoch: Number(epoch) };
 }
 
-export function assertContentBase(base: ContentBase, current: { current_version_id?: string | null; key_epoch: number; key_rotation_required?: boolean }): void {
+export function assertContentBase(
+  base: ContentBase,
+  current: { current_version_id?: string | null; key_epoch: number; key_rotation_required?: boolean },
+): void {
   if (current.key_rotation_required) {
     throw conflict("Une révocation impose de renouveler la clé de ce fichier avant toute nouvelle écriture.");
   }

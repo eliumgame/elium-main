@@ -17,9 +17,23 @@ const p = (keys: readonly string[]): string[] => [...keys];
 
 // Editor: full content control + internal sharing + versions (no org admin).
 const EDITOR_PERMS: string[] = [
-  "node.view", "node.download", "node.export", "node.print", "node.create", "node.edit",
-  "node.rename", "node.move", "node.copy", "node.delete", "node.restore", "node.comment",
-  "node.version.view", "node.version.restore", "node.share.internal", "node.acl.view", "node.sign.request",
+  "node.view",
+  "node.download",
+  "node.export",
+  "node.print",
+  "node.create",
+  "node.edit",
+  "node.rename",
+  "node.move",
+  "node.copy",
+  "node.delete",
+  "node.restore",
+  "node.comment",
+  "node.version.view",
+  "node.version.restore",
+  "node.share.internal",
+  "node.acl.view",
+  "node.sign.request",
 ];
 
 const COMMENTER_PERMS: string[] = ["node.view", "node.download", "node.comment", "node.version.view", "node.acl.view"];

@@ -197,11 +197,14 @@ export async function sealBytesAtRest(bytes: Uint8Array, secret: VaultSecret): P
 
 /** Decrypt a {@link SealedBytes} envelope. Throws on a wrong secret. */
 export async function openSealedBytes(sealed: SealedBytes, secret: VaultSecret): Promise<Uint8Array> {
-  const decrypt = async (legacy: boolean) => new Uint8Array(await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: sealed.iv as unknown as BufferSource },
-    await sessionKey(secret, sealed.salt, legacy),
-    sealed.ct as unknown as BufferSource,
-  ));
+  const decrypt = async (legacy: boolean) =>
+    new Uint8Array(
+      await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: sealed.iv as unknown as BufferSource },
+        await sessionKey(secret, sealed.salt, legacy),
+        sealed.ct as unknown as BufferSource,
+      ),
+    );
   try {
     return await decrypt(false);
   } catch (error) {

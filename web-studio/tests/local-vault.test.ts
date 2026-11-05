@@ -1,5 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
-import { encryptAtRest, decryptAtRest, hasVaultSecret, sealBytesAtRest, openSealedBytes, toB64 } from "../src/crypto/local-vault";
+import {
+  encryptAtRest,
+  decryptAtRest,
+  hasVaultSecret,
+  sealBytesAtRest,
+  openSealedBytes,
+  toB64,
+} from "../src/crypto/local-vault";
 import { EliumCryptoEngine } from "../src/crypto/elium-crypto";
 import { KDF_PROFILES } from "../src/crypto/kdf-profiles";
 

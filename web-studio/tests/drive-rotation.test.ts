@@ -17,7 +17,13 @@ import {
   RotationIncomplete,
 } from "../src/drive-cloud/rotate";
 import type { OpsCtx, DriveEntry } from "../src/drive-cloud/ops";
-import { encryptContent, decryptContent, generateNodeKey, unwrapNodeKey, wrapNodeKeyFor } from "../src/drive-cloud/node-crypto";
+import {
+  encryptContent,
+  decryptContent,
+  generateNodeKey,
+  unwrapNodeKey,
+  wrapNodeKeyFor,
+} from "../src/drive-cloud/node-crypto";
 import { generateRecipientKeypair, type RecipientKeypair } from "../src/crypto/recipients";
 import { toHex, fromHex } from "../src/format/canonical";
 import { setKeyPinStorage } from "../src/drive-cloud/key-pins";
@@ -42,7 +48,15 @@ async function encUpdate(key: Uint8Array, u: Uint8Array, seq: number): Promise<L
 }
 
 function share(p: Partial<ShareInfo> & Pick<ShareInfo, "principalType" | "principalId">): ShareInfo {
-  return { id: `s-${p.principalId}`, roleId: "r", roleKey: "editor", roleName: "Éditeur", name: "", inheritedFrom: null, ...p };
+  return {
+    id: `s-${p.principalId}`,
+    roleId: "r",
+    roleKey: "editor",
+    roleName: "Éditeur",
+    name: "",
+    inheritedFrom: null,
+    ...p,
+  };
 }
 
 interface Fixture {
@@ -57,7 +71,9 @@ interface Fixture {
   api: Record<string, ReturnType<typeof vi.fn>>;
 }
 
-async function fixture(opts: { appKind?: string; shares?: ShareInfo[]; onRotate?: (newKey: Uint8Array) => Promise<void> } = {}): Promise<Fixture> {
+async function fixture(
+  opts: { appKind?: string; shares?: ShareInfo[]; onRotate?: (newKey: Uint8Array) => Promise<void> } = {},
+): Promise<Fixture> {
   const me = await generateRecipientKeypair();
   const team = await generateRecipientKeypair();
   const oldKey = generateNodeKey();
@@ -155,7 +171,10 @@ describe("rotation — parts des ayants droit restants", () => {
 
   it("refuse la rotation (sans toucher au serveur) si une part restante ne peut pas être ré-emballée", async () => {
     const f = await fixture({
-      shares: [share({ principalType: "user", principalId: "me" }), share({ principalType: "user", principalId: "bob" })],
+      shares: [
+        share({ principalType: "user", principalId: "me" }),
+        share({ principalType: "user", principalId: "bob" }),
+      ],
     });
     const res = await rotateNode(f.ctx, f.entry);
     expect(res).toMatchObject({ ok: false, incomplete: true, missingPrincipals: ["user:bob"] });
@@ -188,7 +207,10 @@ describe("rotation — journal collaboratif", () => {
     const res = await rotateNode(f.ctx, f.entry);
     expect(res.ok).toBe(true);
     expect(f.compactCalls).toHaveLength(1);
-    const newKey = await unwrapNodeKey(f.rotateCalls[0]!.keyShares.find((s) => s.principalId === "me")!.wrappedKey, f.me);
+    const newKey = await unwrapNodeKey(
+      f.rotateCalls[0]!.keyShares.find((s) => s.principalId === "me")!.wrappedKey,
+      f.me,
+    );
     expect(await snapshotText(newKey, f.compactCalls[0]!)).toBe("Bonjour monde +Bob");
   });
 
@@ -220,7 +242,11 @@ describe("rotation — journal collaboratif", () => {
     expect(f.log).toHaveLength(1); // rien d'effacé
 
     // Deuxième rotation : le nœud porte la nouvelle clé + la fente « clé précédente » (= oldKey).
-    const body = f.rotateCalls[0]! as unknown as { keyShares: KeyShareInput[]; prevKeyWrapped: string; prevKeyNonce: string };
+    const body = f.rotateCalls[0]! as unknown as {
+      keyShares: KeyShareInput[];
+      prevKeyWrapped: string;
+      prevKeyNonce: string;
+    };
     const k2 = await unwrapNodeKey(body.keyShares.find((s) => s.principalId === "me")!.wrappedKey, f.me);
     const entry2 = {
       ...f.entry,

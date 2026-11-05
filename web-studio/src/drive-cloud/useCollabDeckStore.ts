@@ -115,11 +115,14 @@ export function useCollabDeckStore({ api, nodeId, nodeKey, user, refetchKey }: C
   const refresh = () => {
     const arr = deckMap.get("slides") as Y.Array<YMap> | undefined;
     setSlides(reader.read(arr));
-    const th = deckMap.get("theme"), tr = deckMap.get("transition"), sec = deckMap.get("sections"), ma = deckMap.get("master");
-    setTheme(oneOf("light", "dark", "brand")(th) ? th as SlideTheme : "light");
-    setTransition(oneOf("none", "fade", "slide", "zoom", "morph")(tr) ? tr as SlideTransition : "fade");
-    setSections(Array.isArray(sec) ? sec.filter(validSection) as SlideSection[] : undefined);
-    setMaster(validMaster(ma) ? ma as SlideMaster : undefined);
+    const th = deckMap.get("theme"),
+      tr = deckMap.get("transition"),
+      sec = deckMap.get("sections"),
+      ma = deckMap.get("master");
+    setTheme(oneOf("light", "dark", "brand")(th) ? (th as SlideTheme) : "light");
+    setTransition(oneOf("none", "fade", "slide", "zoom", "morph")(tr) ? (tr as SlideTransition) : "fade");
+    setSections(Array.isArray(sec) ? (sec.filter(validSection) as SlideSection[]) : undefined);
+    setMaster(validMaster(ma) ? (ma as SlideMaster) : undefined);
   };
 
   useEffect(() => {
@@ -306,7 +309,7 @@ export function useCollabDeckStore({ api, nodeId, nodeKey, user, refetchKey }: C
   };
   const currentSections = (): SlideSection[] | undefined => {
     const value = deckMap.get("sections");
-    return Array.isArray(value) ? value.filter(validSection) as SlideSection[] : undefined;
+    return Array.isArray(value) ? (value.filter(validSection) as SlideSection[]) : undefined;
   };
   const removeSlide = (i: number) => {
     if (!writable) return;

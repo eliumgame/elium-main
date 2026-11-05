@@ -428,10 +428,10 @@ export default async function scimRoutes(app: FastifyInstance): Promise<void> {
       [orgId, id],
     );
     if (!r.length) {
-      const existing = await queryOne<{ id: string }>(
-        `SELECT id FROM memberships WHERE org_id = $1 AND user_id = $2`,
-        [orgId, id],
-      );
+      const existing = await queryOne<{ id: string }>(`SELECT id FROM memberships WHERE org_id = $1 AND user_id = $2`, [
+        orgId,
+        id,
+      ]);
       if (existing) throw conflict("Le propriétaire de l'organisation ne peut pas être suspendu par SCIM.");
       throw notFound("Utilisateur SCIM introuvable.");
     }

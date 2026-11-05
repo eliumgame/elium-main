@@ -130,8 +130,18 @@ export default function GroupsPanel() {
         }
       }
       const { keyFingerprint } = await import("../key-pins");
-      const fingerprints = await Promise.all(users.map(async (u) => `${u.email} : ${(await keyFingerprint(u.p256PublicHex)).words}`));
-      if (fingerprints.length && !(await dialogs.confirm({ title: "Vérifier les membres", message: `Comparez ces empreintes par un autre canal avant de leur transmettre la clé de l'équipe.\n${fingerprints.join("\n")}`, confirmLabel: "Créer l'équipe" }))) return;
+      const fingerprints = await Promise.all(
+        users.map(async (u) => `${u.email} : ${(await keyFingerprint(u.p256PublicHex)).words}`),
+      );
+      if (
+        fingerprints.length &&
+        !(await dialogs.confirm({
+          title: "Vérifier les membres",
+          message: `Comparez ces empreintes par un autre canal avant de leur transmettre la clé de l'équipe.\n${fingerprints.join("\n")}`,
+          confirmLabel: "Créer l'équipe",
+        }))
+      )
+        return;
       await createTeam(ctx, name.trim(), "", color, users);
       setName("");
       setEmails([]);
@@ -158,7 +168,14 @@ export default function GroupsPanel() {
     try {
       const { user } = await d.api.lookupUser({ email: email.trim() });
       const { keyFingerprint } = await import("../key-pins");
-      if (!(await dialogs.confirm({ title: "Vérifier le membre", message: `${user.email}\nMots de sécurité : ${(await keyFingerprint(user.p256PublicHex)).words}\nComparez cette empreinte par un autre canal.`, confirmLabel: "Ajouter" }))) return;
+      if (
+        !(await dialogs.confirm({
+          title: "Vérifier le membre",
+          message: `${user.email}\nMots de sécurité : ${(await keyFingerprint(user.p256PublicHex)).words}\nComparez cette empreinte par un autre canal.`,
+          confirmLabel: "Ajouter",
+        }))
+      )
+        return;
       await addTeamMember(ctx, selectedId, myWrapped, user);
       await openGroup(selectedId);
       await reloadGroups();
@@ -189,7 +206,10 @@ export default function GroupsPanel() {
     setErr(null);
     try {
       const pending = await rotateTeamKey(ctx, selectedId, m.userId);
-      if (pending.length) setErr(`Membre retiré. ${pending.length} fichier(s) attendent encore le renouvellement de leur clé par une personne autorisée ; les nouvelles écritures restent bloquées jusque-là.`);
+      if (pending.length)
+        setErr(
+          `Membre retiré. ${pending.length} fichier(s) attendent encore le renouvellement de leur clé par une personne autorisée ; les nouvelles écritures restent bloquées jusque-là.`,
+        );
     } catch (e) {
       await dialogs.alert({
         title: "Retrait impossible",
@@ -208,12 +228,17 @@ export default function GroupsPanel() {
     setErr(null);
     try {
       const pending = await rotateTeamKey(ctx, selectedId);
-      if (pending.length) setErr(`${pending.length} fichier(s) restent à renouveler. Leur propriétaire peut terminer la rotation en les ouvrant.`);
+      if (pending.length)
+        setErr(
+          `${pending.length} fichier(s) restent à renouveler. Leur propriétaire peut terminer la rotation en les ouvrant.`,
+        );
       await openGroup(selectedId);
       await reloadGroups();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Renouvellement impossible.");
-    } finally { setBusy(false); }
+    } finally {
+      setBusy(false);
+    }
   };
 
   const deleteGroup = async (g: GroupItem) => {
@@ -230,7 +255,8 @@ export default function GroupsPanel() {
       const result = await d.api.deleteGroup(orgId, g.id);
       if (ctx) {
         const pending = await finishRequiredRotations(ctx, result.rotationRequiredNodeIds);
-        if (pending.length) setErr(`Équipe supprimée. ${pending.length} fichier(s) nécessitent encore un renouvellement de clé.`);
+        if (pending.length)
+          setErr(`Équipe supprimée. ${pending.length} fichier(s) nécessitent encore un renouvellement de clé.`);
       }
     } catch (e) {
       await dialogs.alert({
@@ -361,9 +387,17 @@ export default function GroupsPanel() {
                 <p className="muted">{members.length} membre(s) · partage possible avec toute l'équipe</p>
               </div>
               <div className="dcx-roles__editor-actions">
-                {canManage && myWrapped && <button className="elx-mini" disabled={busy} onClick={() => void renewGroup()}>Renouveler les accès</button>}
+                {canManage && myWrapped && (
+                  <button className="elx-mini" disabled={busy} onClick={() => void renewGroup()}>
+                    Renouveler les accès
+                  </button>
+                )}
                 {canManage && (
-                  <button className="elx-mini" disabled={busy || selected.rotationRequired} onClick={() => void addMember()}>
+                  <button
+                    className="elx-mini"
+                    disabled={busy || selected.rotationRequired}
+                    onClick={() => void addMember()}
+                  >
                     <UserPlus size={14} /> Ajouter
                   </button>
                 )}
@@ -392,7 +426,12 @@ export default function GroupsPanel() {
                     </span>
                   )}
                   {canManage && !m.isManager && (
-                    <button className="elx-icon elx-icon--danger" disabled={busy} title="Retirer" onClick={() => void removeMember(m)}>
+                    <button
+                      className="elx-icon elx-icon--danger"
+                      disabled={busy}
+                      title="Retirer"
+                      onClick={() => void removeMember(m)}
+                    >
                       <Trash2 size={14} />
                     </button>
                   )}

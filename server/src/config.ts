@@ -149,7 +149,10 @@ export const config = {
   // Un document signé (.elium ou PDF/PAdES) tient très large sous 50 Mo.
   maxSignArtifactBytes: num("MAX_SIGN_ARTIFACT_BYTES", 50 * 1024 * 1024),
   // Exact endpoints; the anonymous relay must not become a general POST proxy.
-  tsaAllowedUrls: env("TSA_ALLOWED_URLS", "https://freetsa.org/tsr").split(",").map(s => s.trim()).filter(Boolean),
+  tsaAllowedUrls: env("TSA_ALLOWED_URLS", "https://freetsa.org/tsr")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
 
   // Bornes du relais collaboratif (anti-DoS). Un update chiffré est plafonné en
   // octets (le ciphertext hex fait 2× cette taille sur le fil) ; le débit de

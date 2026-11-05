@@ -40,7 +40,12 @@ function fakeDriveApi(store: Map<string, FakeBlob>, extra: Partial<DriveApi> = {
     async getContent(id: string) {
       const rec = store.get(id);
       if (!rec) throw new Error("not found");
-      return { bytes: rec.ciphertext, nonceHex: rec.nonceHex, baseVersionId: "11111111-1111-4111-8111-111111111111", keyEpoch: 1 };
+      return {
+        bytes: rec.ciphertext,
+        nonceHex: rec.nonceHex,
+        baseVersionId: "11111111-1111-4111-8111-111111111111",
+        keyEpoch: 1,
+      };
     },
     async putContent(id: string, ciphertext: Uint8Array, nonceHex: string) {
       store.set(id, { ciphertext, nonceHex });
@@ -491,7 +496,12 @@ describe("reconcileCircuitForSignRequest (émetteur, avec tentatives)", () => {
         getContentCalls++;
         if (getContentCalls === 1) throw new Error("panne réseau simulée (1 seule fois)");
         const rec = store.get(id)!;
-        return { bytes: rec.ciphertext, nonceHex: rec.nonceHex, baseVersionId: "11111111-1111-4111-8111-111111111111", keyEpoch: 1 };
+        return {
+          bytes: rec.ciphertext,
+          nonceHex: rec.nonceHex,
+          baseVersionId: "11111111-1111-4111-8111-111111111111",
+          keyEpoch: 1,
+        };
       },
     }));
     const file = await createEliumFile({ title: "Contrat", profile: "standard" });

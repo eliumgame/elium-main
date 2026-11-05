@@ -9,11 +9,21 @@ afterEach(cleanup);
 
 function setup(permissions: string[]) {
   const api = {
-    listVersions: vi.fn(async () => ({ versions: [{ id: "v1", versionNo: 1, sizeBytes: 12, createdAt: "2026-01-01" }] })),
+    listVersions: vi.fn(async () => ({
+      versions: [{ id: "v1", versionNo: 1, sizeBytes: 12, createdAt: "2026-01-01" }],
+    })),
     getNode: vi.fn(async () => ({ permissions })),
-    restoreVersion: vi.fn(async () => { throw new Error("Conflit de version"); }),
+    restoreVersion: vi.fn(async () => {
+      throw new Error("Conflit de version");
+    }),
   };
-  render(<VersionsDialog ctx={{ api } as unknown as OpsCtx} entry={{ id: "n1", name: "Document" } as DriveEntry} onClose={() => {}} />);
+  render(
+    <VersionsDialog
+      ctx={{ api } as unknown as OpsCtx}
+      entry={{ id: "n1", name: "Document" } as DriveEntry}
+      onClose={() => {}}
+    />,
+  );
   return api;
 }
 

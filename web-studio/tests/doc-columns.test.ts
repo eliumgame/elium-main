@@ -56,7 +56,7 @@ describe("Colonnes — commandes de l'éditeur", () => {
     editor = makeEditor("<p>alpha</p>");
     editor.commands.setTextSelection(2);
     expect(editor.commands.setColumns({ count: 3, gapMm: 12, separator: true })).toBe(true);
-    const json = (editor.getJSON() as JSONContent);
+    const json = editor.getJSON() as JSONContent;
     const section = json.content!.find((n) => n.type === "columnSection");
     expect(section).toBeDefined();
     expect(section!.attrs).toMatchObject({ count: 3, gapMm: 12, separator: true });
@@ -78,7 +78,7 @@ describe("Colonnes — commandes de l'éditeur", () => {
     editor.commands.setTextSelection(2);
     editor.commands.setColumns({ count: 2 });
     expect(editor.commands.unsetColumns()).toBe(true);
-    const json = (editor.getJSON() as JSONContent);
+    const json = editor.getJSON() as JSONContent;
     expect(json.content!.some((n) => n.type === "columnSection")).toBe(false);
     expect(json.content!.some((n) => n.content?.[0]?.text === "alpha")).toBe(true);
   });

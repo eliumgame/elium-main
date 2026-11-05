@@ -409,10 +409,12 @@ export async function installMaster(
   for (const entry of derived) {
     if (entry.derivationIndex === undefined)
       throw new KeyringError("Clé dérivée sans indice : restauration impossible.");
-    const publicHex = entry.type === "identity-ed25519"
-      ? (await deriveEd25519(master, entry.derivationIndex)).publicKeyHex
-      : entry.type === "recipient-p256"
-        ? (await deriveP256(master, entry.derivationIndex)).publicHex : undefined;
+    const publicHex =
+      entry.type === "identity-ed25519"
+        ? (await deriveEd25519(master, entry.derivationIndex)).publicKeyHex
+        : entry.type === "recipient-p256"
+          ? (await deriveP256(master, entry.derivationIndex)).publicHex
+          : undefined;
     if (publicHex?.toLowerCase() !== entry.publicHex.toLowerCase())
       throw new KeyringError("La phrase ou les parts ne correspondent pas au trousseau existant.");
   }

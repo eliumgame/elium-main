@@ -124,7 +124,10 @@ describe("submitSignedElium", () => {
     const submitSignature = vi.fn<DriveApi["submitSignature"]>(async () => ({ ok: true }));
     const api = { submitSignature } as unknown as DriveApi;
 
-    await submitSignedElium(api, "tok-5", nodeKey, new Uint8Array([1, 2, 3]), undefined, { baseVersionId: "v1", keyEpoch: 2 });
+    await submitSignedElium(api, "tok-5", nodeKey, new Uint8Array([1, 2, 3]), undefined, {
+      baseVersionId: "v1",
+      keyEpoch: 2,
+    });
 
     const [, , , fpr] = submitSignature.mock.calls[0]!;
     expect(fpr).toBeUndefined();

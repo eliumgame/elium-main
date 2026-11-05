@@ -99,8 +99,12 @@ export async function wipeLocalWorkspaceData(): Promise<void> {
   // État de synchronisation Drive par compte/organisation : effacé avec les données pour
   // qu'un espace vide ne soit jamais poussé par-dessus une sauvegarde au prochain démarrage.
   for (const k of Object.keys(localStorage))
-    if (k.startsWith("elium_drive_sync_v1:") || k.startsWith("elium_drive_link:") ||
-      k.startsWith("elium-detector-") || k === "elium_sync_dirty_v1")
+    if (
+      k.startsWith("elium_drive_sync_v1:") ||
+      k.startsWith("elium_drive_link:") ||
+      k.startsWith("elium-detector-") ||
+      k === "elium_sync_dirty_v1"
+    )
       localStorage.removeItem(k);
   await Promise.all(LOCAL_WORKSPACE_DATABASES.map((db) => deleteDatabase(db)));
 }

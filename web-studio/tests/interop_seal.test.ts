@@ -45,15 +45,32 @@ describe.skipIf(!PYTHON_EXEC)("cross-language interop — seal / journal / proof
   it("vérifie les preuves et sceaux à coordonnées exponentielles dans les deux sens", async () => {
     const id = await generateIdentity();
     const placement = { ...PLACEMENT, xPct: 5e-5, yPct: 1.5e-7, rotation: 1e-6, z: 1e16 };
-    const fromPython = py(["doc-encode-signed", "signed", id.privateKeyHex!, "Alice",
-      id.privateKeyHex!, JSON.stringify(placement)], "Interop exposants");
+    const fromPython = py(
+      ["doc-encode-signed", "signed", id.privateKeyHex!, "Alice", id.privateKeyHex!, JSON.stringify(placement)],
+      "Interop exposants",
+    );
     const { file, seal } = await readEliumPackage(new Uint8Array(fromPython));
     expect(seal.verdict).toBe("valid");
     expect(await verifyProof(file.signatures[0], file.document)).toBe("valid");
-    const proof = await createProof({ signatureId: "exponents", model: file.document,
-      signer: { name: "Bob" }, privateKeyHex: id.privateKeyHex!, placement });
-    file.signatures = [{ id: "exponents", kind: "typed", signer: { name: "Bob" }, placement,
-      proof, visual: { text: "Bob" }, level: "advanced", createdAt: proof.signedAt }];
+    const proof = await createProof({
+      signatureId: "exponents",
+      model: file.document,
+      signer: { name: "Bob" },
+      privateKeyHex: id.privateKeyHex!,
+      placement,
+    });
+    file.signatures = [
+      {
+        id: "exponents",
+        kind: "typed",
+        signer: { name: "Bob" },
+        placement,
+        proof,
+        visual: { text: "Bob" },
+        level: "advanced",
+        createdAt: proof.signedAt,
+      },
+    ];
     const fromWeb = await writeEliumPackage(file, { sealPrivateKeyHex: id.privateKeyHex });
     const result = pyJson(["doc-decode-verify", "-", id.publicKeyHex, "-"], Buffer.from(fromWeb));
     expect(result.seal).toBe("valid");

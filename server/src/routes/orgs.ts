@@ -384,36 +384,68 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
       assertCanGrant(ctx, target);
     }
 
-    const { removed, rotationGroups, rotationNodes } = await withTx(async c => {
+    const { removed, rotationGroups, rotationNodes } = await withTx(async (c) => {
       const { rows: locked } = await c.query<{ owner_user_id: string }>(
-        `SELECT owner_user_id FROM organizations WHERE id = $1 FOR UPDATE`, [orgId]);
+        `SELECT owner_user_id FROM organizations WHERE id = $1 FOR UPDATE`,
+        [orgId],
+      );
       if (!locked[0]) throw notFound();
       if (locked[0].owner_user_id === userId) throw conflict("Le propriétaire ne peut pas être retiré.");
       const { rows: admins } = await c.query<{ admin_user_id: string }>(
-        `SELECT admin_user_id FROM org_recovery_keys WHERE org_id = $1 FOR UPDATE`, [orgId]);
-      const hadRecovery = admins.some(a => a.admin_user_id === userId);
-      if (hadRecovery && admins.length === 1) throw conflict("Ajoutez un autre administrateur de recouvrement avant ce retrait.");
-      const { rows } = await c.query<{ id: string }>(`DELETE FROM memberships WHERE org_id = $1 AND user_id = $2 RETURNING id`, [orgId, userId]);
+        `SELECT admin_user_id FROM org_recovery_keys WHERE org_id = $1 FOR UPDATE`,
+        [orgId],
+      );
+      const hadRecovery = admins.some((a) => a.admin_user_id === userId);
+      if (hadRecovery && admins.length === 1)
+        throw conflict("Ajoutez un autre administrateur de recouvrement avant ce retrait.");
+      const { rows } = await c.query<{ id: string }>(
+        `DELETE FROM memberships WHERE org_id = $1 AND user_id = $2 RETURNING id`,
+        [orgId, userId],
+      );
       if (!rows[0]) throw notFound("Membre introuvable dans cette organisation.");
       const { rows: teams } = await c.query<{ group_id: string }>(
-        `DELETE FROM group_members gm USING groups g WHERE gm.group_id = g.id AND g.org_id = $1 AND gm.user_id = $2 RETURNING gm.group_id`, [orgId, userId]);
-      const rotationGroups = teams.map(g => g.group_id);
+        `DELETE FROM group_members gm USING groups g WHERE gm.group_id = g.id AND g.org_id = $1 AND gm.user_id = $2 RETURNING gm.group_id`,
+        [orgId, userId],
+      );
+      const rotationGroups = teams.map((g) => g.group_id);
       // Freeze future writes before discarding the grants that identify exposed keys.
       const { rows: exposed } = await c.query<{ id: string }>(
         `SELECT DISTINCT n.id FROM nodes n LEFT JOIN node_keys k ON k.node_id = n.id
           WHERE n.org_id = $1 AND ($4::boolean OR n.owner_user_id = $2
             OR (k.principal_type = 'user' AND k.principal_id = $2)
             OR (k.principal_type = 'group' AND k.principal_id = ANY($3::uuid[])))`,
-        [orgId, userId, rotationGroups, hadRecovery]);
-      const rotationNodes = await markRequiredNodeRotations(c, exposed.map(n => n.id));
-      if (rotationGroups.length) await c.query(`UPDATE groups SET rotation_required = true WHERE id = ANY($1::uuid[])`, [rotationGroups]);
-      await c.query(`DELETE FROM node_keys k USING nodes n WHERE k.node_id = n.id AND n.org_id = $1 AND k.principal_type = 'user' AND k.principal_id = $2`, [orgId, userId]);
-      await c.query(`UPDATE nodes SET owner_user_id = $3 WHERE org_id = $1 AND owner_user_id = $2`, [orgId, userId, locked[0].owner_user_id]);
+        [orgId, userId, rotationGroups, hadRecovery],
+      );
+      const rotationNodes = await markRequiredNodeRotations(
+        c,
+        exposed.map((n) => n.id),
+      );
+      if (rotationGroups.length)
+        await c.query(`UPDATE groups SET rotation_required = true WHERE id = ANY($1::uuid[])`, [rotationGroups]);
+      await c.query(
+        `DELETE FROM node_keys k USING nodes n WHERE k.node_id = n.id AND n.org_id = $1 AND k.principal_type = 'user' AND k.principal_id = $2`,
+        [orgId, userId],
+      );
+      await c.query(`UPDATE nodes SET owner_user_id = $3 WHERE org_id = $1 AND owner_user_id = $2`, [
+        orgId,
+        userId,
+        locked[0].owner_user_id,
+      ]);
       // Revocation is permanent: re-invitation must never resurrect old links.
-      await c.query(`UPDATE share_links sl SET revoked_at = now() FROM nodes n WHERE sl.node_id = n.id AND n.org_id = $1 AND sl.created_by = $2 AND sl.revoked_at IS NULL`, [orgId, userId]);
-      await c.query(`UPDATE signature_request_parties p SET status = 'cancelled' FROM share_links sl, nodes n WHERE p.link_id = sl.id AND sl.node_id = n.id AND n.org_id = $1 AND sl.created_by = $2 AND p.status = 'pending'`, [orgId, userId]);
+      await c.query(
+        `UPDATE share_links sl SET revoked_at = now() FROM nodes n WHERE sl.node_id = n.id AND n.org_id = $1 AND sl.created_by = $2 AND sl.revoked_at IS NULL`,
+        [orgId, userId],
+      );
+      await c.query(
+        `UPDATE signature_request_parties p SET status = 'cancelled' FROM share_links sl, nodes n WHERE p.link_id = sl.id AND sl.node_id = n.id AND n.org_id = $1 AND sl.created_by = $2 AND p.status = 'pending'`,
+        [orgId, userId],
+      );
       await c.query(`DELETE FROM org_recovery_keys WHERE org_id = $1 AND admin_user_id = $2`, [orgId, userId]);
-      if (hadRecovery) await c.query(`UPDATE organizations SET settings = coalesce(settings, '{}'::jsonb) || jsonb_build_object('orgKeyRotationRequired', true, 'keyRotationDueSince', now()::text) WHERE id = $1`, [orgId]);
+      if (hadRecovery)
+        await c.query(
+          `UPDATE organizations SET settings = coalesce(settings, '{}'::jsonb) || jsonb_build_object('orgKeyRotationRequired', true, 'keyRotationDueSince', now()::text) WHERE id = $1`,
+          [orgId],
+        );
       return { removed: rows[0], rotationGroups, rotationNodes };
     });
     // Coupe immédiatement ses connexions temps réel (documents collab, canal
@@ -451,24 +483,29 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
     const ownerRole = await queryOne<{ id: string }>(`SELECT id FROM roles WHERE org_id = $1 AND key = 'owner'`, [
       orgId,
     ]);
-    const adminRole = await queryOne<{ id: string }>(`SELECT id FROM roles WHERE org_id = $1 AND key = 'admin'`, [orgId]);
-    if (!ownerRole || !adminRole) throw conflict("Les rôles propriétaire et administrateur doivent exister avant le transfert.");
+    const adminRole = await queryOne<{ id: string }>(`SELECT id FROM roles WHERE org_id = $1 AND key = 'admin'`, [
+      orgId,
+    ]);
+    if (!ownerRole || !adminRole)
+      throw conflict("Les rôles propriétaire et administrateur doivent exister avant le transfert.");
 
     await withTx(async (c) => {
-      const changed = await c.query(`UPDATE organizations SET owner_user_id = $2, updated_at = now() WHERE id = $1 AND owner_user_id = $3 RETURNING id`, [
-        orgId,
-        b.newOwnerUserId,
-        actor.id,
-      ]);
+      const changed = await c.query(
+        `UPDATE organizations SET owner_user_id = $2, updated_at = now() WHERE id = $1 AND owner_user_id = $3 RETURNING id`,
+        [orgId, b.newOwnerUserId, actor.id],
+      );
       if (!changed.rows.length) throw conflict("La propriété a changé entre-temps.");
-      const promoted = await c.query(`UPDATE memberships SET role_id = $3 WHERE org_id = $1 AND user_id = $2 AND status = 'active' RETURNING id`, [
-          orgId,
-          b.newOwnerUserId,
-          ownerRole.id,
-        ]);
+      const promoted = await c.query(
+        `UPDATE memberships SET role_id = $3 WHERE org_id = $1 AND user_id = $2 AND status = 'active' RETURNING id`,
+        [orgId, b.newOwnerUserId, ownerRole.id],
+      );
       if (!promoted.rows.length) throw conflict("Le nouveau propriétaire n'est plus membre actif.");
-      await c.query(`UPDATE memberships SET role_id = $3 WHERE org_id = $1 AND user_id = $2 AND role_id = $4`,
-        [orgId, actor.id, adminRole.id, ownerRole.id]);
+      await c.query(`UPDATE memberships SET role_id = $3 WHERE org_id = $1 AND user_id = $2 AND role_id = $4`, [
+        orgId,
+        actor.id,
+        adminRole.id,
+        ownerRole.id,
+      ]);
     });
     await audit(orgId, actor.id, "org.ownership.transfer", "org", orgId, { newOwnerUserId: b.newOwnerUserId }, req.ip);
     return { ok: true };
@@ -588,7 +625,10 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
        DO NOTHING RETURNING admin_user_id`,
       [orgId, b.adminUserId, JSON.stringify(b.wrappedOrgPrivate)],
     );
-    if (!granted.length) throw conflict("Cet administrateur possède déjà une clé de recouvrement. Utilisez la rotation pour la remplacer.");
+    if (!granted.length)
+      throw conflict(
+        "Cet administrateur possède déjà une clé de recouvrement. Utilisez la rotation pour la remplacer.",
+      );
     await audit(orgId, actor.id, "recovery.admin.grant", "org", orgId, { adminUserId: b.adminUserId }, req.ip);
     return { ok: true };
   });
@@ -869,11 +909,15 @@ export async function applyOrgKeyRotation(
     // Never destroy the old recovery key while any of its existing shares is
     // absent from the rewrap payload (including nodes in the trash).
     const existingKeys = await c.query<{ node_id: string }>(
-      `SELECT node_id FROM node_keys WHERE principal_type = 'org' AND principal_id = $1 FOR UPDATE`, [orgId],
+      `SELECT node_id FROM node_keys WHERE principal_type = 'org' AND principal_id = $1 FOR UPDATE`,
+      [orgId],
     );
-    const nodeIds = new Set(payload.nodeKeys.map(k => k.nodeId));
-    if (nodeIds.size !== payload.nodeKeys.length || nodeIds.size !== existingKeys.rows.length ||
-      existingKeys.rows.some(k => !nodeIds.has(k.node_id))) {
+    const nodeIds = new Set(payload.nodeKeys.map((k) => k.nodeId));
+    if (
+      nodeIds.size !== payload.nodeKeys.length ||
+      nodeIds.size !== existingKeys.rows.length ||
+      existingKeys.rows.some((k) => !nodeIds.has(k.node_id))
+    ) {
       throw conflict("La liste des nœuds à ré-envelopper a changé ou est incomplète. Rechargez-la avant la rotation.");
     }
 

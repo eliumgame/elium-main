@@ -52,9 +52,16 @@ export async function deriveAccountSecrets(
 ): Promise<AccountSecrets> {
   // CLIENT-07 : `params` peut venir du serveur (prelogin). Un serveur hostile ne doit
   // pas pouvoir imposer un Argon2id démesuré (DoS mémoire/CPU) ni un autre algorithme.
-  if (!params || params.alg !== "argon2id" || !kdfWithinBounds(params) ||
-      params.t < KDF_PROFILES.account.t || params.m < KDF_PROFILES.account.m || params.p < KDF_PROFILES.account.p ||
-      !/^[0-9a-f]{32,128}$/i.test(kdfSaltHex) || kdfSaltHex.length % 2 !== 0) {
+  if (
+    !params ||
+    params.alg !== "argon2id" ||
+    !kdfWithinBounds(params) ||
+    params.t < KDF_PROFILES.account.t ||
+    params.m < KDF_PROFILES.account.m ||
+    params.p < KDF_PROFILES.account.p ||
+    !/^[0-9a-f]{32,128}$/i.test(kdfSaltHex) ||
+    kdfSaltHex.length % 2 !== 0
+  ) {
     throw new Error("Paramètres KDF du serveur hors bornes ou non pris en charge (refusés par sécurité).");
   }
   const root = await EliumCryptoEngine.deriveMasterKey(password, fromHex(kdfSaltHex), params.t, params.m, params.p);

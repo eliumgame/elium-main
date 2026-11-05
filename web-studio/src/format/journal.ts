@@ -63,10 +63,17 @@ export async function verifyJournal(journal: Journal): Promise<JournalVerdict> {
   let prevHash = ZERO_HASH;
   for (let i = 0; i < journal.events.length; i++) {
     const e = journal.events[i];
-    const objectOrAbsent = (value: unknown) => value === undefined ||
-      (value !== null && typeof value === "object" && !Array.isArray(value));
-    if (!e || e.seq !== i || e.prevHash !== prevHash || typeof e.type !== "string" || typeof e.at !== "string" ||
-        !objectOrAbsent(e.actor) || !objectOrAbsent(e.data)) {
+    const objectOrAbsent = (value: unknown) =>
+      value === undefined || (value !== null && typeof value === "object" && !Array.isArray(value));
+    if (
+      !e ||
+      e.seq !== i ||
+      e.prevHash !== prevHash ||
+      typeof e.type !== "string" ||
+      typeof e.at !== "string" ||
+      !objectOrAbsent(e.actor) ||
+      !objectOrAbsent(e.data)
+    ) {
       return { valid: false, brokenAt: i, count: journal.events.length };
     }
     const payload = buildPayload(e.seq, e.type, e.at, { actor: e.actor, data: e.data });

@@ -12,7 +12,10 @@ import { jpegComponentCount, isJpegSafeToRecompress } from "../src/pdf/ops/optim
  */
 
 function makeImageDict(ctx: PDFContext, props: Record<string, unknown>): PDFDict {
-  return PDFDict.fromMapWithContext(new Map(Object.entries(props).map(([k, v]) => [PDFName.of(k), ctx.obj(v as number)])), ctx);
+  return PDFDict.fromMapWithContext(
+    new Map(Object.entries(props).map(([k, v]) => [PDFName.of(k), ctx.obj(v as number)])),
+    ctx,
+  );
 }
 
 /** Builds a synthetic baseline-JPEG byte sequence with just enough of a real

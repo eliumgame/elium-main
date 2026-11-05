@@ -47,7 +47,11 @@ export default function ShareDialog({ ctx, entry, onClose }: { ctx: OpsCtx; entr
   const dialogs = useDialogs();
   const confirmRecipient = async (label: string, pub: string) => {
     const f = await keyFingerprint(pub);
-    return dialogs.confirm({ title: "Vérifier le destinataire", message: `${label}\nMots de sécurité : ${f.words}\n${f.grouped}\nComparez cette empreinte avec le destinataire par un autre canal.`, confirmLabel: "Partager" });
+    return dialogs.confirm({
+      title: "Vérifier le destinataire",
+      message: `${label}\nMots de sécurité : ${f.words}\n${f.grouped}\nComparez cette empreinte avec le destinataire par un autre canal.`,
+      confirmLabel: "Partager",
+    });
   };
   const [shares, setShares] = useState<ShareRow[]>([]);
   const [email, setEmail] = useState("");

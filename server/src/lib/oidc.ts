@@ -158,9 +158,15 @@ export function verifyIdTokenWithKeys(
   if (payload.exp + skew < now) throw new OidcError("Jeton d'identité expiré.");
   if (typeof payload.nbf === "number" && payload.nbf - skew > now)
     throw new OidcError("Jeton d'identité pas encore valide.");
-  if (typeof payload.iat !== "number" || !Number.isSafeInteger(payload.iat) ||
-      payload.iat > now + skew || payload.iat < now - 300 - skew) {
-    throw new OidcError("Jeton d'identité trop ancien ou date d'émission (iat) invalide : reconnectez-vous au fournisseur.");
+  if (
+    typeof payload.iat !== "number" ||
+    !Number.isSafeInteger(payload.iat) ||
+    payload.iat > now + skew ||
+    payload.iat < now - 300 - skew
+  ) {
+    throw new OidcError(
+      "Jeton d'identité trop ancien ou date d'émission (iat) invalide : reconnectez-vous au fournisseur.",
+    );
   }
   if (Array.isArray(aud) && aud.length > 1 && payload.azp !== config.clientId) {
     throw new OidcError("Partie autorisée (azp) inattendue.");

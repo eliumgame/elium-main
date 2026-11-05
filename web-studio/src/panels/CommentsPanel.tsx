@@ -10,14 +10,21 @@ interface CommentEntry extends CommentAttrs {
 
 export function decodeComment(attrs: Record<string, unknown>): CommentAttrs | null {
   if (typeof attrs.id !== "string" || !attrs.id) return null;
-  const text = (v: unknown) => typeof v === "string" ? v : "";
-  const date = (v: unknown) => typeof v === "string" && Number.isFinite(Date.parse(v)) ? v : "";
+  const text = (v: unknown) => (typeof v === "string" ? v : "");
+  const date = (v: unknown) => (typeof v === "string" && Number.isFinite(Date.parse(v)) ? v : "");
   const replies: CommentReply[] = [];
   for (const raw of Array.isArray(attrs.replies) ? attrs.replies : []) {
     if (!raw || typeof raw !== "object" || typeof raw.id !== "string" || typeof raw.text !== "string") continue;
     replies.push({ id: raw.id, author: text(raw.author), text: raw.text, createdAt: date(raw.createdAt) });
   }
-  return { id: attrs.id, author: text(attrs.author), text: text(attrs.text), createdAt: date(attrs.createdAt), resolved: attrs.resolved === true, replies };
+  return {
+    id: attrs.id,
+    author: text(attrs.author),
+    text: text(attrs.text),
+    createdAt: date(attrs.createdAt),
+    resolved: attrs.resolved === true,
+    replies,
+  };
 }
 
 function newReplyId(): string {

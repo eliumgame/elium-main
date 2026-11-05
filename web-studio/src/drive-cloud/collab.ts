@@ -293,7 +293,11 @@ export class EncryptedCollabChannel {
       try {
         if (this.handlers.refetchKey) {
           const fresh = await this.handlers.refetchKey();
-          if (!fresh) { this.handlers.onStatus?.("revoked"); this.close(); return; }
+          if (!fresh) {
+            this.handlers.onStatus?.("revoked");
+            this.close();
+            return;
+          }
           this.nodeKey = fresh;
           this.lastSeq = 0;
           await this.catchUp();

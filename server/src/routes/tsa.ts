@@ -266,7 +266,8 @@ export default async function tsaRoutes(app: FastifyInstance): Promise<void> {
     const body = req.body;
     // A TimeStampReq is a DER SEQUENCE.
     if (!Buffer.isBuffer(body) || !isDerSequence(body)) throw badRequest("Demande d'horodatage invalide.");
-    if (!config.tsaAllowedUrls.includes(target)) throw badRequest("Autorité d'horodatage non autorisée par ce serveur.");
+    if (!config.tsaAllowedUrls.includes(target))
+      throw badRequest("Autorité d'horodatage non autorisée par ce serveur.");
     const resolved = await resolveTsaTarget(target);
     if ("problem" in resolved) throw badRequest(resolved.problem);
     let data: Buffer;

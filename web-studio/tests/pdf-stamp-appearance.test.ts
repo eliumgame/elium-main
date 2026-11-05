@@ -37,7 +37,15 @@ function jpegBytes(): Uint8Array {
 /** `/Length` is derived from `contents` automatically at save time (see
  * `PDFStream.updateDict`) — no need to set it by hand. */
 function registerRawStream(ctx: PDFContext, dictProps: Record<string, unknown>, contents: Uint8Array): PDFRef {
-  return ctx.register(PDFRawStream.of(PDFDict.fromMapWithContext(new Map(Object.entries(dictProps).map(([k, v]) => [PDFName.of(k), ctx.obj(v as number)])), ctx), contents));
+  return ctx.register(
+    PDFRawStream.of(
+      PDFDict.fromMapWithContext(
+        new Map(Object.entries(dictProps).map(([k, v]) => [PDFName.of(k), ctx.obj(v as number)])),
+        ctx,
+      ),
+      contents,
+    ),
+  );
 }
 
 /** A hand-built raw Image XObject (FlateDecode, DeviceRGB) — the "no camera, no

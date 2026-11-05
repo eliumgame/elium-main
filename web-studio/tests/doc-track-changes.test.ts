@@ -31,7 +31,9 @@ function makeSuggestingEditor(author = "Alice", content = "<p>Bonjour le monde</
  *  `beforeinput`/composition pipeline, which jsdom does not implement for
  *  contenteditable. */
 function typeText(editor: Editor, from: number, to: number, text: string): boolean {
-  return !!editor.view.someProp("handleTextInput", (f) => f(editor.view, from, to, text, () => editor.state.tr.insertText(text, from, to)));
+  return !!editor.view.someProp("handleTextInput", (f) =>
+    f(editor.view, from, to, text, () => editor.state.tr.insertText(text, from, to)),
+  );
 }
 
 /** Real keydown, dispatched on the view's own DOM node — exercises the exact
@@ -311,9 +313,9 @@ describe("TrackChanges — accepter/refuser UNE modification", () => {
 
   it("acceptChange/rejectChange à une position sans marque est un no-op", () => {
     editor = makeSuggestingEditor();
-    const before = (editor.getJSON() as JSONContent);
+    const before = editor.getJSON() as JSONContent;
     editor.commands.acceptChange(3);
-    expect((editor.getJSON() as JSONContent)).toEqual(before);
+    expect(editor.getJSON() as JSONContent).toEqual(before);
   });
 });
 
@@ -322,7 +324,7 @@ describe("TrackChanges — Entrée suivie (saut de paragraphe)", () => {
     editor = makeSuggestingEditor();
     editor.commands.setTextSelection(9); // après "Bonjour "
     expect(pressKey(editor, "Enter")).toBe(true);
-    const json = (editor.getJSON() as JSONContent);
+    const json = editor.getJSON() as JSONContent;
     expect(json.content).toHaveLength(2);
     expect(json.content![0]!.content?.map((n) => n.text).join("")).toBe("Bonjour ");
     expect(json.content![1]!.content?.map((n) => n.text).join("")).toBe("le monde");

@@ -166,7 +166,10 @@ export function useCollabSheetStore({ api, nodeId, nodeKey, user, refetchKey }: 
     };
   }, [undoMgr]);
 
-  const sheetAt = (s: number): SM.YSheet | undefined => { const v = ySheets.get(s); return v instanceof Y.Map ? v : undefined; };
+  const sheetAt = (s: number): SM.YSheet | undefined => {
+    const v = ySheets.get(s);
+    return v instanceof Y.Map ? v : undefined;
+  };
 
   // ── Mutateurs (chacun une transaction Yjs ciblée sur la feuille `s`) ──────
   const setCell = (s: number, ref: string, raw: string) => {

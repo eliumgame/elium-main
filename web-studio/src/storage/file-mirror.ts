@@ -200,14 +200,19 @@ export class FileMirror {
           const [dir, name] = p.split("/");
           return `${dir}/${prefix}${name}`;
         };
-        this.deps = { ...this.deps, backend: {
-          root: backend.root,
-          list: async () => (await backend.list()).filter((f) => f.p.split("/")[1]?.startsWith(prefix))
-            .map((f) => ({ ...f, p: f.p.replace(`/${prefix}`, "/") })),
-          read: (p) => backend.read(path(p)),
-          write: (p, b) => backend.write(path(p), b),
-          remove: (p, o) => backend.remove(path(p), o),
-        } };
+        this.deps = {
+          ...this.deps,
+          backend: {
+            root: backend.root,
+            list: async () =>
+              (await backend.list())
+                .filter((f) => f.p.split("/")[1]?.startsWith(prefix))
+                .map((f) => ({ ...f, p: f.p.replace(`/${prefix}`, "/") })),
+            read: (p) => backend.read(path(p)),
+            write: (p, b) => backend.write(path(p), b),
+            remove: (p, o) => backend.remove(path(p), o),
+          },
+        };
         this.appliedKey += `:${prefix}`;
       }
       this.scoped = true;

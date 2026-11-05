@@ -222,8 +222,7 @@ post_restore_hook() {
 }
 
 _wait_db() {
-  local i
-  for i in $(seq 1 "${ELIUM_DB_WAIT_TRIES:-30}"); do
+  for _ in $(seq 1 "${ELIUM_DB_WAIT_TRIES:-30}"); do
     if _psql postgres -Atqc 'SELECT 1' >/dev/null 2>&1; then return 0; fi
     sleep "${ELIUM_HEALTH_STEP_S:-2}"
   done

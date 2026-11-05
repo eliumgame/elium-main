@@ -543,7 +543,8 @@ export default function DriveBrowser() {
     if (ctx && e.rotationRequired) {
       try {
         const result = await repairInterruptedRotation(ctx, e);
-        if (result.remaining) throw new Error("Le propriétaire doit terminer le renouvellement de la clé avant de modifier ce fichier.");
+        if (result.remaining)
+          throw new Error("Le propriétaire doit terminer le renouvellement de la clé avant de modifier ce fichier.");
         const { node, myWrappedKey } = await ctx.api.getNode(e.id);
         e = { ...e, ...node, myWrappedKey };
       } catch (error) {

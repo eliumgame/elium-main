@@ -30,11 +30,20 @@ async function raw(dbName: string, store: string, key: string): Promise<Record<s
       tx.oncomplete = () => resolve(req.result);
       tx.onerror = () => reject(tx.error);
     });
-  } finally { db.close(); }
+  } finally {
+    db.close();
+  }
 }
 
 it("Drive : réécrire en mode coffre retire les titres, profil et octets en clair", async () => {
-  const input = { id: "drive-g23", title: "Titre confidentiel", profile: "standard", savedAt: "2026-11-04", size: 4, bytes: new Uint8Array([1, 2, 3, 4]) };
+  const input = {
+    id: "drive-g23",
+    title: "Titre confidentiel",
+    profile: "standard",
+    savedAt: "2026-11-04",
+    size: 4,
+    bytes: new Uint8Array([1, 2, 3, 4]),
+  };
   await putDriveDoc(input);
   await putDriveDoc(input, { password });
   const stored = await raw("elium-drive", "docs", input.id);
@@ -48,7 +57,11 @@ it("Drive : réécrire en mode coffre retire les titres, profil et octets en cla
 });
 
 it("Parapheur : les signataires disparaissent du stockage brut lorsque le coffre est activé", async () => {
-  const wf: Workflow = { docKey: "g23-parapheur", createdAt: "2026-11-04", parties: [{ id: "p", name: "Signataire confidentiel", role: "Validateur", status: "pending" }] };
+  const wf: Workflow = {
+    docKey: "g23-parapheur",
+    createdAt: "2026-11-04",
+    parties: [{ id: "p", name: "Signataire confidentiel", role: "Validateur", status: "pending" }],
+  };
   await saveWorkflow(wf);
   await saveWorkflow(wf, { password });
   const stored = await raw("elium-parapheur", "workflows", wf.docKey);

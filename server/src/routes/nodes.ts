@@ -17,7 +17,12 @@ import { config } from "../config.js";
 import { ApiError } from "../lib/errors.js";
 import { assertUserQuota, getSiteSettings } from "../lib/site-settings.js";
 import { assertDiskSpace } from "../lib/disk.js";
-import { contentPreconditions, assertContentBase, DEPRECATION_HEADER, DEPRECATION_VALUE } from "../lib/content-preconditions.js";
+import {
+  contentPreconditions,
+  assertContentBase,
+  DEPRECATION_HEADER,
+  DEPRECATION_VALUE,
+} from "../lib/content-preconditions.js";
 import { assertFreshPrincipalKeys } from "../lib/key-share-policy.js";
 import type { Readable } from "node:stream";
 
@@ -29,7 +34,10 @@ const keyShareSchema = z.object({
   principalId: z.string().uuid(),
   roleId: z.string().uuid(),
   wrappedKey: envelope,
-  groupPublicHex: z.string().regex(/^[0-9a-f]{130}$/).optional(),
+  groupPublicHex: z
+    .string()
+    .regex(/^[0-9a-f]{130}$/)
+    .optional(),
   inheritedFrom: z.string().uuid().nullable().optional(),
 });
 
@@ -369,7 +377,10 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
 
     const revokedNodeIds = new Set<string>();
     const node = await withTx(async (c) => {
-      const { rows } = await c.query(`UPDATE nodes SET ${sets.join(", ")} WHERE id = $1 AND NOT key_rotation_required RETURNING *`, params);
+      const { rows } = await c.query(
+        `UPDATE nodes SET ${sets.join(", ")} WHERE id = $1 AND NOT key_rotation_required RETURNING *`,
+        params,
+      );
       if (!rows[0]) throw conflict("Le nœud est indisponible ou sa clé doit être renouvelée avant modification.");
       if (isMove) {
         // A folder-inherited ACL grant is materialized (fanned out) onto every
@@ -652,7 +663,10 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const updated = await withTx(async (c) => {
-        const { rows: cur } = await c.query(`SELECT key_epoch, current_version_id, key_rotation_required FROM nodes WHERE id = $1 FOR UPDATE`, [id]);
+        const { rows: cur } = await c.query(
+          `SELECT key_epoch, current_version_id, key_rotation_required FROM nodes WHERE id = $1 FOR UPDATE`,
+          [id],
+        );
         if (!cur[0]) throw notFound();
         assertContentBase(base, cur[0]);
         // Storage quota: a new version ADDS `size` bytes (prior versions are kept).
@@ -701,7 +715,15 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
         throw err;
       });
 
-      await audit(access.orgId, user.id, "node.content.update", "file", id, base.legacy ? { size, legacyClient: true } : { size }, req.ip);
+      await audit(
+        access.orgId,
+        user.id,
+        "node.content.update",
+        "file",
+        id,
+        base.legacy ? { size, legacyClient: true } : { size },
+        req.ip,
+      );
       notifyOrg(access.orgId);
       return { node: nodeMetaDto(updated) };
     },
@@ -711,10 +733,12 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
   app.get("/:id/content", { config: { rateLimit: { max: 400, timeWindow: "1 minute" } } }, async (req, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     await requireNodePerm(req, id, "node.download");
-    const node = await queryOne<{ content_ref: string | null; content_nonce: Buffer | null; current_version_id: string | null; key_epoch: number }>(
-      `SELECT content_ref, content_nonce, current_version_id, key_epoch FROM nodes WHERE id = $1`,
-      [id],
-    );
+    const node = await queryOne<{
+      content_ref: string | null;
+      content_nonce: Buffer | null;
+      current_version_id: string | null;
+      key_epoch: number;
+    }>(`SELECT content_ref, content_nonce, current_version_id, key_epoch FROM nodes WHERE id = $1`, [id]);
     if (!node?.content_ref) throw notFound("Aucun contenu.");
     reply.header("content-type", "application/octet-stream");
     reply.header("x-content-version-id", node.current_version_id ?? "null");

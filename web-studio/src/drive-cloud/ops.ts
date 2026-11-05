@@ -367,8 +367,14 @@ export async function saveNewVersion(
   if (!key) throw new Error("Clé du nœud indisponible.");
   const enc = await encryptContent(key, bytes);
   try {
-    const baseVersionId = opts.baseVersionId !== undefined ? opts.baseVersionId : node.currentVersionId ?? null;
-    const { node: updated } = await ctx.api.putContent(nodeId, enc.ciphertext, enc.nonceHex, node.keyEpoch ?? 1, baseVersionId);
+    const baseVersionId = opts.baseVersionId !== undefined ? opts.baseVersionId : (node.currentVersionId ?? null);
+    const { node: updated } = await ctx.api.putContent(
+      nodeId,
+      enc.ciphertext,
+      enc.nonceHex,
+      node.keyEpoch ?? 1,
+      baseVersionId,
+    );
     return updated;
   } catch (e) {
     if (e instanceof ApiError && e.status === 409) throw new DriveConflict(node.modifiedAt);
@@ -411,7 +417,10 @@ export async function decryptNodeBlob(
   }
 }
 
-export async function downloadFile(ctx: OpsCtx, entry: DriveEntry): Promise<{ bytes: Uint8Array; name: string } & ContentSnapshot> {
+export async function downloadFile(
+  ctx: OpsCtx,
+  entry: DriveEntry,
+): Promise<{ bytes: Uint8Array; name: string } & ContentSnapshot> {
   const key = await nodeKeyFrom(ctx, entry.myWrappedKey);
   if (!key) throw new Error("Clé du nœud indisponible.");
   const { bytes, nonceHex, baseVersionId, keyEpoch } = await ctx.api.getContent(entry.id);
@@ -681,7 +690,8 @@ export async function syncCircuitForSignRequest(
   );
   const bytes = await writeEliumPackage(nf, { carryForwardSeal: loaded.file.manifest.seal });
   const enc = await encryptContent(loaded.nodeKey, bytes);
-  if (loaded.baseVersionId === undefined || loaded.keyEpoch === undefined) throw new Error("Version de base inconnue : rechargez le document avant de synchroniser le circuit.");
+  if (loaded.baseVersionId === undefined || loaded.keyEpoch === undefined)
+    throw new Error("Version de base inconnue : rechargez le document avant de synchroniser le circuit.");
   await ctx.api.putContent(entry.id, enc.ciphertext, enc.nonceHex, loaded.keyEpoch, loaded.baseVersionId);
 }
 
@@ -747,7 +757,15 @@ export async function openSignLink(
   token: string,
   linkPrivateHex: string,
   linkPublicHex: string,
-): Promise<{ name: string; kind: "folder" | "file"; hasContent: boolean; bytes: Uint8Array; nodeKey: Uint8Array } & ContentSnapshot> {
+): Promise<
+  {
+    name: string;
+    kind: "folder" | "file";
+    hasContent: boolean;
+    bytes: Uint8Array;
+    nodeKey: Uint8Array;
+  } & ContentSnapshot
+> {
   const kp = { privateHex: linkPrivateHex, publicHex: linkPublicHex };
   const { node, wrappedKey } = await api.resolveLink(token);
   const nodeKey = await unwrapNodeKey(wrappedKey, kp);
@@ -786,7 +804,14 @@ export async function submitSignedElium(
 ): Promise<void> {
   if (!snapshot) throw new Error("Rechargez le lien pour obtenir sa version de base.");
   const enc = await encryptContent(nodeKey, signedBytes);
-  await api.submitSignature(token, enc.ciphertext, enc.nonceHex, signerFprHex, snapshot.baseVersionId, snapshot.keyEpoch);
+  await api.submitSignature(
+    token,
+    enc.ciphertext,
+    enc.nonceHex,
+    signerFprHex,
+    snapshot.baseVersionId,
+    snapshot.keyEpoch,
+  );
 }
 
 // --- Teams / groups (cryptographic principals) -----------------------------
@@ -837,14 +862,20 @@ export async function addTeamMember(
   requireKeyPin("group", groupId, expectedGroupPublicHex);
   await requireKeyPinConfirmed("user", target.id, target.p256PublicHex, target.email, confirmFirstUse);
   const wrapped = await wrapNodeKeyFor(priv, target.p256PublicHex);
-  await ctx.api.addGroupMember(ctx.orgId, groupId, { userId: target.id, wrappedGroupPrivate: wrapped, isManager, expectedGroupPublicHex });
+  await ctx.api.addGroupMember(ctx.orgId, groupId, {
+    userId: target.id,
+    wrappedGroupPrivate: wrapped,
+    isManager,
+    expectedGroupPublicHex,
+  });
 }
 
 /** Rotate the group key atomically, then replace every exposed content key.
  * The server keeps unfinished nodes write-blocked, so interruption is safe. */
 export async function rotateTeamKey(ctx: OpsCtx, groupId: string, removeUserId?: string): Promise<string[]> {
   const [details, snapshot] = await Promise.all([
-    ctx.api.getGroup(ctx.orgId, groupId), ctx.api.getGroupRotationNodes(ctx.orgId, groupId),
+    ctx.api.getGroup(ctx.orgId, groupId),
+    ctx.api.getGroupRotationNodes(ctx.orgId, groupId),
   ]);
   if (!details.myWrappedGroupPrivate) throw new Error("La clé de cette équipe est requise pour renouveler ses accès.");
   const oldPrivate = await unwrapNodeKey(details.myWrappedGroupPrivate, ctx.keys.recipient);
@@ -852,19 +883,29 @@ export async function rotateTeamKey(ctx: OpsCtx, groupId: string, removeUserId?:
   const oldPublic = toHex(p256.getPublicKey(oldPrivate, false));
   if (oldPublic !== snapshot.groupPublicHex) throw new Error("La clé d'équipe a changé. Rechargez avant de continuer.");
   requireKeyPin("group", groupId, oldPublic);
-  const remaining = (details.members as { userId: string; p256PublicHex: string; email?: string }[]).filter(m => m.userId !== removeUserId);
+  const remaining = (details.members as { userId: string; p256PublicHex: string; email?: string }[]).filter(
+    (m) => m.userId !== removeUserId,
+  );
   if (!remaining.length) throw new Error("Une équipe doit garder au moins un membre. Supprimez plutôt l'équipe.");
-  if (removeUserId && !details.members.some(m => (m as { userId: string }).userId === removeUserId)) throw new Error("Ce membre a déjà été retiré.");
+  if (removeUserId && !details.members.some((m) => (m as { userId: string }).userId === removeUserId))
+    throw new Error("Ce membre a déjà été retiré.");
   const next = await generateRecipientKeypair();
   const members = [];
   for (const member of remaining) {
     requireKeyPin("user", member.userId, member.p256PublicHex, member.email);
-    members.push({ userId: member.userId, wrappedGroupPrivate: await wrapNodeKeyFor(fromHex(next.privateHex), member.p256PublicHex) });
+    members.push({
+      userId: member.userId,
+      wrappedGroupPrivate: await wrapNodeKeyFor(fromHex(next.privateHex), member.p256PublicHex),
+    });
   }
   const nodeKeys = [];
   for (const item of snapshot.nodes) {
     const key = await unwrapNodeKey(item.wrappedKey, { privateHex: toHex(oldPrivate), publicHex: oldPublic });
-    nodeKeys.push({ nodeId: item.nodeId, keyEpoch: item.keyEpoch, wrappedKey: await wrapNodeKeyFor(key, next.publicHex) });
+    nodeKeys.push({
+      nodeId: item.nodeId,
+      keyEpoch: item.keyEpoch,
+      wrappedKey: await wrapNodeKeyFor(key, next.publicHex),
+    });
   }
   const body = { expectedGroupPublicHex: oldPublic, groupPublicHex: next.publicHex, members, nodeKeys };
   const result = removeUserId

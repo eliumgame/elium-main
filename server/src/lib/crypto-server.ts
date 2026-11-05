@@ -28,8 +28,9 @@ export function sha256Hex(input: string | Buffer): string {
 /** Account-bound keyed verifier: DB-only leaks cannot enumerate short backup codes.
  * Taking the old SHA-256 digest permits migration without recovering plaintext. */
 export function protectBackupDigest(userId: string, digest: string): string {
-  return "h1:" + createHmac("sha256", config.tokenSecret)
-    .update(`elium/mfa-backup/1\0${userId}\0${digest}`).digest("hex");
+  return (
+    "h1:" + createHmac("sha256", config.tokenSecret).update(`elium/mfa-backup/1\0${userId}\0${digest}`).digest("hex")
+  );
 }
 
 export function backupCodeHash(userId: string, code: string): string {

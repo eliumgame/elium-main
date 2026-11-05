@@ -32,7 +32,12 @@ import { storage } from "../storage/adapter.js";
 import { config } from "../config.js";
 import { assertDiskSpace } from "../lib/disk.js";
 import { assertUserQuota } from "../lib/site-settings.js";
-import { contentPreconditions, assertContentBase, DEPRECATION_HEADER, DEPRECATION_VALUE } from "../lib/content-preconditions.js";
+import {
+  contentPreconditions,
+  assertContentBase,
+  DEPRECATION_HEADER,
+  DEPRECATION_VALUE,
+} from "../lib/content-preconditions.js";
 import { audit } from "../lib/audit.js";
 import { kickRoom, notifyOrg } from "../collab/relay.js";
 
@@ -388,7 +393,10 @@ export default async function signingRoutes(app: FastifyInstance): Promise<void>
           throw conflict("Cette partie a déjà signé ou n'est plus en attente de signature.");
         }
 
-        const { rows: cur } = await c.query(`SELECT key_epoch, current_version_id, owner_user_id, key_rotation_required FROM nodes WHERE id = $1 FOR UPDATE`, [nodeId]);
+        const { rows: cur } = await c.query(
+          `SELECT key_epoch, current_version_id, owner_user_id, key_rotation_required FROM nodes WHERE id = $1 FOR UPDATE`,
+          [nodeId],
+        );
         if (!cur[0]) throw notFound();
         assertContentBase(base, cur[0]);
 

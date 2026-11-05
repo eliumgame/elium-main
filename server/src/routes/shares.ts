@@ -188,7 +188,10 @@ export default async function shareRoutes(app: FastifyInstance): Promise<void> {
   // (deep share): revoking the ancestor share then cleans these rows up too.
   const createShareSchema = z.object({
     orgKeyEpoch: z.number().int().min(0).optional(),
-    groupPublicHex: z.string().regex(/^[0-9a-f]{130}$/).optional(),
+    groupPublicHex: z
+      .string()
+      .regex(/^[0-9a-f]{130}$/)
+      .optional(),
     principalType: z.enum(["user", "group", "org"]),
     principalId: z.string().uuid(),
     roleId: z.string().uuid(),
@@ -234,14 +237,25 @@ export default async function shareRoutes(app: FastifyInstance): Promise<void> {
         await requireNodePerm(req, id, "node.acl.manage");
         await requireNodePerm(req, id, "node.share.manage");
       }
-      row = await withTx(async c => {
-        if ((await assertFreshPrincipalKeys(c, access.orgId, [b], b.orgKeyEpoch)).legacy) reply.header(DEPRECATION_HEADER, DEPRECATION_VALUE);
-        const { rows } = await c.query<{ id: string }>(existing
-          ? `UPDATE node_keys SET role_id = $4, wrapped_key = $5, granted_by = $6, inherited_from = $7
+      row = await withTx(async (c) => {
+        if ((await assertFreshPrincipalKeys(c, access.orgId, [b], b.orgKeyEpoch)).legacy)
+          reply.header(DEPRECATION_HEADER, DEPRECATION_VALUE);
+        const { rows } = await c.query<{ id: string }>(
+          existing
+            ? `UPDATE node_keys SET role_id = $4, wrapped_key = $5, granted_by = $6, inherited_from = $7
                WHERE node_id = $1 AND principal_type = $2 AND principal_type = 'group' AND principal_id = $3 RETURNING id`
-          : `INSERT INTO node_keys (node_id, principal_type, principal_id, role_id, wrapped_key, granted_by, inherited_from)
+            : `INSERT INTO node_keys (node_id, principal_type, principal_id, role_id, wrapped_key, granted_by, inherited_from)
              VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (node_id, principal_type, principal_id) DO NOTHING RETURNING id`,
-          [id, b.principalType, b.principalId, b.roleId, JSON.stringify(b.wrappedKey), user.id, b.inheritedFrom ?? null]);
+          [
+            id,
+            b.principalType,
+            b.principalId,
+            b.roleId,
+            JSON.stringify(b.wrappedKey),
+            user.id,
+            b.inheritedFrom ?? null,
+          ],
+        );
         return rows[0] ?? null;
       });
     } else if (existing) {

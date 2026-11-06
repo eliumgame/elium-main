@@ -205,6 +205,10 @@ def pg(tmp_path):
         pytest.skip("aucun binaire PostgreSQL (initdb/pg_ctl/psql/pg_dump) trouvé : test réel ignoré")
     if hasattr(os, "geteuid") and os.geteuid() == 0:
         pytest.skip("initdb refuse de tourner en root")
+    if os.name == "nt":
+        # Les runners Windows préinstallent PostgreSQL, mais pg_ctl n'y démarre pas sous un compte administrateur.
+        # Ces tests sur vraie base tournent sous Linux (CI) ; ici ils sont ignorés plutôt que d'échouer pour rien.
+        pytest.skip("démarrage d'un PostgreSQL de test non fiable sous Windows")
     ext = ".exe" if os.name == "nt" else ""
     data = tmp_path / "pgdata"
     port = free_port()

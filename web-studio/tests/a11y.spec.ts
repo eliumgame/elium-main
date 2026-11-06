@@ -67,7 +67,7 @@ async function mockSignLink(page: Page, opts: { name: string; bytes: Uint8Array 
     route.fulfill({
       status: 200,
       contentType: "application/octet-stream",
-      headers: { "x-content-nonce": content.nonceHex },
+      headers: { "x-content-nonce": content.nonceHex, "x-content-version-id": randomUUID(), "x-key-epoch": "1" },
       body: Buffer.from(content.ciphertext),
     }),
   );

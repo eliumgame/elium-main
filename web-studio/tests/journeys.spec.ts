@@ -54,6 +54,14 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/api/site/policy", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ deployed: false }) }),
   );
+  // Même raison pour la sonde du bouton SSO (config publique) : aucun serveur Drive dans ces parcours.
+  await page.route("**/api/auth/sso/config", (route) =>
+    route.fulfill({
+      status: 404,
+      contentType: "application/json",
+      body: JSON.stringify({ error: { code: "not_found" } }),
+    }),
+  );
   // Chromium expose l'API File System Access : « Enregistrer » ouvrirait alors un sélecteur de fichier
   // natif, que Playwright ne pilote pas. Les parcours testent le repli par téléchargement (navigateurs
   // sans l'API, PWA) ; l'écriture en place est couverte par les tests unitaires de planSave.

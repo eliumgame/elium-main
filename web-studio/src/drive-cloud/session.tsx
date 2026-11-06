@@ -420,8 +420,14 @@ export function DriveProvider({ children }: { children: ReactNode }) {
     }
   }, [api]);
 
-  // Sonde : bouton SSO visible seulement si le serveur expose une config publique.
+  // Sonde : bouton SSO visible seulement si le serveur expose une config publique. Elle n'est lancée qu'une fois
+  // le site reconnu comme déployé (pas d'appel inutile, ni d'erreur réseau, dans la suite locale sans Drive).
   useEffect(() => {
+    if (policy === undefined) return; // sonde du site pas encore terminée
+    if (policy === null) {
+      setSsoAvailable(false); // pas de serveur Drive : jamais de SSO
+      return;
+    }
     let live = true;
     api
       .ssoPublicConfig()
@@ -430,7 +436,7 @@ export function DriveProvider({ children }: { children: ReactNode }) {
     return () => {
       live = false;
     };
-  }, [api]);
+  }, [api, policy]);
 
   // Retour du fournisseur : l'id_token est dans le FRAGMENT. On l'efface de l'URL AVANT tout traitement.
   useEffect(() => {

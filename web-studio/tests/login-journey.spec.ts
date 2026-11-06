@@ -55,8 +55,13 @@ async function loginWithTotp(page: Page, email: string, pw: string, secret: stri
   await expectHome(page);
 }
 /** Active la 2FA depuis le menu Sécurité ; renvoie le secret et les codes de secours. */
-async function enrollTotp(page: Page) {
+async function enrollTotp(page: Page, pw: string) {
   await page.getByRole("button", { name: "Activer la 2FA" }).click();
+  // Poser une 2FA est une opération sensible : l'application exige une confirmation fraîche du mot de passe.
+  const confirmation = page.getByRole("dialog");
+  await expect(confirmation).toContainText("Confirmez votre identité", { timeout: 30_000 });
+  await confirmation.locator('input[type="password"]').fill(pw);
+  await confirmation.getByRole("button", { name: "Continuer" }).click();
   const secret = (await page.locator(".dc-security__secret").innerText()).trim();
   await page.getByPlaceholder("123456").fill(totpNow(secret));
   await page.getByRole("button", { name: "Confirmer" }).click();
@@ -120,7 +125,7 @@ test("parcours de connexion complet", async ({ page }) => {
   // --- Activation de la 2FA (TOTP calculé pour de vrai) ----------------------
   await openDrive(page);
   await driveNav(page, "Sécurité");
-  const ownerMfa = await enrollTotp(page);
+  const ownerMfa = await enrollTotp(page, OWNER.pw);
   await expect(page.getByText("2FA activée")).toBeVisible();
 
   // --- Reconnexion avec code, puis avec code de secours -----------------------
@@ -189,7 +194,7 @@ test("parcours de connexion complet", async ({ page }) => {
   const gate = page.getByTestId("mfa-enrollment-gate");
   await expect(gate).toContainText("Activez la vérification en deux étapes", { timeout: 90_000 });
   await expect(page.getByText("Votre espace de travail documentaire")).toHaveCount(0);
-  const memberMfa = await enrollTotp(page);
+  const memberMfa = await enrollTotp(page, MEMBER.pw);
   await expectHome(page);
 
   // --- Le propriétaire réinitialise le mot de passe du membre ----------------

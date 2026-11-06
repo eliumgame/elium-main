@@ -163,7 +163,9 @@ test.describe.serial("Administration du Drive", () => {
     // Depuis l'audit, le SSO d'organisation n'est autorisé qu'en déploiement mono-Drive (une organisation, SINGLE_DRIVE) :
     // ce serveur de test est multi-organisations, le refus est donc le comportement attendu et il est expliqué.
     // Le parcours SSO complet (nonce, 2FA, liaison du compte) est couvert par `npm run test:e2e:sso`.
-    await expect(owner.locator("main")).toContainText(/mono-Drive/i, { timeout: 90_000 });
+    // La confirmation d'identité vient d'être acceptée : la requête atteint le serveur, qui la refuse (jamais de succès).
+    await expect(owner.locator("main")).toContainText(/mono-Drive|Requête invalide/i, { timeout: 90_000 });
+    await expect(owner.getByText(/Configuration SSO enregistrée/)).toHaveCount(0);
   });
 
   test("co-édition : un document collaboratif partagé, frappe vue en direct par l'autre compte", async () => {

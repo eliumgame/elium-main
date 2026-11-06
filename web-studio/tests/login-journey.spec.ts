@@ -44,6 +44,21 @@ async function expectLoginScreen(page: Page) {
 async function expectHome(page: Page) {
   await expect(page.getByText("Votre espace de travail documentaire")).toBeVisible({ timeout: 90_000 });
 }
+/**
+ * Changer de compte dans le même navigateur vide l'espace local de l'ancien compte puis recharge la page
+ * (isolement des données entre comptes). La session reprend alors verrouillée : on la déverrouille avec le
+ * mot de passe, comme le ferait l'utilisateur, avant d'attendre l'écran suivant.
+ */
+async function unlockIfLocked(page: Page, pw: string) {
+  const next = page.getByText("Votre espace de travail documentaire").or(page.getByTestId("mfa-enrollment-gate"));
+  const locked = page.getByRole("heading", { name: "Session verrouillée" });
+  await expect(next.or(locked).first()).toBeVisible({ timeout: 90_000 });
+  if (await locked.isVisible()) {
+    await authCard(page).locator('input[type="password"]').fill(pw);
+    await authCard(page).getByRole("button", { name: "Déverrouiller" }).click();
+  }
+}
+
 async function fillLogin(page: Page, email: string, pw: string) {
   await authCard(page).locator('input[type="email"]').fill(email);
   await authCard(page).locator('input[type="password"]').first().fill(pw);
@@ -68,6 +83,7 @@ async function loginWithTotp(page: Page, email: string, pw: string, secret: stri
   await expect(page.getByRole("heading", { name: /Vérification en deux étapes/ })).toBeVisible({ timeout: 90_000 });
   await page.getByTestId("mfa-code").fill(await freshTotp(secret));
   await page.getByRole("button", { name: "Vérifier" }).click();
+  await unlockIfLocked(page, pw);
   await expectHome(page);
 }
 /** Active la 2FA depuis le menu Sécurité ; renvoie le secret et les codes de secours. */
@@ -207,6 +223,7 @@ test("parcours de connexion complet", async ({ page }) => {
   await mp.nth(0).fill(MEMBER.pw);
   await mp.nth(1).fill(MEMBER.pw);
   await authCard(page).getByRole("button", { name: "Créer le compte" }).click();
+  await unlockIfLocked(page, MEMBER.pw);
   const gate = page.getByTestId("mfa-enrollment-gate");
   await expect(gate).toContainText("Activez la vérification en deux étapes", { timeout: 90_000 });
   await expect(page.getByText("Votre espace de travail documentaire")).toHaveCount(0);

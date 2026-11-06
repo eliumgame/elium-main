@@ -20,6 +20,22 @@ const MEMBER = {
 };
 const ACTIVATION = "AAAA-BBBB-CCCC";
 
+/**
+ * Anti-rejeu TOTP (audit) : un pas de 30 s consommé ne sert qu'une fois, et le serveur n'accepte que le pas
+ * courant ±1. On génère donc des codes sur des pas STRICTEMENT croissants et on attend si nécessaire que l'horloge
+ * rattrape le pas visé, comme le ferait un utilisateur qui attend le prochain code de son application.
+ */
+const STEP_MS = 30_000;
+const lastStepBySecret = new Map<string, number>();
+async function freshTotp(secret: string): Promise<string> {
+  const now = Date.now();
+  const current = Math.floor(now / STEP_MS);
+  const target = Math.max(current, (lastStepBySecret.get(secret) ?? -1) + 1);
+  if (target > current + 1) await new Promise((r) => setTimeout(r, (target - 1) * STEP_MS - now + 500));
+  lastStepBySecret.set(secret, target);
+  return totpNow(secret, target * STEP_MS);
+}
+
 const authCard = (page: Page) => page.locator(".dc-auth__card");
 
 async function expectLoginScreen(page: Page) {
@@ -50,7 +66,7 @@ async function driveNav(page: Page, name: string) {
 async function loginWithTotp(page: Page, email: string, pw: string, secret: string) {
   await fillLogin(page, email, pw);
   await expect(page.getByRole("heading", { name: /Vérification en deux étapes/ })).toBeVisible({ timeout: 90_000 });
-  await page.getByTestId("mfa-code").fill(totpNow(secret));
+  await page.getByTestId("mfa-code").fill(await freshTotp(secret));
   await page.getByRole("button", { name: "Vérifier" }).click();
   await expectHome(page);
 }
@@ -63,7 +79,7 @@ async function enrollTotp(page: Page, pw: string) {
   await confirmation.locator('input[type="password"]').fill(pw);
   await confirmation.getByRole("button", { name: "Continuer" }).click();
   const secret = (await page.locator(".dc-security__secret").innerText()).trim();
-  await page.getByPlaceholder("123456").fill(totpNow(secret));
+  await page.getByPlaceholder("123456").fill(await freshTotp(secret));
   await page.getByRole("button", { name: "Confirmer" }).click();
   await expect(page.getByText("Vos codes de secours")).toBeVisible({ timeout: 30_000 });
   const codes = (await page.locator(".dc-security__codelist code").allInnerTexts()).map((c) => c.trim());
@@ -139,7 +155,7 @@ test("parcours de connexion complet", async ({ page }) => {
   await page.getByRole("button", { name: "Vérifier" }).click();
   await expect(authCard(page).locator(".dc-error")).toContainText("Code de vérification invalide", { timeout: 30_000 });
   await expect(page.getByTestId("mfa-code")).toBeVisible(); // pas d'écran vide : on peut réessayer
-  await page.getByTestId("mfa-code").fill(totpNow(ownerMfa.secret));
+  await page.getByTestId("mfa-code").fill(await freshTotp(ownerMfa.secret));
   await page.getByRole("button", { name: "Vérifier" }).click();
   await expectHome(page);
 
@@ -177,7 +193,7 @@ test("parcours de connexion complet", async ({ page }) => {
   await page.getByTestId("mfa-proof").fill("000000");
   await page.getByTestId("mfa-confirm").click();
   await expect(dialog).toContainText("Code de vérification invalide", { timeout: 30_000 });
-  await page.getByTestId("mfa-proof").fill(totpNow(ownerMfa.secret));
+  await page.getByTestId("mfa-proof").fill(await freshTotp(ownerMfa.secret));
   await page.getByTestId("mfa-confirm").click();
   await expect(page.getByTestId("portal-msg")).toContainText("Réglages enregistrés", { timeout: 30_000 });
 

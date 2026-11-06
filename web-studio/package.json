@@ -14,6 +14,7 @@
     "test:e2e": "tsx tests/e2e-multiuser.ts",
     "test:e2e:sheet": "tsx tests/e2e-collab-sheet.ts",
     "test:e2e:portal": "tsx tests/e2e-owner-portal.ts",
+    "test:e2e:sso": "tsx tests/e2e-sso-single-drive.ts",
     "test:e2e:login": "playwright test -c playwright.login.config.ts",
     "test:e2e:drive": "playwright test -c playwright.drive.config.ts",
     "test:browser:pdf-detector": "playwright test -c playwright.pdf-detector.config.ts",

@@ -1,8 +1,10 @@
+# ruff: noqa: S603, S607  # sous-processus de test : binaires et scripts du dépôt, jamais d'entrée non fiable
 """Chaîne de déploiement : restauration atomique, rollback, pré-vérifications, .env, réécriture du script.
 
 Rien ici ne touche à l'.env de l'opérateur ni à Docker : tout se joue dans un dossier jetable, avec
 des faux `psql`/`pg_dump`, et — si un binaire PostgreSQL est disponible — avec un vrai cluster.
 """
+
 import glob
 import gzip
 import os
@@ -13,6 +15,12 @@ import textwrap
 from pathlib import Path
 
 import pytest
+
+
+def write_lf(path, text):
+    """Écrit `text` en LF partout (Path.write_text(newline=) exige Python 3.10+)."""
+    path.write_bytes(text.encode("utf-8"))
+
 
 ROOT = Path(__file__).resolve().parents[2]
 BASH = shutil.which("bash") or ("C:/Program Files/Git/bin/bash.exe" if os.name == "nt" else None)
@@ -45,7 +53,11 @@ def sh(tmp_path, body, env=None, timeout=60):
     full_env.update(env or {})
     return subprocess.run(  # noqa: S603
         [BASH, "-c", "source ./install.sh help >/dev/null\nset +e\n" + body],
-        cwd=tmp_path, capture_output=True, text=True, timeout=timeout, env=full_env,
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env=full_env,
         stdin=subprocess.DEVNULL,
     )
 
@@ -57,29 +69,37 @@ def write_gz(path, text):
 
 def fake_psql(tmp_path):
     script = tmp_path / "fakepsql"
-    script.write_text(textwrap.dedent("""\
+    write_lf(
+        script,
+        textwrap.dedent("""\
         #!/usr/bin/env bash
         printf 'ARGS %s\\n' "$*" >> "$FAKE_LOG"
         data="$(cat)"
         if [ -n "$data" ]; then printf 'STDIN-BEGIN\\n%s\\nSTDIN-END\\n' "$data" >> "$FAKE_LOG"; fi
         exit 0
-        """), encoding="utf-8", newline="\n")
+        """),
+    )
     script.chmod(0o755)
     return script
 
 
 # --- 1. restauration atomique (commandes enregistrées) ------------------------------------------
 
+
 def test_restore_replays_in_temp_db_single_transaction_then_swaps(tmp_path):
     dump = tmp_path / "d.sql.gz"
     write_gz(dump, DUMP_OK)
     log = tmp_path / "log.txt"
-    result = sh(tmp_path, f'''
+    result = sh(
+        tmp_path,
+        f"""
 stop_api() {{ echo STOP_API >> "$FAKE_LOG"; }}
 ensure_db_running() {{ :; }}
 post_restore_hook() {{ echo HOOK >> "$FAKE_LOG"; }}
 restore_db_dump {posix(dump)}
-''', env={"ELIUM_PSQL": posix(fake_psql(tmp_path)), "FAKE_LOG": posix(log)})
+""",
+        env={"ELIUM_PSQL": posix(fake_psql(tmp_path)), "FAKE_LOG": posix(log)},
+    )
     assert result.returncode == 0, result.stdout + result.stderr
     text = log.read_text(encoding="utf-8")
     lines = [ln for ln in text.splitlines() if ln.startswith(("ARGS", "STOP_API", "HOOK"))]
@@ -93,10 +113,10 @@ restore_db_dump {posix(dump)}
     # Ordre : api arrêtée -> base temporaire -> rejeu -> contrôle -> bascule -> db-init.
     order = [
         joined.index("STOP_API"),
-        joined.index("CREATE DATABASE \"elium_restore\""),
+        joined.index('CREATE DATABASE "elium_restore"'),
         joined.index("--single-transaction"),
-        joined.index("RENAME TO \"elium_before_restore_"),
-        joined.index("ALTER DATABASE \"elium_restore\" RENAME TO \"elium\""),
+        joined.index('RENAME TO "elium_before_restore_'),
+        joined.index('ALTER DATABASE "elium_restore" RENAME TO "elium"'),
         joined.index("HOOK"),
     ]
     assert order == sorted(order)
@@ -110,10 +130,14 @@ def test_restore_refuses_incomplete_dump_without_touching_anything(tmp_path):
     dump = tmp_path / "d.sql.gz"
     write_gz(dump, DUMP_OK.replace("PostgreSQL database dump complete", "tronque"))
     log = tmp_path / "log.txt"
-    result = sh(tmp_path, f'''
+    result = sh(
+        tmp_path,
+        f"""
 stop_api() {{ echo STOP_API >> "$FAKE_LOG"; }}
 restore_db_dump {posix(dump)}
-''', env={"ELIUM_PSQL": posix(fake_psql(tmp_path)), "FAKE_LOG": posix(log)})
+""",
+        env={"ELIUM_PSQL": posix(fake_psql(tmp_path)), "FAKE_LOG": posix(log)},
+    )
     assert result.returncode != 0
     assert not log.exists() or log.read_text(encoding="utf-8") == ""
 
@@ -123,17 +147,22 @@ def test_restore_failure_in_replay_leaves_live_db_alone(tmp_path):
     write_gz(dump, DUMP_OK)
     log = tmp_path / "log.txt"
     failing = tmp_path / "failpsql"
-    failing.write_text(
+    write_lf(
+        failing,
         '#!/usr/bin/env bash\nprintf \'ARGS %s\\n\' "$*" >> "$FAKE_LOG"\ncat >/dev/null\n'
         'case "$*" in *--single-transaction*) exit 3 ;; esac\nexit 0\n',
-        encoding="utf-8", newline="\n")
+    )
     failing.chmod(0o755)
-    result = sh(tmp_path, f'''
+    result = sh(
+        tmp_path,
+        f"""
 stop_api() {{ :; }}
 ensure_db_running() {{ :; }}
 post_restore_hook() {{ echo HOOK >> "$FAKE_LOG"; }}
 restore_db_dump {posix(dump)}
-''', env={"ELIUM_PSQL": posix(failing), "FAKE_LOG": posix(log)})
+""",
+        env={"ELIUM_PSQL": posix(failing), "FAKE_LOG": posix(log)},
+    )
     assert result.returncode != 0
     text = log.read_text(encoding="utf-8")
     assert "RENAME" not in text and "HOOK" not in text
@@ -141,6 +170,7 @@ restore_db_dump {posix(dump)}
 
 
 # --- 2. restauration réelle (si un binaire PostgreSQL est disponible) ----------------------------
+
 
 def find_pg_bin():
     names = ["initdb", "pg_ctl", "psql", "pg_dump"]
@@ -179,26 +209,47 @@ def pg(tmp_path):
     data = tmp_path / "pgdata"
     port = free_port()
     exe = lambda n: str(bindir / (n + ext))  # noqa: E731
-    subprocess.run([exe("initdb"), "-D", str(data), "-U", "elium", "--auth=trust", "-E", "UTF8"],  # noqa: S603
-                   check=True, capture_output=True)
-    subprocess.run([exe("pg_ctl"), "-D", str(data), "-o", f"-p {port} -c listen_addresses=127.0.0.1",  # noqa: S603
-                    "-w", "-l", str(tmp_path / "pg.log"), "start"], check=True, capture_output=True)
+    subprocess.run(
+        [exe("initdb"), "-D", str(data), "-U", "elium", "--auth=trust", "-E", "UTF8"],  # noqa: S603
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        [
+            exe("pg_ctl"),
+            "-D",
+            str(data),
+            "-o",
+            f"-p {port} -c listen_addresses=127.0.0.1 -c unix_socket_directories={data}",  # noqa: E501  # noqa: S603
+            "-w",
+            "-l",
+            str(tmp_path / "pg.log"),
+            "start",
+        ],
+        check=True,
+        capture_output=True,
+    )
     wrappers = {}
     for tool in ("psql", "pg_dump"):
         w = tmp_path / f"w_{tool}"
         flags = "-X" if tool == "psql" else ""
-        w.write_text(f'#!/usr/bin/env bash\nexec "{posix(exe(tool))}" -h 127.0.0.1 -p {port} -U elium {flags} "$@"\n',
-                     encoding="utf-8", newline="\n")
+        write_lf(w, f'#!/usr/bin/env bash\nexec "{posix(exe(tool))}" -h 127.0.0.1 -p {port} -U elium {flags} "$@"\n')
         w.chmod(0o755)
         wrappers[tool] = w
     yield {"psql": wrappers["psql"], "pg_dump": wrappers["pg_dump"], "exe": exe, "port": port}
-    subprocess.run([exe("pg_ctl"), "-D", str(data), "-m", "immediate", "stop"],  # noqa: S603
-                   capture_output=True)
+    subprocess.run(
+        [exe("pg_ctl"), "-D", str(data), "-m", "immediate", "stop"],  # noqa: S603
+        capture_output=True,
+    )
 
 
 def q(pg, db, sql):
-    r = subprocess.run([BASH, posix(pg["psql"]), "-d", db, "-Atqc", sql],  # noqa: S603
-                       capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    r = subprocess.run(
+        [BASH, posix(pg["psql"]), "-d", db, "-Atqc", sql],  # noqa: S603
+        capture_output=True,
+        text=True,
+        stdin=subprocess.DEVNULL,
+    )
     assert r.returncode == 0, r.stderr
     return r.stdout.strip()
 
@@ -207,33 +258,48 @@ def test_real_postgres_restore_of_old_schema_dump_into_migrated_db(tmp_path, pg)
     need_bash()
     q(pg, "postgres", "CREATE ROLE elium_app LOGIN")
     q(pg, "postgres", "CREATE DATABASE elium")
-    q(pg, "elium", """
+    q(
+        pg,
+        "elium",
+        """
         CREATE TABLE organizations (id serial PRIMARY KEY, name text);
         CREATE TABLE users (id serial PRIMARY KEY, email text, org int REFERENCES organizations(id));
         INSERT INTO organizations (name) VALUES ('acme'), ('globex');
         INSERT INTO users (email, org) VALUES ('a@x.fr', 1), ('b@x.fr', 2), ('c@x.fr', 1);
-    """)
+    """,
+    )
     dump = tmp_path / "old.sql.gz"
-    r = subprocess.run([BASH, "-c", f'"{posix(pg["pg_dump"])}" --clean --if-exists elium | gzip > "{posix(dump)}"'],  # noqa: S603
-                       capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    r = subprocess.run(
+        [BASH, "-c", f'"{posix(pg["pg_dump"])}" --clean --if-exists elium | gzip > "{posix(dump)}"'],  # noqa: S603
+        capture_output=True,
+        text=True,
+        stdin=subprocess.DEVNULL,
+    )
     assert r.returncode == 0, r.stderr
     # « Migration » : nouvelles tables avec FK vers users/organizations (le cas 0009 / 0019), et une
     # modification de données qui doit être annulée par la restauration.
-    q(pg, "elium", """
+    q(
+        pg,
+        "elium",
+        """
         CREATE TABLE password_resets (id serial PRIMARY KEY, user_id int REFERENCES users(id));
         CREATE TABLE sso_nonces (id serial PRIMARY KEY, org_id int REFERENCES organizations(id));
         INSERT INTO password_resets (user_id) VALUES (1);
         INSERT INTO sso_nonces (org_id) VALUES (1);
         DELETE FROM password_resets; DELETE FROM sso_nonces; DELETE FROM users WHERE id = 3;
-    """)
-    result = sh(tmp_path, f'''
+    """,
+    )
+    result = sh(
+        tmp_path,
+        f"""
 stop_api() {{ :; }}
 ensure_db_running() {{ :; }}
 post_restore_hook() {{ :; }}
 restore_db_dump {posix(dump)}
 echo "KEPT=$PREVIOUS_DB_KEPT_AS"
-''', env={"ELIUM_PSQL": posix(pg["psql"]), "ELIUM_PGDUMP": posix(pg["pg_dump"]),
-          "ELIUM_DB_WAIT_TRIES": "3"})
+""",
+        env={"ELIUM_PSQL": posix(pg["psql"]), "ELIUM_PGDUMP": posix(pg["pg_dump"]), "ELIUM_DB_WAIT_TRIES": "3"},
+    )
     assert result.returncode == 0, result.stdout + result.stderr
     # Données d'origine intactes (3 utilisateurs, 2 organisations), tables ajoutées absentes.
     assert q(pg, "elium", "SELECT count(*) FROM users") == "3"
@@ -253,14 +319,20 @@ def test_real_postgres_failed_restore_leaves_live_db_untouched(tmp_path, pg):
     q(pg, "postgres", "CREATE DATABASE elium")
     q(pg, "elium", "CREATE TABLE users (id int); INSERT INTO users VALUES (1),(2)")
     bad = tmp_path / "bad.sql.gz"
-    write_gz(bad, "CREATE TABLE public.users (id integer);\nINSERT INTO nope VALUES (1);\n"
-                  "-- PostgreSQL database dump complete\n")
-    result = sh(tmp_path, f'''
+    write_gz(
+        bad,
+        "CREATE TABLE public.users (id integer);\nINSERT INTO nope VALUES (1);\n-- PostgreSQL database dump complete\n",
+    )
+    result = sh(
+        tmp_path,
+        f"""
 stop_api() {{ :; }}
 ensure_db_running() {{ :; }}
 post_restore_hook() {{ :; }}
 restore_db_dump {posix(bad)}
-''', env={"ELIUM_PSQL": posix(pg["psql"]), "ELIUM_DB_WAIT_TRIES": "3"})
+""",
+        env={"ELIUM_PSQL": posix(pg["psql"]), "ELIUM_DB_WAIT_TRIES": "3"},
+    )
     assert result.returncode != 0
     assert q(pg, "elium", "SELECT count(*) FROM users") == "2"
     assert q(pg, "postgres", "SELECT count(*) FROM pg_database WHERE datname LIKE 'elium_%'") == "0"
@@ -268,13 +340,17 @@ restore_db_dump {posix(bad)}
 
 # --- 3. rollback : décision de restauration --------------------------------------------------------
 
-@pytest.mark.parametrize("before,after,expected", [
-    ("0018", "0019", 0),   # schéma changé
-    ("0019", "0019", 1),   # inchangé
-    ("0018", "", 0),       # base illisible après : considéré migré
-    ("", "0019", 0),       # état d'avant inconnu
-    ("", "", 0),
-])
+
+@pytest.mark.parametrize(
+    "before,after,expected",
+    [
+        ("0018", "0019", 0),  # schéma changé
+        ("0019", "0019", 1),  # inchangé
+        ("0018", "", 0),  # base illisible après : considéré migré
+        ("", "0019", 0),  # état d'avant inconnu
+        ("", "", 0),
+    ],
+)
 def test_rollback_restores_when_state_unreadable(tmp_path, before, after, expected):
     result = sh(tmp_path, f'rollback_needs_db_restore "{before}" "{after}"; echo $?')
     assert result.returncode == 0, result.stderr
@@ -282,7 +358,9 @@ def test_rollback_restores_when_state_unreadable(tmp_path, before, after, expect
 
 
 def test_rollback_stops_api_before_reading_schema(tmp_path):
-    result = sh(tmp_path, '''
+    result = sh(
+        tmp_path,
+        """
 stop_api() { echo stop >> "$PWD/calls"; }
 db_schema_version() { echo read >> "$PWD/calls"; }
 restore_db_dump() { echo restore >> "$PWD/calls"; }
@@ -290,7 +368,8 @@ compose_up_stack() { echo up; }
 wait_health() { return 0; }
 set_env_var() { :; }
 perform_rollback "" 4.31.0 "" "" /nonexistent ""
-''')
+""",
+    )
     assert result.returncode == 0, result.stdout + result.stderr
     out = (tmp_path / "calls").read_text(encoding="utf-8").split()
     assert out.index("stop") < out.index("read")
@@ -299,22 +378,31 @@ perform_rollback "" 4.31.0 "" "" /nonexistent ""
 
 # --- 4. wait_health --------------------------------------------------------------------------------
 
+
 def test_wait_health_times_out_without_migration(tmp_path):
-    result = sh(tmp_path, '''
+    result = sh(
+        tmp_path,
+        """
 api_healthy() { return 1; }
 migration_in_progress() { return 1; }
 wait_health; echo rc=$?
-''', env={"ELIUM_HEALTH_TIMEOUT_S": "2", "ELIUM_HEALTH_STEP_S": "1"})
+""",
+        env={"ELIUM_HEALTH_TIMEOUT_S": "2", "ELIUM_HEALTH_STEP_S": "1"},
+    )
     assert "rc=1" in result.stdout
 
 
 def test_wait_health_extends_while_migration_runs(tmp_path):
-    result = sh(tmp_path, '''
+    result = sh(
+        tmp_path,
+        """
 n=0
 api_healthy() { n=$((n+1)); [ "$n" -ge 6 ]; }
 migration_in_progress() { return 0; }
 wait_health; echo rc=$?
-''', env={"ELIUM_HEALTH_TIMEOUT_S": "2", "ELIUM_HEALTH_MAX_S": "20", "ELIUM_HEALTH_STEP_S": "1"})
+""",
+        env={"ELIUM_HEALTH_TIMEOUT_S": "2", "ELIUM_HEALTH_MAX_S": "20", "ELIUM_HEALTH_STEP_S": "1"},
+    )
     assert "rc=0" in result.stdout
     assert "migration" in result.stdout.lower()
 
@@ -326,11 +414,12 @@ def test_wait_health_default_is_300_seconds():
 
 # --- 5. sauvegarde pré-opération -------------------------------------------------------------------
 
+
 def make_dump_cmd(tmp_path, text, rc=0):
     src = tmp_path / "dump.txt"
-    src.write_text(text, encoding="utf-8", newline="\n")
+    write_lf(src, text)
     cmd = tmp_path / "fakedump"
-    cmd.write_text(f'#!/usr/bin/env bash\ncat "{posix(src)}"\nexit {rc}\n', encoding="utf-8", newline="\n")
+    write_lf(cmd, f'#!/usr/bin/env bash\ncat "{posix(src)}"\nexit {rc}\n')
     cmd.chmod(0o755)
     return cmd
 
@@ -341,12 +430,16 @@ PAD = "-- " + "x" * 3000 + "\n"
 def test_preupdate_backup_copies_env_and_verifies_dump(tmp_path):
     (tmp_path / ".env").write_text("TOKEN_SECRET=s\n", encoding="utf-8")
     cmd = make_dump_cmd(tmp_path, PAD + DUMP_OK)
-    result = sh(tmp_path, '''
+    result = sh(
+        tmp_path,
+        """
 running_version() { echo 4.31.0; }
 db_schema_version() { echo 0018; }
 check_disk_space() { return 0; }
 d="$(backup_db_preupdate 2>/dev/null)"; echo "DUMP=$d"
-''', env={"ELIUM_PGDUMP": posix(cmd)})
+""",
+        env={"ELIUM_PGDUMP": posix(cmd)},
+    )
     assert result.returncode == 0, result.stderr
     dump = [ln for ln in result.stdout.splitlines() if ln.startswith("DUMP=")][0][5:]
     dump = str(tmp_path / "backups" / Path(dump).name)
@@ -356,18 +449,25 @@ d="$(backup_db_preupdate 2>/dev/null)"; echo "DUMP=$d"
     assert "schema_version=0018" in Path(dump[:-7] + ".meta").read_text(encoding="utf-8")
 
 
-@pytest.mark.parametrize("text,rc", [
-    (PAD + DUMP_OK.replace("PostgreSQL database dump complete", "stop"), 0),  # tronqué
-    ("-- PostgreSQL database dump complete\n", 0),                            # trop petit
-    (PAD + DUMP_OK, 1),                                                       # pg_dump en erreur
-])
+@pytest.mark.parametrize(
+    "text,rc",
+    [
+        (PAD + DUMP_OK.replace("PostgreSQL database dump complete", "stop"), 0),  # tronqué
+        ("-- PostgreSQL database dump complete\n", 0),  # trop petit
+        (PAD + DUMP_OK, 1),  # pg_dump en erreur
+    ],
+)
 def test_preupdate_backup_aborts_on_bad_dump(tmp_path, text, rc):
     (tmp_path / ".env").write_text("TOKEN_SECRET=s\n", encoding="utf-8")
     cmd = make_dump_cmd(tmp_path, text, rc)
-    result = sh(tmp_path, '''
+    result = sh(
+        tmp_path,
+        """
 check_disk_space() { return 0; }
 if d="$(backup_db_preupdate 2>/dev/null)"; then echo "OK $d"; else echo FAILED; fi
-''', env={"ELIUM_PGDUMP": posix(cmd)})
+""",
+        env={"ELIUM_PGDUMP": posix(cmd)},
+    )
     assert "FAILED" in result.stdout
     assert not list((tmp_path / "backups").glob("*.sql.gz*"))
 
@@ -383,6 +483,7 @@ def test_backups_and_env_are_gitignored():
 
 
 # --- 6. .env préservé par `install.sh drive` --------------------------------------------------------
+
 
 def test_drive_rerun_preserves_unknown_keys_and_secrets(tmp_path):
     need_bash()
@@ -407,13 +508,21 @@ def test_drive_rerun_preserves_unknown_keys_and_secrets(tmp_path):
         REDIS_PASSWORD=rpw
         WEBAUTHN_RP_ID=drive.exemple.fr
         """)
-    (tmp_path / ".env").write_text(original, encoding="utf-8", newline="\n")
+    write_lf((tmp_path / ".env"), original)
     result = subprocess.run(  # noqa: S603
         [BASH, "install.sh", "drive", "--dry-run", "--yes", "--domain", "drive.exemple.fr"],
-        cwd=tmp_path, capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        stdin=subprocess.DEVNULL,
+    )
     assert result.returncode == 0, result.stdout + result.stderr
-    new = dict(ln.split("=", 1) for ln in (tmp_path / ".env").read_text(encoding="utf-8").splitlines()
-               if "=" in ln and not ln.startswith("#"))
+    new = dict(
+        ln.split("=", 1)
+        for ln in (tmp_path / ".env").read_text(encoding="utf-8").splitlines()
+        if "=" in ln and not ln.startswith("#")
+    )
     old = dict(ln.split("=", 1) for ln in original.splitlines())
     for key, value in old.items():
         assert new[key] == value, key  # rien perdu, rien régénéré, rien recalculé (CORS compris)
@@ -430,13 +539,17 @@ def test_set_env_var_handles_special_characters(tmp_path):
 
 # --- 7. pré-vérifications --------------------------------------------------------------------------
 
+
 def preflight(tmp_path, env_text, compose=""):
     (tmp_path / ".env").write_text(env_text, encoding="utf-8")
-    return sh(tmp_path, f'''
+    return sh(
+        tmp_path,
+        f"""
 ENV_FILE="$PWD/.env"
 check_disk_space() {{ return 0; }}
 preflight_update '{compose}'; echo rc=$?
-''')
+""",
+    )
 
 
 BASE_ENV = "TOKEN_SECRET=" + "t" * 40 + "\nPOSTGRES_PASSWORD=p\nCORS_ORIGINS=https://x\nS3_SECRET_KEY=s\n"
@@ -480,8 +593,9 @@ def test_images_pinned_only_for_digests(tmp_path):
 
 
 def test_compose_up_never_pulls_local_images(tmp_path):
-    (tmp_path / ".env").write_text("ELIUM_API_IMAGE=elium-api:local\nELIUM_WEB_IMAGE=elium-web:local\n",
-                                   encoding="utf-8")
+    (tmp_path / ".env").write_text(
+        "ELIUM_API_IMAGE=elium-api:local\nELIUM_WEB_IMAGE=elium-web:local\n", encoding="utf-8"
+    )
     result = sh(tmp_path, 'ENV_FILE="$PWD/.env"\nDC="echo DC"\ncompose_up_stack')
     assert "pull" not in result.stdout and "--build" in result.stdout
 
@@ -494,10 +608,13 @@ def test_compose_up_returns_failure_instead_of_dying_on_unpinned_minio(tmp_path)
 
 # --- 8. réécriture du script pendant son exécution ----------------------------------------------------
 
+
 def test_self_rewriting_script_with_main_idiom_terminates_cleanly(tmp_path):
     need_bash()
     script = tmp_path / "s.sh"
-    script.write_text(textwrap.dedent("""\
+    write_lf(
+        script,
+        textwrap.dedent("""\
         #!/usr/bin/env bash
         set -euo pipefail
         main() {
@@ -506,7 +623,8 @@ def test_self_rewriting_script_with_main_idiom_terminates_cleanly(tmp_path):
           echo step-after-rewrite
         }
         if [ "${BASH_SOURCE[0]}" = "$0" ]; then main "$@"; exit $?; fi
-        """), encoding="utf-8", newline="\n")
+        """),
+    )
     result = subprocess.run([BASH, str(script)], capture_output=True, text=True, timeout=30)  # noqa: S603
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "step-after-rewrite"
@@ -522,14 +640,22 @@ def test_real_install_sh_survives_being_rewritten_while_running(tmp_path):
     bindir = tmp_path / "bin"
     bindir.mkdir()
     stub = bindir / "sed"
-    stub.write_text(
+    write_lf(
+        stub,
         f'#!/usr/bin/env bash\nif [ ! -e "{posix(tmp_path)}/done" ]; then : > "{posix(tmp_path)}/done"\n'
         f'  printf \'echo CLOBBERED\\nexit 99\\n\' > "{posix(work)}/install.sh"\nfi\nexec "{posix(real_sed)}" "$@"\n',
-        encoding="utf-8", newline="\n")
+    )
     stub.chmod(0o755)
     env = {**os.environ, "PATH": f"{posix(bindir)}{os.pathsep}{os.environ['PATH']}"}
-    result = subprocess.run([BASH, "install.sh", "auto-update", "status"], cwd=work,  # noqa: S603
-                            capture_output=True, text=True, timeout=30, env=env, stdin=subprocess.DEVNULL)
+    result = subprocess.run(
+        [BASH, "install.sh", "auto-update", "status"],
+        cwd=work,  # noqa: S603
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=env,
+        stdin=subprocess.DEVNULL,
+    )
     assert (tmp_path / "done").exists(), "le sed factice n'a pas été appelé"
     assert "CLOBBERED" not in result.stdout + result.stderr
     assert result.returncode == 0, result.stdout + result.stderr
@@ -542,6 +668,7 @@ def test_install_sh_has_no_toplevel_code_after_main_guard():
 
 
 # --- 9. compose / .env.example --------------------------------------------------------------------------
+
 
 def test_compose_transition_defaults():
     yaml = pytest.importorskip("yaml")

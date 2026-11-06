@@ -75,18 +75,19 @@ describe("Drive refresh", () => {
   });
 
   it("does not restore a logged-out session from an in-flight refresh", async () => {
-    let api: DriveApi;
+    const ref: { api?: DriveApi } = {};
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) => {
         if (url.endsWith("/auth/refresh")) {
-          api.setTokens(null);
+          ref.api?.setTokens(null);
           return reply(200, fresh);
         }
         return reply(401, { error: { code: "unauthorized" } });
       }),
     );
-    api = new DriveApi({ tokens: old });
+    const api = new DriveApi({ tokens: old });
+    ref.api = api;
     await expect(api.listOrgs()).rejects.toThrow();
     expect(api.getTokens()).toBeNull();
   });

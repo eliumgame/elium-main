@@ -207,7 +207,16 @@ describe("POST /api/orgs", () => {
 describe("GET /api/orgs", () => {
   it("lists the orgs the user actively belongs to", async () => {
     mQuery.mockResolvedValueOnce([
-      { id: ORG, name: "Acme", slug: "acme", org_public_hex: HEX130, settings: {}, role_id: ROLE, role_key: "owner" },
+      {
+        id: ORG,
+        name: "Acme",
+        slug: "acme",
+        org_public_hex: HEX130,
+        org_key_epoch: 3,
+        settings: {},
+        role_id: ROLE,
+        role_key: "owner",
+      },
     ] as never);
     const app = await makeApp();
     const res = await app.inject({ method: "GET", url: `/api/orgs` });
@@ -218,6 +227,8 @@ describe("GET /api/orgs", () => {
         name: "Acme",
         slug: "acme",
         orgPublicHex: HEX130,
+        // Le client (freshOrgContext) relit cette époque avant tout emballage de clé d'organisation.
+        orgKeyEpoch: 3,
         settings: {},
         storageQuotaBytes: null,
         roleId: ROLE,

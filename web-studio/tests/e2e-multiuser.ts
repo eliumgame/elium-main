@@ -685,7 +685,13 @@ async function main(): Promise<void> {
     const staleWrite = await encryptContent(docKeyA2, enc.encode("écriture périmée"));
     await expectStatus(
       "écriture avec une époque de clé périmée → 409",
-      alice.api.putContent(rapportA.id, staleWrite.ciphertext, staleWrite.nonceHex, 1),
+      alice.api.putContent(
+        rapportA.id,
+        staleWrite.ciphertext,
+        staleWrite.nonceHex,
+        1,
+        (await alice.api.getNode(rapportA.id)).node.currentVersionId ?? null,
+      ),
       409,
     );
 
@@ -838,8 +844,8 @@ async function main(): Promise<void> {
 
     // =========================================================================
     section("SSO (OIDC) + SCIM entreprise");
-    const { generateKeyPairSync, createSign } = await import("node:crypto");
-    const { publicKey, privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const { generateKeyPairSync } = await import("node:crypto");
+    const { publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
     const jwk = { ...(publicKey.export({ format: "jwk" }) as Record<string, unknown>), kid: "test-1" };
     const ISS = "https://idp.test";
     const AUD = "elium-drive";
@@ -848,71 +854,26 @@ async function main(): Promise<void> {
     // e2e-owner-portal ; ici on émet directement le jeton (le rate-limit de /login/init est déjà bien entamé).
     const { issueReauthToken } = await import("../../server/src/lib/reauth");
     const reauthA = async () => issueReauthToken(alice.user.id);
-    await alice.api.setOrgSso(
-      org.id,
-      { issuer: ISS, clientId: AUD, jwks: [jwk], allowedDomains: ["acme.fr"] },
-      await reauthA(),
-    );
-    ok("configuration SSO (OIDC) enregistrée", !!(await alice.api.getOrgSso(org.id)).sso);
 
-    const b64u = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
-    const signIdToken = (claims: Record<string, unknown>, key = privateKey) => {
-      const head = b64u({ alg: "RS256", typ: "JWT", kid: "test-1" });
-      const body = b64u(claims);
-      const sig = createSign("sha256").update(`${head}.${body}`).sign(key).toString("base64url");
-      return `${head}.${body}.${sig}`;
-    };
-    const nowS = Math.floor(Date.now() / 1000);
-    const claimsFor = (email: string, extra: Record<string, unknown> = {}) => ({
-      iss: ISS,
-      aud: AUD,
-      sub: "idp-bob-123",
-      email,
-      email_verified: true,
-      exp: nowS + 300,
-      ...extra,
-    });
-
-    // Bob is an active member → SSO verifies his identity and opens a session.
-    const ssoApi = new DriveApi({ baseUrl: base });
-    const ssoRes = await ssoApi.ssoVerify(org.id, signIdToken(claimsFor(bob.user.email)));
-    ok("SSO : session émise + bundle pour un membre", !!ssoRes.accessToken && !!ssoRes.keyBundle);
-    // Zero-knowledge : le bundle ne se déverrouille qu'avec la phrase de passe.
-    const preBob = await new DriveApi({ baseUrl: base }).prelogin(bob.user.email);
-    const ssoBobMk = (await prepareLogin(bob.password, preBob.kdfSalt, preBob.kdfParams as KdfParams)).masterKey;
-    const ssoKeys = await unlockAccount(ssoRes.keyBundle, ssoBobMk, ssoRes.user);
-    ok(
-      "le bundle livré par SSO se déverrouille avec la phrase de passe (zéro-connaissance)",
-      ssoKeys.recipient.privateHex === bob.keys.recipient.privateHex,
-    );
-
-    // Un compte avec 2FA locale ne s'ouvre PAS sur le seul jeton d'identité (IdP faux/compromis).
-    const { totpNow: totpSso } = await import("../../server/src/lib/totp");
-    const bobSetup = await bob.api.mfaSetup(await reauthenticate(bob.api, bob.user.email, bob.password));
-    const bobEnabled = await bob.api.mfaEnable(totpSso(bobSetup.secret));
-    // SRV-10 : on repart d'un compte NON lié, pour vérifier que le lien se fait à la réussite du 2e facteur.
-    await query(`UPDATE users SET sso_subject = NULL WHERE id = $1`, [bob.user.id]);
-    const ssoMfa = (await ssoApi.ssoVerify(org.id, signIdToken(claimsFor(bob.user.email)))) as unknown as {
-      mfaRequired?: boolean;
-      mfaToken?: string;
-      accessToken?: string;
-    };
-    ok("SSO : un compte avec 2FA reçoit un défi, pas de session", ssoMfa.mfaRequired === true && !ssoMfa.accessToken);
-    const ssoDone = await new DriveApi({ baseUrl: base }).loginMfa(
-      ssoMfa.mfaToken!,
-      totpSso(bobSetup.secret, Date.now() + 30_000), // pas suivant : le pas courant est consommé (anti-rejeu)
-    );
-    ok("SSO + code 2FA : session émise", !!ssoDone.accessToken);
-    const bound = await query<{ sso_subject: string | null }>(`SELECT sso_subject FROM users WHERE id = $1`, [
-      bob.user.id,
-    ]);
-    ok("SRV-10 : sso_subject lié après le 2e facteur", bound[0]?.sso_subject === "idp-bob-123");
+    // Le SSO n'est autorisé qu'en déploiement mono-Drive (SINGLE_DRIVE=true, une seule organisation) : un IdP
+    // contrôlé par une organisation ne doit pas pouvoir authentifier des comptes globaux d'autres tenants.
+    // Ce E2E tourne en multi-organisations → refus attendu. Le fonctionnel SSO (nonce, 2FA, SRV-10, SCIM)
+    // est couvert par e2e-sso-single-drive.ts (npm run test:e2e:sso).
     await expectStatus(
-      "SRV-10 : un autre sub IdP ne passe plus sur le compte lié → 401",
-      ssoApi.ssoVerify(org.id, signIdToken(claimsFor(bob.user.email, { sub: "idp-usurpateur" }))),
-      401,
+      "SSO : configuration refusée hors déploiement mono-Drive (403)",
+      alice.api.setOrgSso(
+        org.id,
+        { issuer: ISS, clientId: AUD, jwks: [jwk], allowedDomains: ["acme.fr"] },
+        await reauthA(),
+      ),
+      403,
     );
-    await bob.api.mfaDisable(bobEnabled.backupCodes[0]!);
+    ok("SSO : aucune configuration enregistrée après le refus", !(await alice.api.getOrgSso(org.id)).sso);
+    await expectStatus("SSO : nonce refusé hors mono-Drive (403)", alice.api.ssoNonce(org.id), 403);
+    ok(
+      "SSO : config publique masquée hors mono-Drive",
+      (await new DriveApi({ baseUrl: base }).ssoPublicConfig()) === null,
+    );
 
     // CLIENT-10 : ticket WebSocket à usage unique (le JWT n'a plus à voyager dans l'URL).
     {
@@ -949,33 +910,6 @@ async function main(): Promise<void> {
       );
     }
 
-    await expectStatus(
-      "SSO : mauvaise audience → 401",
-      ssoApi.ssoVerify(org.id, signIdToken(claimsFor(bob.user.email, { aud: "autre" }))),
-      401,
-    );
-    await expectStatus(
-      "SSO : jeton expiré → 401",
-      ssoApi.ssoVerify(org.id, signIdToken(claimsFor(bob.user.email, { exp: nowS - 500 }))),
-      401,
-    );
-    await expectStatus(
-      "SSO : domaine e-mail non autorisé → 401",
-      ssoApi.ssoVerify(org.id, signIdToken(claimsFor("eve@evil.com"))),
-      401,
-    );
-    const { privateKey: otherKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-    await expectStatus(
-      "SSO : signature forgée (autre clé) → 401",
-      ssoApi.ssoVerify(org.id, signIdToken(claimsFor(bob.user.email), otherKey)),
-      401,
-    );
-    await expectStatus(
-      "SSO : e-mail sans compte membre → 401",
-      ssoApi.ssoVerify(org.id, signIdToken(claimsFor("inconnu@acme.fr"))),
-      401,
-    );
-
     // --- SCIM : provisioning + DÉ-provisioning --------------------------------
     const { token: scimTok } = await alice.api.createScimToken(org.id, await reauthA());
     const scim = (path: string, method: string, body?: unknown, tok = scimTok) =>
@@ -1004,13 +938,8 @@ async function main(): Promise<void> {
         !!(scimCreated["urn:elium:params:scim:invite"] as { token?: string })?.token,
     );
 
-    // Deprovision Bob → il perd TOUT accès (SSO ET session existante).
+    // Deprovision Bob → il perd TOUT accès (session existante ; le SSO est couvert par e2e-sso-single-drive).
     await scim(`/${bobScimId}`, "PATCH", { Operations: [{ op: "replace", path: "active", value: false }] });
-    await expectStatus(
-      "SCIM déprovisionné : login SSO refusé (401)",
-      new DriveApi({ baseUrl: base }).ssoVerify(org.id, signIdToken(claimsFor(bob.user.email))),
-      401,
-    );
     await expectStatus("SCIM déprovisionné : accès org immédiatement perdu (403)", bob.api.listRoles(org.id), 403);
 
     // Re-provision → accès rétabli (l'IdP peut réactiver un compte).
@@ -1083,8 +1012,15 @@ async function main(): Promise<void> {
     // A third user, Carol, joins as ADMIN (admin role includes recovery.perform),
     // but holds NO wrapped org key yet — only the creator (Alice) got one.
     const carol = await newUser(base, "carol@acme.fr", "Carol");
+    // Inscription ouverte : Carol rejoint déjà l'organisation du site (éditeur) à la création de son compte, et une
+    // invitation ne modifie jamais le rôle d'un membre existant (409) : on la promeut donc explicitement.
     const inviteC = await alice.api.invite(org.id, { email: carol.user.email, roleId: roleIdByKey["admin"]! });
-    await carol.api.acceptInvite(inviteC.token);
+    await expectStatus(
+      "invitation d'un membre déjà inscrit : jamais de changement de rôle (409)",
+      carol.api.acceptInvite(inviteC.token),
+      409,
+    );
+    await alice.api.setMemberRole(org.id, carol.user.id, roleIdByKey["admin"]!);
     const carolRoles = (await carol.api.listRoles(org.id)).roles as RoleDef[];
     const carolRoleIdByKey: Record<string, string> = Object.fromEntries(carolRoles.map((r) => [r.key, r.id]));
 
@@ -1217,8 +1153,10 @@ async function main(): Promise<void> {
       orgPublicHex: org.orgPublicHex,
       adminKeys: carol.keys.recipient,
     };
-    const namesOld = await decryptRecoveryNodeNames(ctxCarolOld, recNodes2);
-    ok("rotation : l'ancienne clé publique d'org ne recouvre plus", !namesOld.get(payslipFile.id));
+    // Le client vérifie désormais que la clé privée déballée correspond à la clé publique attendue :
+    // avec l'ANCIENNE clé publique, le recouvrement est refusé net (plus de résultat vide silencieux).
+    const namesOld = await decryptRecoveryNodeNames(ctxCarolOld, recNodes2).catch(() => null);
+    ok("rotation : l'ancienne clé publique d'org ne recouvre plus", namesOld === null);
 
     // =========================================================================
     section("Journal d'audit");
@@ -1305,15 +1243,20 @@ async function main(): Promise<void> {
       dan.api.deleteMyAccount("x".repeat(40)),
       403,
     );
-    const delRes = await dan.api.deleteMyAccount(await reauthenticate(dan.api, dan.user.email, dan.password));
+    // Jeton émis directement : le flux réel /auth/reauth passe par /login/init, déjà plafonné (25/min/IP) par le
+    // test de flood plus haut (le vrai flux est couvert par e2e-owner-portal et la section MFA).
+    const { issueReauthToken: issueReauthDan } = await import("../../server/src/lib/reauth");
+    const delRes = await dan.api.deleteMyAccount(await issueReauthDan(dan.user.id));
     ok("RGPD : compte supprimé + org solo supprimée", delRes.ok === true && delRes.deletedOrgs === 1);
-    let danLoginFailed = false;
-    try {
-      await loginFull(base, dan.user.email, dan.password);
-    } catch {
-      danLoginFailed = true;
-    }
-    ok("RGPD : connexion impossible après suppression du compte", danLoginFailed);
+    // Le compte est anonymisé et désactivé (status='deleted', e-mail effacé) : aucune connexion possible. On évite un vrai
+    // /login/init, plafonné à 25/min/IP et déjà saturé par le test de flood (un 429 ne prouverait rien).
+    const danRows = await query<{ status: string; email: string }>(`SELECT status, email FROM users WHERE id = $1`, [
+      dan.user.id,
+    ]);
+    ok(
+      "RGPD : connexion impossible après suppression du compte",
+      danRows[0]?.status === "deleted" && danRows[0].email !== dan.user.email,
+    );
 
     // Intégrité chaînée : après création/partage/révocation/rotation/recouvrement,
     // la chaîne d'entry_hash doit être intacte (toutes les entrées vérifiées).

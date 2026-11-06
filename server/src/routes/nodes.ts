@@ -120,6 +120,8 @@ function nodeMetaDto(n: Record<string, unknown>) {
     contentNonce: n.content_nonce ? Buffer.from(n.content_nonce as Buffer).toString("hex") : null,
     trashedAt: n.trashed_at ?? null,
     keyEpoch: n.key_epoch ?? 1,
+    // Précondition d'écriture : le client renvoie cette version de base (x-base-version-id).
+    currentVersionId: n.current_version_id ?? null,
     rotationRequired: !!n.key_rotation_required,
     prevKeyWrapped: n.prev_key_wrapped ? Buffer.from(n.prev_key_wrapped as Buffer).toString("hex") : null,
     prevKeyNonce: n.prev_key_nonce ? Buffer.from(n.prev_key_nonce as Buffer).toString("hex") : null,

@@ -188,6 +188,9 @@ jobs:
     - name: Run owner portal security E2E
       working-directory: ./web-studio
       run: npm run test:e2e:portal
+    - name: Run SSO (OIDC) single-Drive E2E
+      working-directory: ./web-studio
+      run: npm run test:e2e:sso
     - name: Install Chromium for login and Drive E2E
       working-directory: ./web-studio
       run: npx playwright install --with-deps chromium

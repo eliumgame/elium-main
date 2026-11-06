@@ -24,10 +24,25 @@ import * as ops from "../src/drive-cloud/ops";
 import { generateRecipientKeypair, encryptForRecipients } from "../src/crypto/recipients";
 import { fromHex } from "../src/format/canonical";
 import { restoreOwnedNodes } from "../src/drive-cloud/recovery";
-import { reauthenticate } from "../src/drive-cloud/reauth";
+import { reauthenticate as reauthenticateRaw } from "../src/drive-cloud/reauth";
 import type { KdfParams } from "../src/drive-cloud/kdf";
 
 const enc = new TextEncoder();
+
+/**
+ * /auth/login/init est plafonné (25/min/IP) et chaque ré-authentification en consomme un : si la fenêtre est
+ * saturée par les étapes précédentes du scénario, on attend sa réinitialisation puis on réessaie (une fois).
+ */
+async function reauthenticate(...args: Parameters<typeof reauthenticateRaw>): Promise<string> {
+  try {
+    return await reauthenticateRaw(...args);
+  } catch (e) {
+    if (!(e instanceof ApiError && e.status === 429)) throw e;
+    await new Promise((r) => setTimeout(r, 62_000));
+    return reauthenticateRaw(...args);
+  }
+}
+
 const dec = new TextDecoder();
 
 let failures = 0;

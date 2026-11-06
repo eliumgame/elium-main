@@ -111,6 +111,19 @@ describe("GET /api/nodes — keyset pagination", () => {
     expect(decoded).toEqual({ k: "file", c: "2026-01-01T00:00:00.000Z", i: "n2" });
   });
 
+  it("exposes currentVersionId (base of the x-base-version-id write precondition)", async () => {
+    mQuery.mockImplementation(async (sql: string) => {
+      if (sql.includes("FROM group_members")) return [] as never;
+      if (sql.includes("FROM nodes")) return [nodeRow({ current_version_id: "v-42" }), nodeRow({ id: "n2" })] as never;
+      return [] as never;
+    });
+    const app = await makeApp();
+    const res = await app.inject({ method: "GET", url: `/api/nodes?orgId=${ORG}` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().nodes[0].currentVersionId).toBe("v-42");
+    expect(res.json().nodes[1].currentVersionId).toBeNull();
+  });
+
   it("omits nextCursor when the page comes back short of the limit (last page)", async () => {
     mQuery.mockImplementation(async (sql: string) => {
       if (sql.includes("FROM group_members")) return [] as never;

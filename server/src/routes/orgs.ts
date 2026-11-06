@@ -84,6 +84,8 @@ function orgDto(o: Record<string, unknown>) {
     name: o.name,
     slug: o.slug,
     orgPublicHex: o.org_public_hex,
+    // Le client relit cette époque avant tout emballage de clé et la renvoie en précondition atomique.
+    orgKeyEpoch: o.org_key_epoch ?? 0,
     settings: o.settings ?? {},
     storageQuotaBytes: o.storage_quota_bytes ?? null,
   };
@@ -188,7 +190,7 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
   app.get("/", async (req) => {
     const user = requireUser(req);
     const rows = await query(
-      `SELECT o.id, o.name, o.slug, o.org_public_hex, o.settings, r.id AS role_id, r.key AS role_key
+      `SELECT o.id, o.name, o.slug, o.org_public_hex, o.org_key_epoch, o.settings, r.id AS role_id, r.key AS role_key
          FROM memberships m
          JOIN organizations o ON o.id = m.org_id
          JOIN roles r ON r.id = m.role_id

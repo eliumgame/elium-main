@@ -135,6 +135,8 @@ test.describe.serial("Drive entreprise : plusieurs comptes", () => {
       .getByRole("button", { name: /Partager|Ajouter|Inviter/ })
       .first()
       .click();
+    // Depuis l'audit : le partage demande de vérifier l'empreinte du destinataire (mots de sécurité).
+    await o.getByRole("dialog", { name: "Vérifier le destinataire" }).getByRole("button", { name: "Partager" }).click();
     await expect(dlg).toContainText(MEMBER.name, { timeout: 60_000 });
     await o.keyboard.press("Escape");
     const m = member.page;

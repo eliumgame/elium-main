@@ -125,6 +125,11 @@ test.describe.serial("Administration du Drive", () => {
     await owner.getByPlaceholder(/ajouter@exemple\.fr/).fill(MEMBER.email);
     await owner.keyboard.press("Enter");
     await owner.getByRole("button", { name: /Créer/ }).last().click();
+    // Depuis l'audit : la création d'équipe demande de vérifier les empreintes des membres.
+    await owner
+      .getByRole("dialog", { name: "Vérifier les membres" })
+      .getByRole("button", { name: "Créer l'équipe" })
+      .click();
     await expect(owner.locator("main").getByText("Compta").first()).toBeVisible({ timeout: 60_000 });
     // le membre ajouté figure bien dans l'équipe (clé d'équipe enveloppée pour lui)
     await owner.locator("main").getByText("Compta").first().click();
@@ -181,6 +186,11 @@ test.describe.serial("Administration du Drive", () => {
     await dlg
       .getByRole("button", { name: /Partager|Ajouter|Inviter/ })
       .first()
+      .click();
+    // Depuis l'audit : le partage demande de vérifier l'empreinte du destinataire (mots de sécurité).
+    await member
+      .getByRole("dialog", { name: "Vérifier le destinataire" })
+      .getByRole("button", { name: "Partager" })
       .click();
     await expect(dlg).toContainText("Patron", { timeout: 60_000 });
     await member.keyboard.press("Escape");

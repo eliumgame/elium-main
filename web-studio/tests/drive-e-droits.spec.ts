@@ -34,6 +34,11 @@ test.describe.serial("Droits, équipes, corbeille, appareils", () => {
       .getByRole("button", { name: /^Partager$/ })
       .first()
       .click();
+    // Depuis l'audit : le partage demande de vérifier l'empreinte du destinataire (mots de sécurité).
+    await owner
+      .getByRole("dialog", { name: "Vérifier le destinataire" })
+      .getByRole("button", { name: "Partager" })
+      .click();
     await expect(dlg).toContainText("Lecteur", { timeout: 60_000 });
     await owner.keyboard.press("Escape");
     await nav(marie, "Fichiers");
@@ -54,6 +59,11 @@ test.describe.serial("Droits, équipes, corbeille, appareils", () => {
     await dlg
       .getByRole("button", { name: /^Partager$/ })
       .last()
+      .click();
+    // Depuis l'audit : le partage demande de vérifier l'empreinte du destinataire (mots de sécurité).
+    await owner
+      .getByRole("dialog", { name: "Vérifier le destinataire" })
+      .getByRole("button", { name: "Partager" })
       .click();
     await expect(dlg).toContainText("Compta", { timeout: 60_000 });
     await owner.keyboard.press("Escape");

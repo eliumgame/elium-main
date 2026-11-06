@@ -69,7 +69,10 @@ const ALTERNATIVES = [
 // sa propre copie de pdf-lib et du code d'enregistrement (~1,25 Mo). Chargé à la demande, jamais au démarrage.
 // 9,7 Mo → 9,8 Mo : 4.32 — 13 modèles de documents refaits (contenu d'exemple réaliste, ~30 Ko) et durcissement
 // de sécurité (tickets WebSocket, preuves à docId, parité format Python/TS).
-const TOTAL_JS_BUDGET_BYTES = 9_800_000;
+// 9,8 Mo → 10,0 Mo : 4.33 — éditeur de graphiques multi-séries (tableau de données, barres empilées, import/export PPTX),
+// avis de premier usage des clés publiques, parcours SSO côté client, restauration de sauvegarde plus stricte et
+// durcissements du Drive. Mesuré : 9 626 Kio (≈ 9,86 Mo) ; marge d'environ 1,5 %.
+const TOTAL_JS_BUDGET_BYTES = 10_000_000;
 
 function fmtKiB(bytes) {
   return `${(bytes / 1024).toFixed(1)} KiB`;

@@ -1,0 +1,30 @@
+# Passerelle IA — déploiement autonome à côté de la pile Elium.
+#
+#   cp config/gateway.example.json config/gateway.json   # puis y coller les empreintes de clés
+#   cp .env.example .env                                  # puis y mettre SCW_SECRET_KEY, etc.
+#   docker compose up -d --build
+#
+# Le port n'est publié que sur 127.0.0.1 : l'accès public passe par Caddy (voir README).
+# Le réseau `elium_default` permet au serveur Drive de joindre la passerelle par `http://ai-gateway:8790`.
+services:
+  ai-gateway:
+    build: .
+    image: elium-ai-gateway:local
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "127.0.0.1:8790:8790"
+    volumes:
+      - ./config/gateway.json:/app/config/gateway.json:ro
+      - aidata:/app/data
+    mem_limit: 256m
+    cpus: 0.5
+    networks: [default, elium]
+
+volumes:
+  aidata:
+
+networks:
+  elium:
+    external: true
+    name: ${ELIUM_NETWORK:-elium_default}

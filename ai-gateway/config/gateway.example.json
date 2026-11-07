@@ -1,0 +1,72 @@
+{
+  "providers": {
+    "scaleway": { "baseUrl": "https://api.scaleway.ai/v1", "apiKeyEnv": "SCW_SECRET_KEY", "timeoutMs": 30000 },
+    "mistral": { "baseUrl": "https://api.mistral.ai/v1", "apiKeyEnv": "MISTRAL_API_KEY", "timeoutMs": 30000 },
+    "ovh": { "baseUrl": "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1", "apiKeyEnv": "OVH_AI_ENDPOINTS_TOKEN" },
+    "local": { "baseUrl": "http://127.0.0.1:11434/v1", "timeoutMs": 120000 }
+  },
+  "assistants": {
+    "general": {
+      "name": "Généraliste (qualité)",
+      "description": "Accès direct au meilleur modèle, sans consigne imposée.",
+      "route": [
+        { "provider": "scaleway", "model": "mistral-medium-3.5-128b", "reasoningEffort": "none" },
+        { "provider": "mistral", "model": "mistral-medium-latest" }
+      ],
+      "maxTokens": 4096
+    },
+    "general-rapide": {
+      "name": "Généraliste (rapide)",
+      "description": "Modèle compact et économique pour les tâches courtes : classer, extraire, reformuler une phrase.",
+      "route": [
+        { "provider": "scaleway", "model": "qwen3.8-27b", "reasoningEffort": "none" },
+        { "provider": "mistral", "model": "mistral-small-latest" }
+      ],
+      "maxTokens": 2048
+    },
+    "elium-redaction": {
+      "name": "Elium — Aide à la rédaction",
+      "description": "Reformuler, corriger, raccourcir, changer de ton un passage d'un document.",
+      "systemPrompt": "Tu es l'assistant de rédaction de la suite bureautique Elium. Tu travailles sur le texte fourni par l'utilisateur : tu le corriges, le reformules, le raccourcis ou en changes le ton selon la consigne. Règles : réponds dans la langue du texte ; renvoie UNIQUEMENT le texte transformé, sans introduction ni commentaire ; conserve le sens, les noms propres, les chiffres et la mise en forme Markdown éventuelle ; n'invente aucun fait.",
+      "route": [
+        { "provider": "scaleway", "model": "mistral-medium-3.5-128b", "reasoningEffort": "none" },
+        { "provider": "scaleway", "model": "qwen3.8-27b", "reasoningEffort": "none" },
+        { "provider": "mistral", "model": "mistral-medium-latest" }
+      ],
+      "temperature": 0.4,
+      "maxTokens": 4096
+    },
+    "elium-resume": {
+      "name": "Elium — Résumé",
+      "description": "Résumer un document, un PDF ou une réunion en points clés.",
+      "systemPrompt": "Tu résumes des documents pour la suite bureautique Elium. Produis un résumé fidèle et structuré : une phrase de synthèse, puis les points clés en liste à puces, puis les décisions ou actions à mener s'il y en a. Réponds dans la langue du document. N'ajoute aucune information absente du texte ; si le texte est ambigu, dis-le.",
+      "route": [
+        { "provider": "scaleway", "model": "mistral-medium-3.5-128b", "reasoningEffort": "none" },
+        { "provider": "mistral", "model": "mistral-medium-latest" }
+      ],
+      "temperature": 0.2,
+      "maxTokens": 2048
+    },
+    "elium-tableur": {
+      "name": "Elium — Formules du Tableur",
+      "description": "Écrire ou expliquer une formule de tableur à partir d'une demande en français.",
+      "systemPrompt": "Tu aides à écrire des formules pour le tableur d'Elium (syntaxe compatible Excel, noms de fonctions en anglais, séparateur d'arguments « ; » ou « , » selon l'exemple fourni). Pour une demande de formule : donne la formule seule sur la première ligne, puis une explication courte. Pour une formule à expliquer : décris ce qu'elle calcule, étape par étape, simplement.",
+      "route": [
+        { "provider": "scaleway", "model": "qwen3.8-27b", "reasoningEffort": "low" },
+        { "provider": "scaleway", "model": "mistral-medium-3.5-128b", "reasoningEffort": "none" }
+      ],
+      "temperature": 0.1,
+      "maxTokens": 1024
+    }
+  },
+  "clients": {
+    "elium": {
+      "name": "Elium (serveur Drive)",
+      "keySha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "assistants": ["general", "general-rapide", "elium-redaction", "elium-resume", "elium-tableur"],
+      "requestsPerMinute": 60,
+      "monthlyTokenQuota": 5000000
+    }
+  },
+  "limits": { "maxMessages": 100, "maxInputChars": 400000 }
+}

@@ -147,6 +147,32 @@ jobs:
       working-directory: ./server
       run: npm audit --omit=dev --audit-level=high
 
+  ai-gateway-checks:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: ./ai-gateway
+    steps:
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+    - name: Set up Node.js
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+      with:
+        node-version-file: '.node-version'
+    - name: Install dependencies
+      run: npm ci
+    - name: Lint (ESLint)
+      run: npm run lint
+    - name: Format check (Prettier)
+      run: npm run format:check
+    - name: Typecheck
+      run: npm run typecheck
+    - name: Typecheck des tests
+      run: npm run typecheck:tests
+    - name: Test (Vitest)
+      run: npm test
+    - name: Audit dépendances de production
+      run: npm audit --omit=dev --audit-level=high
+
   server-e2e:
     runs-on: ubuntu-24.04
     # Intégration lourde (Postgres embarqué + Fastify réel). Repassé bloquant le
